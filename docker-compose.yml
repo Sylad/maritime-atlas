@@ -126,6 +126,17 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # ─── Frontend Angular + OpenLayers (sprint 1.5) ────────────────────
+  # nginx proxy /geoserver/ → service GeoServer interne (CORS-free).
+  frontend:
+    build: ./frontend
+    container_name: maritime-frontend
+    ports:
+      - "4204:80"
+    depends_on:
+      - geoserver
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   rabbitmq-data:

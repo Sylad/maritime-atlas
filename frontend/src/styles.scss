@@ -1,0 +1,66 @@
+/* Maritime Atlas — global styles
+   Mood : nuit océanique. Fond sombre, accent ambre/cyan. */
+
+:root {
+  --bg: #0a0e1a;
+  --bg-2: #131826;
+  --bg-3: #1c2333;
+  --fg: #e6ecf3;
+  --fg-muted: #8a96a8;
+  --fg-dim: #5a6478;
+  --accent: #2dd4bf;          /* cyan océan */
+  --accent-bright: #5eead4;
+  --warning: #fbbf24;          /* ambre */
+  --negative: #ef4444;
+  --border: rgba(255, 255, 255, 0.08);
+  --shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.6);
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow: hidden;
+}
+
+app-root {
+  display: block;
+  height: 100%;
+}
+
+/* OL controls override pour s'intégrer au theme sombre */
+.ol-control button {
+  background: rgba(28, 35, 51, 0.85) !important;
+  color: var(--accent) !important;
+  border: 1px solid var(--border) !important;
+  font-weight: 600;
+  &:hover {
+    background: rgba(45, 212, 191, 0.15) !important;
+    color: var(--accent-bright) !important;
+  }
+}
+
+.ol-attribution {
+  background: rgba(10, 14, 26, 0.7) !important;
+  color: var(--fg-muted) !important;
+  font-size: 10px !important;
+  a { color: var(--accent) !important; }
+}
+
+.ol-zoom {
+  top: auto !important;
+  bottom: 1.5em !important;
+  left: 1em !important;
+}
