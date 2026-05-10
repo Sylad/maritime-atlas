@@ -41,6 +41,7 @@ import { PalettesService } from '../../services/palettes.service';
 import { ArrowsService, type ArrowsKind } from '../../services/arrows.service';
 import { LightningService, type LightningProperties } from '../../services/lightning.service';
 import { AlertsService, type AlertProperties, type AlertSeverity } from '../../services/alerts.service';
+import { WindParticleEngine, speedDirToUv, type WindPoint as WindParticlePoint } from '../../components/wind-particles/wind-particles';
 
 // France métropole — centré sur l'hexagone, zoom large.
 const INITIAL_CENTER: [number, number] = [3.0, 46.5];
@@ -81,6 +82,9 @@ function toIsoTimestamp(d: Date): string {
   template: `
     <div class="map-container">
       <div class="map" #mapEl></div>
+      <!-- Sprint 8 : canvas overlay pour les particules de vent. Positionné
+           absolute au-dessus de la carte (z-index entre labels et vessels). -->
+      <canvas #particlesEl class="wind-particles-canvas" [class.active]="showWindParticles()"></canvas>
 
       <div class="auth-corner">
         @if (currentUser(); as u) {
@@ -221,6 +225,16 @@ function toIsoTimestamp(d: Date): string {
               <span class="toggle-count">{{ alertsStatus() }}</span>
             </span>
           </label>
+          <label class="layer-toggle" [class.dim]="!showWindParticles()">
+            <input type="checkbox" [checked]="showWindParticles()" (change)="showWindParticles.set($any($event.target).checked)" />
+            <span class="toggle-glyph">
+              <span class="glyph-particles">∿∿∿</span>
+            </span>
+            <span class="toggle-text">
+              <span class="toggle-name">Vent particules</span>
+              <span class="toggle-count">{{ windParticlesStatus() }}</span>
+            </span>
+          </label>
         </div>
 
         @if (showAlerts() && alertsList().length > 0) {
@@ -313,6 +327,15 @@ function toIsoTimestamp(d: Date): string {
       height: 100%;
       width: 100%;
       background: var(--bg-2);
+    }
+    .wind-particles-canvas {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      z-index: 5;          /* sous le legend (z=10) mais au-dessus des tiles */
+      display: none;
+      &.active { display: block; }
     }
     .auth-corner {
       position: absolute;
@@ -498,6 +521,21 @@ function toIsoTimestamp(d: Date): string {
       border: 1px solid rgba(251,146,60,0.45);
       background: linear-gradient(to right, rgba(251,146,60,0.18), rgba(220,38,38,0.32));
       color: #fbbf24;
+    }
+    .glyph-particles {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 16px;
+      border-radius: 2px;
+      font-size: 0.65rem;
+      letter-spacing: -0.1em;
+      line-height: 1;
+      border: 1px solid rgba(34,197,94,0.4);
+      background: linear-gradient(to right, rgba(56,189,248,0.2), rgba(34,197,94,0.3), rgba(253,224,71,0.3));
+      color: #5eead4;
+      text-shadow: 0 0 3px rgba(94,234,212,0.6);
     }
     .alerts-panel {
       margin-top: 0.5em;
@@ -688,6 +726,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
   readonly mapEl = viewChild.required<ElementRef<HTMLDivElement>>('mapEl');
   readonly popupEl = viewChild.required<ElementRef<HTMLDivElement>>('popupEl');
+  readonly particlesEl = viewChild.required<ElementRef<HTMLCanvasElement>>('particlesEl');
 
   readonly selectedVessel = signal<VesselProperties | null>(null);
   readonly vesselsCount = signal(0);
@@ -712,6 +751,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly showAlerts = signal(false);
   readonly alertsStatus = signal('alertes maritimes 1h');
   readonly alertsList = this.alertsSvc.latestAlerts;
+  readonly showWindParticles = signal(false);
+  readonly windParticlesStatus = signal('animation flux vent');
 
   // Mode courant (signal-driven, recalculé à chaque tick du time slider).
   // Sert à colorer les badges + griser les toggles dont la layer ne peut
@@ -774,6 +815,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private alertsLayer?: VectorLayer<VectorSource>;
   private alertsSource?: VectorSource;
   private alertsTimer?: ReturnType<typeof setInterval>;
+  private particlesEngine?: WindParticleEngine;
+  private particlesCanvas?: HTMLCanvasElement;
   private popupOverlay?: Overlay;
   private liveSub?: Subscription;
   private trackSub?: Subscription;
@@ -795,7 +838,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.showVessels(); this.showTracks(); this.showSST();
       this.showRain();    this.showWind();   this.showWaves();
       this.showWindArrows(); this.showWaveArrows();
-      this.showLightning(); this.showAlerts();
+      this.showLightning(); this.showAlerts(); this.showWindParticles();
       // Defer pour s'exécuter après ngAfterViewInit (this.*Layer dispo)
       queueMicrotask(() => {
         this.applyLayerVisibility();
@@ -866,6 +909,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
   ngAfterViewInit(): void {
     this.initMap();
+    this.initParticlesEngine();
     // Démarre en mode live
     this.applyLayerVisibility();
     this.refreshForTime(new Date());
@@ -891,6 +935,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     if (this.arrowsFetchDebounce) clearTimeout(this.arrowsFetchDebounce);
     this.stopLightningLoop();
     this.stopAlertsLoop();
+    this.particlesEngine?.stop();
     this.map?.setTarget(undefined);
     this.map?.dispose();
   }
@@ -903,6 +948,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.startLiveLoopIfNeeded();
     this.updateRainLayer(t);
     this.refreshArrowsForTime(t);
+    if (this.showWindParticles() && this.particlesEngine) {
+      this.loadParticlesGrid(t);
+    }
     this.applyLayerVisibility();
   }
 
@@ -989,6 +1037,18 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.alertsLayer.setVisible(wanted);
       if (wanted) this.startAlertsLoop();
       else this.stopAlertsLoop();
+    }
+    // Wind particles : engine est démarré au boot, on contrôle juste la
+    // visibilité du canvas + la grille. Quand OFF, on stop le rAF pour
+    // économiser CPU.
+    if (this.particlesEngine) {
+      if (this.showWindParticles()) {
+        this.particlesEngine.start();
+        this.loadParticlesGrid(this.currentTime);
+      } else {
+        this.particlesEngine.stop();
+        this.clearParticlesCanvas();
+      }
     }
   }
 
@@ -1239,6 +1299,91 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     }
     this.alertsSource?.clear();
     this.alertsSvc.clear();
+  }
+
+  // ─── Wind particles overlay (sprint 8) ────────────────────────────
+  private initParticlesEngine(): void {
+    if (this.particlesEngine) return;
+    this.particlesCanvas = this.particlesEl().nativeElement;
+    const ctx = this.particlesCanvas.getContext('2d', { alpha: true });
+    if (!ctx) return;
+    this.resizeParticlesCanvas();
+
+    // Project lon/lat → canvas pixels via the OL view. Note: OL renvoie
+    // les coordinates dans la projection courante (EPSG:3857 par défaut)
+    // donc on doit projeter d'abord lon/lat → 3857 puis demander à OL.
+    const project = (lon: number, lat: number): [number, number] | null => {
+      if (!this.map) return null;
+      const px = this.map.getPixelFromCoordinate(fromLonLat([lon, lat]));
+      if (!px || isNaN(px[0])) return null;
+      return [px[0], px[1]];
+    };
+
+    this.particlesEngine = new WindParticleEngine(ctx, project, {
+      numParticles: 1500,
+      maxTtl: 100,
+      advectScale: 0.012,
+      fadeAlpha: 0.94,
+      lineWidth: 1.2,
+    });
+
+    // Resize observer pour suivre les changements de taille du conteneur
+    window.addEventListener('resize', () => this.resizeParticlesCanvas());
+    // Re-pre-render à chaque mouvement de la map (pan/zoom) : on clear le
+    // canvas (sinon les anciennes traînées sont à la mauvaise position)
+    this.map?.on('movestart', () => this.clearParticlesCanvas());
+  }
+
+  private resizeParticlesCanvas(): void {
+    if (!this.particlesCanvas) return;
+    const rect = this.particlesCanvas.parentElement?.getBoundingClientRect();
+    if (!rect) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.particlesCanvas.width = rect.width * dpr;
+    this.particlesCanvas.height = rect.height * dpr;
+    this.particlesCanvas.style.width = `${rect.width}px`;
+    this.particlesCanvas.style.height = `${rect.height}px`;
+    const ctx = this.particlesCanvas.getContext('2d');
+    if (ctx) ctx.scale(dpr, dpr);
+    this.particlesEngine?.resize(this.particlesCanvas.width, this.particlesCanvas.height);
+  }
+
+  private clearParticlesCanvas(): void {
+    if (!this.particlesCanvas) return;
+    const ctx = this.particlesCanvas.getContext('2d');
+    ctx?.clearRect(0, 0, this.particlesCanvas.width, this.particlesCanvas.height);
+  }
+
+  private async loadParticlesGrid(t: Date): Promise<void> {
+    if (!this.particlesEngine) return;
+    const manifest = await this.arrows.getManifest();
+    if (!manifest) {
+      this.windParticlesStatus.set('manifest indispo');
+      return;
+    }
+    const ts = this.arrows.findNearestTs(manifest.wind, t);
+    if (!ts) {
+      this.windParticlesStatus.set('hors fenêtre forecast');
+      this.particlesEngine.setGrid([]);
+      return;
+    }
+    try {
+      const fc = await this.arrows.fetchArrows('wind', ts);
+      const grid: WindParticlePoint[] = fc.features.map((f: any) => {
+        const speed = f.properties.speed as number;
+        const dirTo = f.properties.dirTo as number;
+        const { u, v } = speedDirToUv(speed, dirTo);
+        return {
+          lon: f.geometry.coordinates[0],
+          lat: f.geometry.coordinates[1],
+          u, v, speed,
+        };
+      });
+      this.particlesEngine.setGrid(grid);
+      this.windParticlesStatus.set(`${grid.length} pts × 1500 particules`);
+    } catch (err: any) {
+      this.windParticlesStatus.set(`erreur : ${err?.message ?? err}`);
+    }
   }
 
   // ─── Refresh : déclenche le bon fetch selon currentTime ─────────────
