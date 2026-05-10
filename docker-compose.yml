@@ -393,6 +393,25 @@ services:
       - api
     restart: unless-stopped
 
+  # ─── Cloudflare Tunnel — exposition publique HTTPS ────────────────
+  # Tunnel sortant (le NAS appelle Cloudflare, pas l'inverse) → pas
+  # besoin d'ouvrir de port sur la box, pas de NAT. Le routing
+  # public-hostname est défini côté dashboard Cloudflare Zero Trust
+  # (https://one.dash.cloudflare.com/ → Networks → Tunnels) :
+  #   maritime.sladoire.dev → HTTP → frontend:80
+  #
+  # SSL auto via Cloudflare edge, DDoS protection gratuite, et le cache
+  # CDN devant les WMS tiles GeoServer économise pas mal de bande.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: maritime-cloudflared
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - frontend
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   rabbitmq-data:
