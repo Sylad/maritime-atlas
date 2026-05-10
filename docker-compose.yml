@@ -10,7 +10,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-maritime}
       POSTGRES_DB: ${POSTGRES_DB:-maritime}
     ports:
-      - "5432:5432"
+      # 5432 occupé sur l'host NAS — on expose sur 15432 pour éviter le clash.
+      # Les services internes (ais-decoder) utilisent toujours postgres:5432.
+      - "15432:5432"
     volumes:
       - postgres-data:/home/postgres/pgdata/data
       - ./db/init:/docker-entrypoint-initdb.d:ro
@@ -57,10 +59,41 @@ services:
       - "${GEOSERVER_PORT:-8080}:8080"
     volumes:
       - geoserver-data:/opt/geoserver_data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf -u ${GEOSERVER_ADMIN_USER:-admin}:${GEOSERVER_ADMIN_PASSWORD:-geoserver} http://localhost:8080/geoserver/rest/about/status > /dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 30
+      start_period: 90s
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+
+  # ─── GeoServer auto-provisioner (one-shot sidecar) ─────────────────
+  # Crée idempotamment workspace + datastore PostGIS + layers via REST.
+  # Pattern alternatif au JAR Spring custom — versionné dans le repo,
+  # lisible, reproductible. S'exécute une fois puis exit 0.
+  geoserver-provisioner:
+    image: alpine/curl:latest
+    container_name: maritime-geoserver-provisioner
+    env_file: .env
+    environment:
+      GEOSERVER_URL: http://geoserver:8080/geoserver
+      GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
+      GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-maritime}
+      POSTGRES_USER: ${POSTGRES_USER:-maritime}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-maritime}
+    volumes:
+      - ./geoserver/provision.sh:/provision.sh:ro
+    command: ["sh", "/provision.sh"]
+    depends_on:
+      geoserver:
+        condition: service_healthy
+    restart: "no"
 
   # ─── Producer : ais-ingester ───────────────────────────────────────
   # Connect to aisstream.io websocket, filter Bretagne bbox, publish raw

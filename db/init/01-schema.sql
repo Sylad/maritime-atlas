@@ -51,15 +51,39 @@ SELECT create_hypertable('vessel_positions', 'ts', chunk_time_interval => INTERV
 CREATE INDEX IF NOT EXISTS vessel_positions_geom_gix ON vessel_positions USING GIST (geom);
 CREATE INDEX IF NOT EXISTS vessel_positions_mmsi_ts_idx ON vessel_positions (mmsi, ts DESC);
 
--- Compression policy : compresse les chunks > 7 jours pour économiser
--- ~10× sur le disque. Désactivé si tu veux garder l'INSERT fluide au
--- début, à activer quand le volume devient lourd.
--- ALTER TABLE vessel_positions SET (timescaledb.compress, timescaledb.compress_segmentby = 'mmsi');
--- SELECT add_compression_policy('vessel_positions', INTERVAL '7 days');
+-- ─── TTL policies — évite que le NAS sature ──────────────────────────
+-- Estimation volume Bretagne : ~50 msg/s × 86400 = 4M lignes/jour ×
+-- ~80 octets/ligne ≈ 320 MB/jour sans compression. Sur 30 jours = 9.6 GB.
+-- Avec compression TimescaleDB (~10×) sur les chunks > 7j → ~1.5 GB total.
 
--- Retention : drop chunks > 90 jours pour ne pas exploser le disque NAS.
--- À activer quand tu auras atteint un état stable.
--- SELECT add_retention_policy('vessel_positions', INTERVAL '90 days');
+-- Compression : chunks > 7 jours compressés (segmentby mmsi → 5-15× ratio)
+ALTER TABLE vessel_positions SET (
+  timescaledb.compress,
+  timescaledb.compress_segmentby = 'mmsi',
+  timescaledb.compress_orderby = 'ts DESC'
+);
+
+-- Retention : drop chunks > 30 jours. Modifiable via :
+--   SELECT remove_retention_policy('vessel_positions');
+--   SELECT add_retention_policy('vessel_positions', INTERVAL '90 days');
+DO $$
+BEGIN
+  -- Compression policy
+  IF NOT EXISTS (
+    SELECT 1 FROM timescaledb_information.jobs
+    WHERE proc_name = 'policy_compression' AND hypertable_name = 'vessel_positions'
+  ) THEN
+    PERFORM add_compression_policy('vessel_positions', INTERVAL '7 days');
+  END IF;
+
+  -- Retention policy
+  IF NOT EXISTS (
+    SELECT 1 FROM timescaledb_information.jobs
+    WHERE proc_name = 'policy_retention' AND hypertable_name = 'vessel_positions'
+  ) THEN
+    PERFORM add_retention_policy('vessel_positions', INTERVAL '30 days');
+  END IF;
+END $$;
 
 -- ─── Tracks pré-aggregés par jour (pour WFS rapide) ───────────────────
 -- Construit par track-builder via cron horaire. Servi à la map pour
