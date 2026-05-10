@@ -3,6 +3,7 @@ import {
   AfterViewInit,
   ChangeDetectionStrategy,
   Component,
+  computed,
   DestroyRef,
   ElementRef,
   inject,
@@ -77,20 +78,43 @@ function toIsoTimestamp(d: Date): string {
         <div class="legend-subtitle">France métropole</div>
 
         <div class="layer-toggles">
-          <label class="layer-toggle">
+          <label class="layer-toggle" [class.dim]="!vesselsActive()">
             <input type="checkbox" [checked]="showVessels()" (change)="showVessels.set($any($event.target).checked)" />
-            <span>Navires</span>
+            <span class="toggle-glyph">
+              <span class="glyph-dot" style="background:#34d399;border-color:#6ee7b7"></span>
+              <span class="glyph-dot" style="background:#60a5fa;border-color:#93c5fd"></span>
+              <span class="glyph-dot" style="background:#f87171;border-color:#fca5a5"></span>
+            </span>
+            <span class="toggle-text">
+              <span class="toggle-name">Navires</span>
+              <span class="toggle-count">{{ vesselsCount() }} positions</span>
+            </span>
           </label>
-          <label class="layer-toggle">
+          <label class="layer-toggle" [class.dim]="!tracksActive()">
             <input type="checkbox" [checked]="showTracks()" (change)="showTracks.set($any($event.target).checked)" />
-            <span>Trajets</span>
+            <span class="toggle-glyph">
+              <svg viewBox="0 0 24 12" width="24" height="12" aria-hidden="true">
+                <path d="M0,8 C5,2 10,11 14,5 S22,3 24,7" fill="none" stroke="rgba(45, 212, 191, 0.7)" stroke-width="1.5" />
+              </svg>
+            </span>
+            <span class="toggle-text">
+              <span class="toggle-name">Trajets</span>
+              <span class="toggle-count">{{ tracksCount() }} agrégés/jour</span>
+            </span>
           </label>
-          <label class="layer-toggle">
+          <label class="layer-toggle" [class.dim]="!sstActive()">
             <input type="checkbox" [checked]="showSST()" (change)="showSST.set($any($event.target).checked)" />
-            <span>SST</span>
+            <span class="toggle-glyph">
+              <span class="glyph-gradient"></span>
+            </span>
+            <span class="toggle-text">
+              <span class="toggle-name">SST</span>
+              <span class="toggle-count">température mer (NOAA)</span>
+            </span>
           </label>
         </div>
 
+        <div class="legend-section-title">Catégories navires</div>
         @for (cat of categories; track cat.key) {
           <div class="legend-item">
             <span class="legend-dot" [style.background]="cat.color.fill" [style.border-color]="cat.color.stroke"></span>
@@ -99,9 +123,13 @@ function toIsoTimestamp(d: Date): string {
         }
 
         <div class="legend-stats">
-          <div><strong>{{ vesselsCount() }}</strong> navires · <strong>{{ tracksCount() }}</strong> tracks</div>
+          <div class="legend-mode" [class.live]="modeIsLive()" [class.future]="modeIsFuture()">
+            @if (modeIsLive()) { ● LIVE }
+            @else if (modeIsFuture()) { ◷ FORECAST }
+            @else { ◷ REPLAY }
+          </div>
           @if (lastRefreshAt()) {
-            <div class="legend-refresh">{{ lastRefreshAt() | date:'HH:mm:ss' }}</div>
+            <div class="legend-refresh">refresh {{ lastRefreshAt() | date:'HH:mm:ss' }}</div>
           }
           @if (errorMsg()) {
             <div class="legend-error">{{ errorMsg() }}</div>
@@ -181,19 +209,65 @@ function toIsoTimestamp(d: Date): string {
     .layer-toggles {
       display: flex;
       flex-direction: column;
-      gap: 0.3em;
-      margin: 0.5em 0 1em;
+      gap: 0.5em;
+      margin: 0.4em 0 1em;
       padding-bottom: 0.8em;
       border-bottom: 1px solid var(--border);
     }
     .layer-toggle {
       display: flex;
       align-items: center;
-      gap: 0.5em;
+      gap: 0.6em;
       font-size: 0.8rem;
       color: var(--fg);
       cursor: pointer;
-      input { accent-color: var(--accent); cursor: pointer; }
+      transition: opacity 200ms;
+      input { accent-color: var(--accent); cursor: pointer; flex-shrink: 0; }
+      &.dim { opacity: 0.45; }
+    }
+    .toggle-glyph {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      width: 38px;
+      flex-shrink: 0;
+    }
+    .glyph-dot {
+      display: inline-block;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      border: 1px solid;
+    }
+    .glyph-gradient {
+      display: inline-block;
+      width: 36px;
+      height: 8px;
+      border-radius: 2px;
+      background: linear-gradient(to right, #1e3a8a 0%, #06b6d4 30%, #fde047 60%, #ef4444 100%);
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    .toggle-text {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.15;
+    }
+    .toggle-name {
+      color: var(--fg);
+      font-weight: 500;
+    }
+    .toggle-count {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      color: var(--fg-dim);
+      margin-top: 1px;
+    }
+    .legend-section-title {
+      font-family: var(--font-mono);
+      font-size: 0.6rem;
+      letter-spacing: 0.15em;
+      color: var(--fg-dim);
+      text-transform: uppercase;
+      margin: 0 0 0.3em;
     }
     .legend-item {
       display: flex;
@@ -216,6 +290,14 @@ function toIsoTimestamp(d: Date): string {
       font-size: 0.75rem;
       color: var(--fg-muted);
       strong { color: var(--accent-bright); }
+    }
+    .legend-mode {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      letter-spacing: 0.15em;
+      color: var(--fg-muted);
+      &.live { color: var(--accent-bright); }
+      &.future { color: var(--warning); }
     }
     .legend-refresh {
       font-family: var(--font-mono);
@@ -320,6 +402,17 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly showTracks = signal(true);
   readonly showSST = signal(true);
 
+  // Mode courant (signal-driven, recalculé à chaque tick du time slider).
+  // Sert à colorer les badges + griser les toggles dont la layer ne peut
+  // PAS s'afficher dans le mode courant (ex: navires en futur, SST en futur).
+  readonly currentTimeSig = signal<Date>(new Date());
+  readonly modeIsLive = computed(() => Math.abs(Date.now() - this.currentTimeSig().getTime()) < LIVE_THRESHOLD_MS);
+  readonly modeIsFuture = computed(() => this.currentTimeSig().getTime() > Date.now() + LIVE_THRESHOLD_MS);
+  // "Active" = la couche a effectivement de quoi s'afficher dans le mode courant.
+  readonly vesselsActive = computed(() => this.showVessels() && !this.modeIsFuture());
+  readonly tracksActive  = computed(() => this.showTracks() && !this.modeIsLive() && !this.modeIsFuture());
+  readonly sstActive     = computed(() => this.showSST() && !this.modeIsFuture());
+
   // Catégories pour la légende
   readonly categories = (Object.keys(CATEGORY_COLOR) as Category[]).map((key) => ({
     key,
@@ -364,6 +457,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // ─── Time slider callback ──────────────────────────────────────────
   onTimeChange(t: Date): void {
     this.currentTime = t;
+    this.currentTimeSig.set(t);
     this.refreshForTime(t);
     this.startLiveLoopIfNeeded();
     this.applyLayerVisibility();
