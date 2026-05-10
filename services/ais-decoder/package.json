@@ -1,0 +1,26 @@
+{
+  "name": "ais-decoder",
+  "version": "0.1.0",
+  "description": "Consume ais.raw queue, normalize, INSERT PostGIS, publish enriched ais.positions",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "dev": "tsc -w & node --watch dist/main.js"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.1",
+    "@nestjs/config": "^3.3.0",
+    "@nestjs/core": "^11.0.1",
+    "amqplib": "^0.10.5",
+    "pg": "^8.13.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@types/amqplib": "^0.10.5",
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.7.2"
+  }
+}

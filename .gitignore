@@ -1,0 +1,33 @@
+# Dépendances
+node_modules/
+*.lock.bak
+
+# Builds
+dist/
+*.tsbuildinfo
+.angular/
+.vite/
+
+# Données runtime (volumes Docker)
+data/
+geoserver/data_dir/
+postgres-data/
+rabbitmq-data/
+
+# Environnement (secrets)
+.env
+.env.local
+*.env.local
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# IDE
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+@eaDir/

@@ -1,0 +1,99 @@
+name: maritime-atlas
+
+services:
+  # ─── Storage : PostgreSQL + PostGIS + TimescaleDB ──────────────────
+  postgres:
+    image: timescale/timescaledb-ha:pg16
+    container_name: maritime-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-maritime}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-maritime}
+      POSTGRES_DB: ${POSTGRES_DB:-maritime}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/home/postgres/pgdata/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-maritime}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # ─── Messaging : RabbitMQ ──────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: maritime-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-maritime}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-maritime}
+    ports:
+      - "5672:5672"      # AMQP
+      - "15672:15672"    # Management UI
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # ─── Tile/WFS server : GeoServer ───────────────────────────────────
+  geoserver:
+    image: docker.osgeo.org/geoserver:2.27.0
+    container_name: maritime-geoserver
+    environment:
+      GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
+      GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}
+      INSTALL_EXTENSIONS: "true"
+      STABLE_EXTENSIONS: "wps,csw,inspire"
+      EXTRA_JAVA_OPTS: "-Xms512m -Xmx2g"
+      # CORS pour que l'Angular puisse appeler WMS/WFS depuis localhost:4204
+      CORS_ENABLED: "true"
+      CORS_ALLOWED_ORIGINS: "*"
+    ports:
+      - "${GEOSERVER_PORT:-8080}:8080"
+    volumes:
+      - geoserver-data:/opt/geoserver_data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ─── Producer : ais-ingester ───────────────────────────────────────
+  # Connect to aisstream.io websocket, filter Bretagne bbox, publish raw
+  # JSON messages on RabbitMQ exchange `ais.raw`.
+  ais-ingester:
+    build: ./services/ais-ingester
+    container_name: maritime-ais-ingester
+    env_file: .env
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-maritime}:${RABBITMQ_PASSWORD:-maritime}@rabbitmq:5672
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ─── Worker : ais-decoder ──────────────────────────────────────────
+  # Consume `ais.raw`, normalize, INSERT in PostGIS (vessel_positions
+  # hypertable + UPSERT vessels). Publish enriched events on `ais.positions`.
+  ais-decoder:
+    build: ./services/ais-decoder
+    container_name: maritime-ais-decoder
+    env_file: .env
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-maritime}:${RABBITMQ_PASSWORD:-maritime}@rabbitmq:5672
+      DATABASE_URL: postgres://${POSTGRES_USER:-maritime}:${POSTGRES_PASSWORD:-maritime}@postgres:5432/${POSTGRES_DB:-maritime}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  rabbitmq-data:
+  geoserver-data:

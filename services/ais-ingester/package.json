@@ -1,0 +1,26 @@
+{
+  "name": "ais-ingester",
+  "version": "0.1.0",
+  "description": "Connect to aisstream.io websocket, filter by bbox, publish raw AIS messages on RabbitMQ",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "dev": "tsc -w & node --watch dist/main.js"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.1",
+    "@nestjs/config": "^3.3.0",
+    "@nestjs/core": "^11.0.1",
+    "amqplib": "^0.10.5",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/amqplib": "^0.10.5",
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.7.2"
+  }
+}
