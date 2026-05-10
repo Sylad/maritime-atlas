@@ -1412,9 +1412,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
     this.particlesEngine = new WindParticleEngine(ctx, project, {
       numParticles: 1500,
-      maxTtl: 100,
-      advectScale: 0.012,
-      fadeAlpha: 0.94,
+      maxTtl: 200,
+      advectScale: 0.0035,    // ~4× plus lent que sprint 8 v1 (feedback user)
+      fadeAlpha: 0.97,        // trails légèrement plus longs pour compenser
       lineWidth: 1.2,
     });
 

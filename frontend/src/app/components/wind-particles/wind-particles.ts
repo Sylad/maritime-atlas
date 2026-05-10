@@ -78,9 +78,9 @@ export class WindParticleEngine {
   ) {
     this.opts = {
       numParticles: opts.numParticles ?? 1500,
-      maxTtl: opts.maxTtl ?? 80,
-      advectScale: opts.advectScale ?? 0.012,
-      fadeAlpha: opts.fadeAlpha ?? 0.96,
+      maxTtl: opts.maxTtl ?? 200,        // ↑ pour compenser advectScale réduit (sprint 8b)
+      advectScale: opts.advectScale ?? 0.0035,  // ↓ ~4× plus lent, plus lisible (sprint 8b)
+      fadeAlpha: opts.fadeAlpha ?? 0.97,   // trails un peu plus longs
       lineWidth: opts.lineWidth ?? 1.2,
     };
   }
@@ -136,17 +136,48 @@ export class WindParticleEngine {
     };
   }
 
-  /** Find nearest grid point — O(N) scan, N=~300 OK at 60fps. */
-  private nearestWind(lon: number, lat: number): WindPoint | null {
+  /**
+   * IDW interpolation sur les 4 plus proches voisins (sprint 8b).
+   *
+   * Sans interp, le `nearestWind` snap brusquement d'une cellule grille à
+   * l'autre → la particule fait un angle brutal à chaque traversée de
+   * frontière (visible comme des "zigzags" sur les trails). IDW pondère
+   * par 1/d² → champ vectoriel C¹ continu, trajectoires lisses.
+   *
+   * Complexité : O(N) par particule comme nearestWind, juste plus de
+   * bookkeeping (top-4 au lieu de top-1). À 300 grid points × 1500
+   * particules × 60fps ≈ 27M comparaisons/sec, OK V8.
+   */
+  private interpolateWind(lon: number, lat: number): WindPoint | null {
     if (this.grid.length === 0) return null;
-    let best = this.grid[0];
-    let bestD2 = (best.lon - lon) ** 2 + (best.lat - lat) ** 2;
+    // Top-4 linear scan
+    const top: { p: WindPoint; d2: number }[] = [];
     for (const p of this.grid) {
       const d2 = (p.lon - lon) ** 2 + (p.lat - lat) ** 2;
-      if (d2 < bestD2) { best = p; bestD2 = d2; }
+      if (top.length < 4) {
+        top.push({ p, d2 });
+        // small array, insertion sort suffit
+        for (let i = top.length - 1; i > 0 && top[i].d2 < top[i - 1].d2; i--) {
+          [top[i], top[i - 1]] = [top[i - 1], top[i]];
+        }
+      } else if (d2 < top[3].d2) {
+        top[3] = { p, d2 };
+        for (let i = 3; i > 0 && top[i].d2 < top[i - 1].d2; i--) {
+          [top[i], top[i - 1]] = [top[i - 1], top[i]];
+        }
+      }
     }
-    if (Math.sqrt(bestD2) > 1.0) return null; // > 1° = too far
-    return best;
+    if (top[0].d2 > 1.0) return null;        // particule hors couverture
+    // IDW : weights = 1/(d² + ε)
+    let totalW = 0, u = 0, v = 0, speed = 0;
+    for (const { p, d2 } of top) {
+      const w = 1 / (d2 + 1e-6);
+      totalW += w;
+      u += p.u * w;
+      v += p.v * w;
+      speed += p.speed * w;
+    }
+    return { lon, lat, u: u / totalW, v: v / totalW, speed: speed / totalW };
   }
 
   private colorForSpeed(speed: number): string {
@@ -176,7 +207,7 @@ export class WindParticleEngine {
     ctx.lineCap = 'round';
 
     for (const p of this.particles) {
-      const wind = this.nearestWind(p.lon, p.lat);
+      const wind = this.interpolateWind(p.lon, p.lat);
       if (!wind || p.ttl <= 0) {
         Object.assign(p, this.spawn());
         continue;
