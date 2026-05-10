@@ -163,10 +163,12 @@ services:
       WIND_DIR: /coverage/wind-speed
       WAVE_HS_DIR: /coverage/wave-hs
       WAVE_DIR_DIR: /coverage/wave-dir
+      WIND_ARROWS_DIR: /wind-arrows
       FORECAST_HOURS: "72"
       FORECAST_STEP: "6"
     volumes:
       - coverage-data:/coverage
+      - wind-arrows-data:/wind-arrows
     depends_on:
       - geoserver
     restart: unless-stopped
@@ -227,6 +229,9 @@ services:
     container_name: maritime-frontend
     ports:
       - "4204:80"
+    volumes:
+      # Sprint 6 : wind/wave arrows GeoJSON exposés via /wind-arrows/* depuis nginx.
+      - wind-arrows-data:/usr/share/nginx/wind-arrows:ro
     depends_on:
       - geoserver
       - api
@@ -239,3 +244,6 @@ volumes:
   # Volume partagé entre sst-fetcher (writer GeoTIFF) et geoserver
   # (mosaic store reader). Mounted /coverage côté both.
   coverage-data:
+  # Sprint 6 : volume GeoJSON arrows (vent + vagues) écrits par
+  # weather-fetcher et servis read-only par nginx (frontend) via /wind-arrows/.
+  wind-arrows-data:

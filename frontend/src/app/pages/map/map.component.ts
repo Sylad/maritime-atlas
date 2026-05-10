@@ -25,7 +25,7 @@ import TileWMS from 'ol/source/TileWMS';
 import GeoJSON from 'ol/format/GeoJSON';
 import Overlay from 'ol/Overlay';
 import { fromLonLat } from 'ol/proj';
-import { Style, Circle as CircleStyle, Fill, Stroke } from 'ol/style';
+import { Style, Circle as CircleStyle, Fill, Stroke, Icon } from 'ol/style';
 import { defaults as defaultControls, ScaleLine } from 'ol/control';
 import type { Feature } from 'ol';
 import type { FeatureLike } from 'ol/Feature';
@@ -38,6 +38,7 @@ import { VesselsService, type VesselProperties } from '../../services/vessels.se
 import { RainviewerService, type RainViewerSnapshot } from '../../services/rainviewer.service';
 import { AuthService } from '../../services/auth.service';
 import { PalettesService } from '../../services/palettes.service';
+import { ArrowsService, type ArrowsKind } from '../../services/arrows.service';
 
 // France métropole — centré sur l'hexagone, zoom large.
 const INITIAL_CENTER: [number, number] = [3.0, 46.5];
@@ -177,6 +178,26 @@ function toIsoTimestamp(d: Date): string {
                 @for (p of palettesFor('waves'); track p.id) { <option [value]="p.id">{{ p.name }}</option> }
               </select>
             }
+          </label>
+          <label class="layer-toggle" [class.dim]="!showWindArrows()">
+            <input type="checkbox" [checked]="showWindArrows()" (change)="showWindArrows.set($any($event.target).checked)" />
+            <span class="toggle-glyph">
+              <span class="glyph-arrow glyph-arrow-wind">↑</span>
+            </span>
+            <span class="toggle-text">
+              <span class="toggle-name">Vent flèches</span>
+              <span class="toggle-count">{{ windArrowsStatus() }}</span>
+            </span>
+          </label>
+          <label class="layer-toggle" [class.dim]="!showWaveArrows()">
+            <input type="checkbox" [checked]="showWaveArrows()" (change)="showWaveArrows.set($any($event.target).checked)" />
+            <span class="toggle-glyph">
+              <span class="glyph-arrow glyph-arrow-wave">↑</span>
+            </span>
+            <span class="toggle-text">
+              <span class="toggle-name">Vagues flèches</span>
+              <span class="toggle-count">{{ waveArrowsStatus() }}</span>
+            </span>
           </label>
         </div>
 
@@ -386,6 +407,25 @@ function toIsoTimestamp(d: Date): string {
       background: linear-gradient(to right, #1e3a8a 0%, #06b6d4 30%, #fbbf24 70%, #ef4444 100%);
       border: 1px solid rgba(255,255,255,0.15);
     }
+    .glyph-arrow {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 16px;
+      border-radius: 2px;
+      font-size: 0.95rem;
+      line-height: 1;
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    .glyph-arrow-wind {
+      background: linear-gradient(to right, rgba(56,189,248,0.25), rgba(220,38,38,0.45));
+      color: #fde047;
+    }
+    .glyph-arrow-wave {
+      background: linear-gradient(to right, rgba(14,165,233,0.25), rgba(239,68,68,0.45));
+      color: #06b6d4;
+    }
     .toggle-text {
       display: flex;
       flex-direction: column;
@@ -527,6 +567,7 @@ function toIsoTimestamp(d: Date): string {
 export class MapComponent implements AfterViewInit, OnDestroy {
   private readonly vessels = inject(VesselsService);
   private readonly rainviewer = inject(RainviewerService);
+  private readonly arrows = inject(ArrowsService);
   private readonly auth = inject(AuthService);
   private readonly palettesSvc = inject(PalettesService);
   private readonly router = inject(Router);
@@ -552,6 +593,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly showRain = signal(false);
   readonly showWind = signal(false);
   readonly showWaves = signal(false);
+  readonly showWindArrows = signal(false);
+  readonly showWaveArrows = signal(false);
+  readonly windArrowsStatus = signal('forecast vent (GFS)');
+  readonly waveArrowsStatus = signal('vagues primaires (WW3)');
 
   // Mode courant (signal-driven, recalculé à chaque tick du time slider).
   // Sert à colorer les badges + griser les toggles dont la layer ne peut
@@ -600,6 +645,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private windSource?: TileWMS;
   private wavesLayer?: TileLayer<TileWMS>;
   private wavesSource?: TileWMS;
+  private windArrowsLayer?: VectorLayer<VectorSource>;
+  private windArrowsSource?: VectorSource;
+  private waveArrowsLayer?: VectorLayer<VectorSource>;
+  private waveArrowsSource?: VectorSource;
+  private lastWindArrowsTs?: string;
+  private lastWaveArrowsTs?: string;
+  private arrowsFetchDebounce?: ReturnType<typeof setTimeout>;
   private popupOverlay?: Overlay;
   private liveSub?: Subscription;
   private trackSub?: Subscription;
@@ -620,8 +672,15 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       // Read pour s'abonner — le get suffit avec signals
       this.showVessels(); this.showTracks(); this.showSST();
       this.showRain();    this.showWind();   this.showWaves();
+      this.showWindArrows(); this.showWaveArrows();
       // Defer pour s'exécuter après ngAfterViewInit (this.*Layer dispo)
-      queueMicrotask(() => this.applyLayerVisibility());
+      queueMicrotask(() => {
+        this.applyLayerVisibility();
+        // Si on vient d'activer un toggle arrows, déclenche un fetch
+        if (this.showWindArrows() || this.showWaveArrows()) {
+          this.refreshArrowsForTime(this.currentTime);
+        }
+      });
     });
 
     // Effect réactif : applique le style user préféré sur chaque layer WMS.
@@ -706,6 +765,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.pastVesselsSub?.unsubscribe();
     if (this.pastFetchDebounce) clearTimeout(this.pastFetchDebounce);
     if (this.rainSnapshotTimer) clearInterval(this.rainSnapshotTimer);
+    if (this.arrowsFetchDebounce) clearTimeout(this.arrowsFetchDebounce);
     this.map?.setTarget(undefined);
     this.map?.dispose();
   }
@@ -717,6 +777,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.refreshForTime(t);
     this.startLiveLoopIfNeeded();
     this.updateRainLayer(t);
+    this.refreshArrowsForTime(t);
     this.applyLayerVisibility();
   }
 
@@ -785,6 +846,131 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // (NOAA accepte TIME=NEAREST → matche le timestep le plus proche).
     if (this.windLayer)  this.windLayer.setVisible(this.showWind());
     if (this.wavesLayer) this.wavesLayer.setVisible(this.showWaves());
+    // Arrows : visibles si toggle ON. Le contenu est rafraîchi par
+    // refreshArrowsForTime() à chaque cursor change.
+    if (this.windArrowsLayer) this.windArrowsLayer.setVisible(this.showWindArrows());
+    if (this.waveArrowsLayer) this.waveArrowsLayer.setVisible(this.showWaveArrows());
+  }
+
+  /**
+   * Fetch arrows GeoJSON pour vent + vagues au cursor courant. Debounce
+   * 200ms pendant les drags du slider pour éviter le spam réseau.
+   * "Gaffe au sens" : convention adoptée = la flèche pointe vers OÙ va le vent
+   * (et la houle). dirTo (compass deg) → rotation OL en radians.
+   */
+  private refreshArrowsForTime(t: Date): void {
+    if (this.arrowsFetchDebounce) clearTimeout(this.arrowsFetchDebounce);
+    this.arrowsFetchDebounce = setTimeout(() => this.doRefreshArrows(t), 200);
+  }
+
+  private async doRefreshArrows(t: Date): Promise<void> {
+    const wantWind = this.showWindArrows();
+    const wantWave = this.showWaveArrows();
+    if (!wantWind && !wantWave) return;
+    const manifest = await this.arrows.getManifest();
+    if (!manifest) return;
+    if (wantWind && this.windArrowsSource) {
+      const ts = this.arrows.findNearestTs(manifest.wind, t);
+      if (!ts) {
+        this.windArrowsSource.clear();
+        this.windArrowsStatus.set('hors fenêtre forecast');
+      } else if (ts !== this.lastWindArrowsTs) {
+        try {
+          const fc = await this.arrows.fetchArrows('wind', ts);
+          this.windArrowsSource.clear();
+          const features = this.geoJsonFmt.readFeatures(fc);
+          this.windArrowsSource.addFeatures(features);
+          this.lastWindArrowsTs = ts;
+          this.windArrowsStatus.set(this.formatTsLabel(ts, t));
+        } catch (err: any) {
+          this.windArrowsStatus.set(`erreur: ${err?.message ?? err}`);
+        }
+      }
+    }
+    if (wantWave && this.waveArrowsSource) {
+      const ts = this.arrows.findNearestTs(manifest.wave, t);
+      if (!ts) {
+        this.waveArrowsSource.clear();
+        this.waveArrowsStatus.set('hors fenêtre forecast');
+      } else if (ts !== this.lastWaveArrowsTs) {
+        try {
+          const fc = await this.arrows.fetchArrows('wave', ts);
+          this.waveArrowsSource.clear();
+          const features = this.geoJsonFmt.readFeatures(fc);
+          this.waveArrowsSource.addFeatures(features);
+          this.lastWaveArrowsTs = ts;
+          this.waveArrowsStatus.set(this.formatTsLabel(ts, t));
+        } catch (err: any) {
+          this.waveArrowsStatus.set(`erreur: ${err?.message ?? err}`);
+        }
+      }
+    }
+  }
+
+  private formatTsLabel(ts: string, cursor: Date): string {
+    // 20260510T120000Z → "10/05 12:00 (±Nh du cursor)"
+    const date = new Date(
+      `${ts.slice(0, 4)}-${ts.slice(4, 6)}-${ts.slice(6, 8)}T${ts.slice(9, 11)}:${ts.slice(11, 13)}:${ts.slice(13, 15)}Z`,
+    );
+    const deltaMin = Math.round((date.getTime() - cursor.getTime()) / 60_000);
+    const deltaStr = Math.abs(deltaMin) < 60
+      ? `${deltaMin > 0 ? '+' : ''}${deltaMin}min`
+      : `${deltaMin > 0 ? '+' : ''}${Math.round(deltaMin / 60)}h`;
+    return `${date.getUTCDate().toString().padStart(2, '0')}/${(date.getUTCMonth() + 1).toString().padStart(2, '0')} ${date.getUTCHours().toString().padStart(2, '0')}h · ${deltaStr}`;
+  }
+
+  /**
+   * SVG inline data-URL arrow pointant vers le haut (NORD). Rotated par OL
+   * via `Icon.rotation` (radians) pour matcher `dirTo` compass.
+   * Le shaft est plus long pour rendre visible la direction même à petit zoom.
+   */
+  private arrowDataUrl(color: string): string {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+      <path d="M12 2 L17 12 L13 11 L13 22 L11 22 L11 11 L7 12 Z" fill="${color}" stroke="#0a0e1a" stroke-width="0.6"/>
+    </svg>`;
+    return 'data:image/svg+xml;base64,' + btoa(svg);
+  }
+
+  private styleArrow(kind: ArrowsKind, feat: FeatureLike): Style {
+    const props = feat.getProperties() as { speed?: number; hs?: number; dirTo: number };
+    const value = kind === 'wind' ? (props.speed ?? 0) : (props.hs ?? 0);
+    const color = this.colorForArrow(kind, value);
+    const scale = kind === 'wind' ? this.scaleForWind(value) : this.scaleForWaves(value);
+    return new Style({
+      image: new Icon({
+        src: this.arrowDataUrl(color),
+        rotation: ((props.dirTo ?? 0) * Math.PI) / 180,
+        rotateWithView: true,
+        scale,
+        anchor: [0.5, 0.5],
+      }),
+    });
+  }
+
+  private colorForArrow(kind: ArrowsKind, v: number): string {
+    if (kind === 'wind') {
+      // Beaufort-like : ≤3 bleu, ≤6 cyan, ≤10 vert, ≤14 jaune, ≤18 orange, >18 rouge
+      if (v <= 3)  return '#38bdf8';
+      if (v <= 6)  return '#06b6d4';
+      if (v <= 10) return '#22c55e';
+      if (v <= 14) return '#fde047';
+      if (v <= 18) return '#fb923c';
+      return '#dc2626';
+    } else {
+      if (v <= 0.5) return '#1e40af';
+      if (v <= 1.5) return '#0ea5e9';
+      if (v <= 2.5) return '#06b6d4';
+      if (v <= 4)   return '#22c55e';
+      if (v <= 6)   return '#fbbf24';
+      return '#dc2626';
+    }
+  }
+
+  private scaleForWind(v: number): number {
+    return Math.min(1.0, 0.55 + v * 0.025);   // 0.55 (calm) → 1.0 (storm)
+  }
+  private scaleForWaves(v: number): number {
+    return Math.min(1.0, 0.6 + v * 0.07);     // 0.6 (flat) → 1.0 (rough)
   }
 
   // ─── Refresh : déclenche le bon fetch selon currentTime ─────────────
@@ -1000,6 +1186,25 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       visible: false,
     });
 
+    // Sprint 6 : flèches vent + flèches vagues. VectorSource alimenté à
+    // chaque tick du time slider via fetch GeoJSON (manifest + nearest ts).
+    this.windArrowsSource = new VectorSource();
+    this.windArrowsLayer = new VectorLayer({
+      source: this.windArrowsSource,
+      style: (feat: FeatureLike) => this.styleArrow('wind', feat),
+      zIndex: 95,
+      visible: false,
+      declutter: true,
+    });
+    this.waveArrowsSource = new VectorSource();
+    this.waveArrowsLayer = new VectorLayer({
+      source: this.waveArrowsSource,
+      style: (feat: FeatureLike) => this.styleArrow('wave', feat),
+      zIndex: 96,
+      visible: false,
+      declutter: true,
+    });
+
     // Radar pluie via RainViewer XYZ tiles. URL initiale "transparent" =
     // 1×1 png vide, on remplace via setUrl() dès qu'un snapshot est dispo.
     // Crossorigin obligatoire pour permettre canvas readback (au cas où).
@@ -1046,6 +1251,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         this.wavesLayer,
         this.rainLayer,
         labelsTile,
+        this.waveArrowsLayer,
+        this.windArrowsLayer,
         this.trackLayer,
         this.vesselLayer,
       ],

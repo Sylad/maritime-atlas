@@ -53,6 +53,9 @@ log = logging.getLogger('weather-fetcher')
 WIND_DIR = Path(os.environ.get('WIND_DIR', '/coverage/wind-speed'))
 WAVE_HS_DIR = Path(os.environ.get('WAVE_HS_DIR', '/coverage/wave-hs'))
 WAVE_DIR_DIR = Path(os.environ.get('WAVE_DIR_DIR', '/coverage/wave-dir'))
+# Sprint 6 : arrows GeoJSON pour flèches de vent côté frontend.
+# Volume séparé (pas /coverage) car ce n'est pas un raster GeoServer.
+WIND_ARROWS_DIR = Path(os.environ.get('WIND_ARROWS_DIR', '/wind-arrows'))
 
 RABBITMQ_URL = os.environ.get('RABBITMQ_URL', 'amqp://maritime:maritime@rabbitmq:5672')
 GEOSERVER_URL = os.environ.get('GEOSERVER_URL', 'http://geoserver:8080/geoserver')
@@ -269,6 +272,143 @@ def fetch_grib(url: str, dest: Path) -> bool:
         return False
 
 
+def generate_arrows_geojson(u: xr.DataArray, v: xr.DataArray, speed: xr.DataArray,
+                            valid_time: datetime, step_lon: int = 2, step_lat: int = 2) -> Path | None:
+    """Génère un GeoJSON FeatureCollection de points avec direction + force du
+    vent. Sample 1 point sur `step_lon`×`step_lat` cellules de la grille GFS
+    pour avoir ~150-300 flèches (sinon overdraw illisible sur la carte).
+
+    Convention compass :
+      - dirTo: 0=N, 90=E, 180=S, 270=W (vers où le vent VA)
+      - dirFrom: dirTo + 180 mod 360 (D'OÙ vient le vent — convention météo)
+    """
+    # Récupère lat/lon ordonnés. NB : weather-fetcher normalise lon en [-180,180]
+    # mais ne sort pas par lat — on lit ds.coords directement.
+    if 'longitude' not in u.coords or 'latitude' not in u.coords:
+        return None
+    lons = u['longitude'].values
+    lats = u['latitude'].values
+    u_arr = u.values
+    v_arr = v.values
+    spd_arr = speed.values
+
+    features = []
+    for j in range(0, len(lats), step_lat):
+        for i in range(0, len(lons), step_lon):
+            spd = float(spd_arr[j, i])
+            if not np.isfinite(spd) or spd < 0.5:
+                continue  # skip near-zero (illisible) et NaN
+            uu = float(u_arr[j, i])
+            vv = float(v_arr[j, i])
+            # math angle (counter-clockwise from east)
+            theta_math = np.degrees(np.arctan2(vv, uu))   # 0=E, 90=N
+            # convert to compass (clockwise from north)
+            dir_to = (90 - theta_math) % 360
+            dir_from = (dir_to + 180) % 360
+            features.append({
+                'type': 'Feature',
+                'geometry': {
+                    'type': 'Point',
+                    'coordinates': [round(float(lons[i]), 4), round(float(lats[j]), 4)],
+                },
+                'properties': {
+                    'speed': round(spd, 2),
+                    'dirTo': round(float(dir_to), 1),
+                    'dirFrom': round(float(dir_from), 1),
+                },
+            })
+
+    geojson = {
+        'type': 'FeatureCollection',
+        'features': features,
+        'properties': {
+            'valid_time': valid_time.isoformat(),
+            'forecast_run': 'GFS 0.25°',
+            'sampling': f'{step_lon}x{step_lat} grid step',
+        },
+    }
+    WIND_ARROWS_DIR.mkdir(parents=True, exist_ok=True)
+    ts_str = valid_time.strftime('%Y%m%dT%H%M%SZ')
+    out = WIND_ARROWS_DIR / f'wind_arrows_{ts_str}.geojson'
+    out.write_text(json.dumps(geojson, separators=(',', ':')))
+    update_arrows_manifest()
+    return out
+
+
+def generate_wave_arrows_geojson(hs: xr.DataArray, direction: xr.DataArray,
+                                  valid_time: datetime, step_lon: int = 2, step_lat: int = 2) -> Path | None:
+    """Idem wind, mais pour WW3. WW3 DIRPW = direction D'OÙ viennent les vagues
+    (convention météo). On stocke les deux conventions pour laisser le frontend
+    choisir l'orientation des flèches."""
+    if 'longitude' not in hs.coords or 'latitude' not in hs.coords:
+        return None
+    lons = hs['longitude'].values
+    lats = hs['latitude'].values
+    hs_arr = hs.values
+    dir_arr = direction.values
+
+    features = []
+    for j in range(0, len(lats), step_lat):
+        for i in range(0, len(lons), step_lon):
+            h = float(hs_arr[j, i])
+            d_from = float(dir_arr[j, i])
+            if not np.isfinite(h) or not np.isfinite(d_from) or h < 0.1:
+                continue  # Pas de vague côté terre (NaN sur land mask)
+            d_to = (d_from + 180) % 360
+            features.append({
+                'type': 'Feature',
+                'geometry': {
+                    'type': 'Point',
+                    'coordinates': [round(float(lons[i]), 4), round(float(lats[j]), 4)],
+                },
+                'properties': {
+                    'hs': round(h, 2),
+                    'dirFrom': round(d_from, 1),
+                    'dirTo': round(d_to, 1),
+                },
+            })
+
+    geojson = {
+        'type': 'FeatureCollection',
+        'features': features,
+        'properties': {
+            'valid_time': valid_time.isoformat(),
+            'forecast_run': 'NOAA WaveWatch III 0.25°',
+            'sampling': f'{step_lon}x{step_lat} grid step',
+        },
+    }
+    WIND_ARROWS_DIR.mkdir(parents=True, exist_ok=True)
+    ts_str = valid_time.strftime('%Y%m%dT%H%M%SZ')
+    out = WIND_ARROWS_DIR / f'wave_arrows_{ts_str}.geojson'
+    out.write_text(json.dumps(geojson, separators=(',', ':')))
+    # Manifest mis à jour conjointement avec wind_arrows
+    update_arrows_manifest()
+    return out
+
+
+def update_arrows_manifest() -> None:
+    """Synchronise un manifest unique listant les ts dispos pour vent + vagues.
+    Le frontend l'interroge pour trouver le ts le plus proche du cursor."""
+    wind_ts = sorted([
+        p.stem.replace('wind_arrows_', '')
+        for p in WIND_ARROWS_DIR.glob('wind_arrows_*.geojson')
+    ])
+    wave_ts = sorted([
+        p.stem.replace('wave_arrows_', '')
+        for p in WIND_ARROWS_DIR.glob('wave_arrows_*.geojson')
+    ])
+    manifest = {
+        'wind': wind_ts,
+        'wave': wave_ts,
+        'patterns': {
+            'wind': '/wind-arrows/wind_arrows_{ts}.geojson',
+            'wave': '/wind-arrows/wave_arrows_{ts}.geojson',
+        },
+        'updated_at': datetime.now(timezone.utc).isoformat(),
+    }
+    (WIND_ARROWS_DIR / 'manifest.json').write_text(json.dumps(manifest, separators=(',', ':')))
+
+
 def grib_to_geotiffs(grib: Path, valid_time: datetime) -> dict[str, Path]:
     """Charge le GRIB2 + écrit chaque var en GeoTIFF dans son dossier dédié.
     Renvoie {var_name: path}."""
@@ -302,7 +442,9 @@ def grib_to_geotiffs(grib: Path, valid_time: datetime) -> dict[str, Path]:
 
     # Vent : speed = sqrt(u² + v²) — un seul GeoTIFF, plus simple côté GeoServer
     if 'u10' in ds.variables and 'v10' in ds.variables:
-        speed = np.sqrt(ds['u10'].astype('float32') ** 2 + ds['v10'].astype('float32') ** 2)
+        u = ds['u10'].astype('float32')
+        v = ds['v10'].astype('float32')
+        speed = np.sqrt(u ** 2 + v ** 2)
         speed.name = 'wind_speed'
         speed.attrs['units'] = 'm s-1'
         speed.attrs['long_name'] = 'Wind speed at 10m'
@@ -311,25 +453,57 @@ def grib_to_geotiffs(grib: Path, valid_time: datetime) -> dict[str, Path]:
             export(speed, dest)
             out['wind_speed'] = dest
 
-    # Vagues HS
-    if 'swh' in ds.variables or 'HTSGW' in ds.variables:
-        var_name = 'swh' if 'swh' in ds.variables else 'HTSGW'
-        hs = ds[var_name].astype('float32')
+        # Sprint 6 : GeoJSON arrows (point + speed + dirTo en compass).
+        # Convention :
+        #   - U/V composantes m/s en repère mathématique (u→est, v→nord)
+        #   - dirTo = direction où le vent VA (compass : 0=N, 90=E, 180=S, 270=O)
+        #   - dirFrom = +180 mod 360 = origine météo classique (D'OÙ vient le vent)
+        # Pour les flèches "pointe = direction du voyage", on tourne la pointe
+        # de l'icône (qui pointe nord par défaut) de `dirTo` degrés horloge.
+        try:
+            arrows_path = generate_arrows_geojson(u, v, speed, valid_time)
+            if arrows_path is not None:
+                out['wind_arrows'] = arrows_path
+        except Exception as exc:
+            log.warning('arrows GeoJSON generation failed: %s', exc)
+
+    # Vagues HS + DIRPW (les deux toujours ensemble dans WW3 gridded)
+    hs_var = 'swh' if 'swh' in ds.variables else ('HTSGW' if 'HTSGW' in ds.variables else None)
+    dir_var = next((v for v in ('dirpw', 'mwd', 'DIRPW') if v in ds.variables), None)
+
+    if hs_var:
+        hs = ds[hs_var].astype('float32')
         hs.attrs['units'] = 'm'
         dest = WAVE_HS_DIR / f'wave_hs_{ts_str}.tif'
         if not dest.exists():
             export(hs, dest)
             out['wave_hs'] = dest
 
-    # Vagues direction (degrés cardinaux)
-    if 'dirpw' in ds.variables or 'mwd' in ds.variables or 'DIRPW' in ds.variables:
-        var_name = next(v for v in ('dirpw', 'mwd', 'DIRPW') if v in ds.variables)
-        d = ds[var_name].astype('float32')
+    if dir_var:
+        d = ds[dir_var].astype('float32')
         d.attrs['units'] = 'degrees'
         dest = WAVE_DIR_DIR / f'wave_dir_{ts_str}.tif'
         if not dest.exists():
             export(d, dest)
             out['wave_dir'] = dest
+
+    # Sprint 6b : GeoJSON arrows pour les vagues. WW3 retourne DIRPW =
+    # "primary wave direction" en degrés compass D'OÙ viennent les vagues
+    # (convention météo standard, comme le vent météo). On génère donc :
+    #   - dirFrom = valeur DIRPW telle quelle
+    #   - dirTo   = (dirFrom + 180) % 360
+    # Pour une flèche pointant vers où les vagues se DIRIGENT, rotate de dirTo.
+    if hs_var and dir_var:
+        try:
+            arrows_path = generate_wave_arrows_geojson(
+                ds[hs_var].astype('float32'),
+                ds[dir_var].astype('float32'),
+                valid_time,
+            )
+            if arrows_path is not None:
+                out['wave_arrows'] = arrows_path
+        except Exception as exc:
+            log.warning('wave arrows GeoJSON failed: %s', exc)
 
     ds.close()
     return out
