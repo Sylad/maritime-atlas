@@ -39,6 +39,7 @@ import { RainviewerService, type RainViewerSnapshot } from '../../services/rainv
 import { AuthService } from '../../services/auth.service';
 import { PalettesService } from '../../services/palettes.service';
 import { ArrowsService, type ArrowsKind } from '../../services/arrows.service';
+import { LightningService, type LightningProperties } from '../../services/lightning.service';
 
 // France métropole — centré sur l'hexagone, zoom large.
 const INITIAL_CENTER: [number, number] = [3.0, 46.5];
@@ -197,6 +198,16 @@ function toIsoTimestamp(d: Date): string {
             <span class="toggle-text">
               <span class="toggle-name">Vagues flèches</span>
               <span class="toggle-count">{{ waveArrowsStatus() }}</span>
+            </span>
+          </label>
+          <label class="layer-toggle" [class.dim]="!showLightning()">
+            <input type="checkbox" [checked]="showLightning()" (change)="showLightning.set($any($event.target).checked)" />
+            <span class="toggle-glyph">
+              <span class="glyph-zap">⚡</span>
+            </span>
+            <span class="toggle-text">
+              <span class="toggle-name">Foudre</span>
+              <span class="toggle-count">{{ lightningStatus() }}</span>
             </span>
           </label>
         </div>
@@ -426,6 +437,20 @@ function toIsoTimestamp(d: Date): string {
       background: linear-gradient(to right, rgba(14,165,233,0.25), rgba(239,68,68,0.45));
       color: #06b6d4;
     }
+    .glyph-zap {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 16px;
+      border-radius: 2px;
+      font-size: 0.95rem;
+      line-height: 1;
+      border: 1px solid rgba(253,224,71,0.4);
+      background: linear-gradient(to right, rgba(15,23,42,0.6), rgba(253,224,71,0.25));
+      color: #fde047;
+      text-shadow: 0 0 4px rgba(253,224,71,0.6);
+    }
     .toggle-text {
       display: flex;
       flex-direction: column;
@@ -568,6 +593,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private readonly vessels = inject(VesselsService);
   private readonly rainviewer = inject(RainviewerService);
   private readonly arrows = inject(ArrowsService);
+  private readonly lightning = inject(LightningService);
   private readonly auth = inject(AuthService);
   private readonly palettesSvc = inject(PalettesService);
   private readonly router = inject(Router);
@@ -597,6 +623,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly showWaveArrows = signal(false);
   readonly windArrowsStatus = signal('forecast vent (GFS)');
   readonly waveArrowsStatus = signal('vagues primaires (WW3)');
+  readonly showLightning = signal(false);
+  readonly lightningStatus = signal('strikes 30min (Blitzortung)');
 
   // Mode courant (signal-driven, recalculé à chaque tick du time slider).
   // Sert à colorer les badges + griser les toggles dont la layer ne peut
@@ -652,6 +680,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private lastWindArrowsTs?: string;
   private lastWaveArrowsTs?: string;
   private arrowsFetchDebounce?: ReturnType<typeof setTimeout>;
+  private lightningLayer?: VectorLayer<VectorSource>;
+  private lightningSource?: VectorSource;
+  private lightningTimer?: ReturnType<typeof setInterval>;
+  private lightningSub?: Subscription;
   private popupOverlay?: Overlay;
   private liveSub?: Subscription;
   private trackSub?: Subscription;
@@ -673,6 +705,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.showVessels(); this.showTracks(); this.showSST();
       this.showRain();    this.showWind();   this.showWaves();
       this.showWindArrows(); this.showWaveArrows();
+      this.showLightning();
       // Defer pour s'exécuter après ngAfterViewInit (this.*Layer dispo)
       queueMicrotask(() => {
         this.applyLayerVisibility();
@@ -766,6 +799,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     if (this.pastFetchDebounce) clearTimeout(this.pastFetchDebounce);
     if (this.rainSnapshotTimer) clearInterval(this.rainSnapshotTimer);
     if (this.arrowsFetchDebounce) clearTimeout(this.arrowsFetchDebounce);
+    this.stopLightningLoop();
     this.map?.setTarget(undefined);
     this.map?.dispose();
   }
@@ -850,6 +884,14 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // refreshArrowsForTime() à chaque cursor change.
     if (this.windArrowsLayer) this.windArrowsLayer.setVisible(this.showWindArrows());
     if (this.waveArrowsLayer) this.waveArrowsLayer.setVisible(this.showWaveArrows());
+    // Lightning : visible si toggle ON ET mode live (les strikes sont temps réel,
+    // pas archivés au-delà de 30 min — replay/forecast pas pertinent).
+    if (this.lightningLayer) {
+      const wanted = this.showLightning() && this.isLive();
+      this.lightningLayer.setVisible(wanted);
+      if (wanted) this.startLightningLoop();
+      else this.stopLightningLoop();
+    }
   }
 
   /**
@@ -971,6 +1013,80 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   }
   private scaleForWaves(v: number): number {
     return Math.min(1.0, 0.6 + v * 0.07);     // 0.6 (flat) → 1.0 (rough)
+  }
+
+  /**
+   * Style "zap" pour les éclairs : disque jaune + halo selon age.
+   * - <60s : blanc-jaune brillant (très récent, flash visuel)
+   * - 60s-5min : jaune saturé
+   * - 5-30min : ambre, halo réduit (fading)
+   */
+  private styleLightning(feat: FeatureLike): Style {
+    const age = (feat.getProperties() as LightningProperties).age_seconds ?? 0;
+    let fill: string;
+    let halo: string;
+    let radius: number;
+    if (age < 60) {
+      fill = '#ffffff';
+      halo = 'rgba(253, 224, 71, 0.6)';
+      radius = 8;
+    } else if (age < 300) {
+      fill = '#fde047';
+      halo = 'rgba(253, 224, 71, 0.45)';
+      radius = 6;
+    } else if (age < 1800) {
+      fill = '#fbbf24';
+      halo = 'rgba(251, 191, 36, 0.25)';
+      radius = 5;
+    } else {
+      fill = '#a16207';
+      halo = 'rgba(161, 98, 7, 0.15)';
+      radius = 4;
+    }
+    return new Style({
+      image: new CircleStyle({
+        radius,
+        fill: new Fill({ color: fill }),
+        stroke: new Stroke({ color: halo, width: 4 }),
+      }),
+    });
+  }
+
+  /**
+   * Refresh des strikes via WFS toutes les 30s. La vue v_lightning_recent
+   * filtre déjà à -30min, donc on récupère un FeatureCollection compact.
+   */
+  private startLightningLoop(): void {
+    if (this.lightningTimer || this.lightningSub) return;
+    const fetchAndPaint = () => {
+      this.lightningSub?.unsubscribe();
+      this.lightningSub = this.lightning.fetchRecent()
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: (fc) => {
+            if (!this.lightningSource) return;
+            this.lightningSource.clear();
+            const features = this.geoJsonFmt.readFeatures(fc);
+            this.lightningSource.addFeatures(features);
+            this.lightningStatus.set(`${fc.features.length} strikes (30min)`);
+          },
+          error: (err) => {
+            this.lightningStatus.set(`erreur : ${err?.message ?? err}`);
+          },
+        });
+    };
+    fetchAndPaint();
+    this.lightningTimer = setInterval(fetchAndPaint, 30_000);
+  }
+
+  private stopLightningLoop(): void {
+    if (this.lightningTimer) {
+      clearInterval(this.lightningTimer);
+      this.lightningTimer = undefined;
+    }
+    this.lightningSub?.unsubscribe();
+    this.lightningSub = undefined;
+    this.lightningSource?.clear();
   }
 
   // ─── Refresh : déclenche le bon fetch selon currentTime ─────────────
@@ -1186,6 +1302,18 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       visible: false,
     });
 
+    // Sprint 7 : éclairs (lightning strikes) overlay. VectorSource peuplé
+    // toutes les 30s via WFS sur v_lightning_recent. Style "zap" pulsé selon
+    // age_seconds : flash blanc-jaune pour <60s, jaune pour <5min, ambre
+    // pour <30min, fade.
+    this.lightningSource = new VectorSource();
+    this.lightningLayer = new VectorLayer({
+      source: this.lightningSource,
+      style: (feat: FeatureLike) => this.styleLightning(feat),
+      zIndex: 110,
+      visible: false,
+    });
+
     // Sprint 6 : flèches vent + flèches vagues. VectorSource alimenté à
     // chaque tick du time slider via fetch GeoJSON (manifest + nearest ts).
     this.windArrowsSource = new VectorSource();
@@ -1255,6 +1383,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         this.windArrowsLayer,
         this.trackLayer,
         this.vesselLayer,
+        this.lightningLayer,
       ],
       overlays: [this.popupOverlay],
       controls: defaultControls().extend([new ScaleLine({ units: 'nautical' })]),

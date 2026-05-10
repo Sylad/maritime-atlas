@@ -1,52 +1,119 @@
 # Maritime Atlas
 
-Atlas live du trafic maritime — Bretagne + golfe de Gascogne nord.
+Atlas live du trafic maritime et de l'environnement marin sur la **France métropolitaine**
+(façades Manche, Atlantique, Méditerranée).
 
-Suivi temps réel des navires (AIS), température de surface de la mer (SST),
-zones marines protégées, courants océaniques. Architecture microservices
-avec ingestion multi-source, RabbitMQ comme glue, GeoServer (replicas
-Docker Swarm à terme) pour servir les layers, Angular + OpenLayers
-pour la viz.
+Suivi temps réel des navires (AIS), température de surface (SST), vent et vagues
+prévus à +72h, pluie radar live. Architecture microservices avec ingestion
+multi-source, RabbitMQ comme glue, GeoServer pour servir les layers raster/WFS,
+Angular + OpenLayers pour la viz, NestJS + Drizzle pour l'auth et les palettes
+utilisateur.
 
 ## Architecture
 
 ```
-[aisstream.io WS] ──► [ais-ingester] ──► [RabbitMQ ais.raw]
-                                              │
-                                              ▼
-                                     [ais-decoder × N]
-                                              │
-                                  ┌───────────┼───────────┐
-                                  ▼           ▼           ▼
-                            [PostGIS]   [ais.positions] [vessels UPSERT]
-                                  │           │
-                                  ▼           ▼
-                          [GeoServer WFS] [density-aggregator] (sprint 5)
-                                  │
-                                  ▼
-                          [Angular + OL UI] (sprint 1.5)
+                                                                  ┌──────────────────┐
+[aisstream.io WS] ──► [ais-ingester] ──► [RabbitMQ ais.raw] ──►   │   PostGIS +      │
+                                              │                   │   TimescaleDB    │
+                                              ▼                   │                  │
+                                       [ais-decoder]  ──UPSERT──► │  vessel_positions│
+                                              │                   │  vessels         │
+                                              ▼                   │  vessel_tracks_  │
+                                       [ais.positions]            │     daily        │
+                                                                  │  users/palettes  │
+              ┌───────────[track-builder cron hourly]──────────►  └─────────┬────────┘
+              │                                                             │
+              │                                                             │
+[NOAA OISST]──┤                                                             │
+              ▼                                                             │
+       [sst-fetcher Python] ──GeoTIFF──┐                                    │
+                                       │                                    │
+[NOAA GFS + WW3]                       ▼                                    │
+       │                          /coverage/  (volume partagé)              │
+       ▼                               │                                    │
+   [weather-fetcher Python] ───────────┤                                    │
+       │                               ▼                                    │
+       │                         ┌──────────────────┐                       │
+       └─wind/wave arrows GeoJSON│   GeoServer 2.27 │ ◄─REST provision──────┘
+                       │         │   (WMS/WFS/WMTS) │
+                       ▼         └────────┬─────────┘
+              /wind-arrows/ (vol)         │
+                       │                  ▼ WMS time + WFS
+                       └─────────►  ┌──────────────────────────┐
+                                    │  Angular 19 + OL 10      │  ◄── REST auth/palettes
+                                    │  (nginx /api → api,      │      ┌─────────────┐
+                                    │   /geoserver → geoserver)│ ◄────│ api NestJS  │
+                                    └──────────────────────────┘      │  Drizzle    │
+                                                                      │  JWT 24h    │
+                                                                      └─────────────┘
+                                                  +  [RainViewer XYZ tiles, direct browser]
 ```
 
-## Stack
+## Services Docker compose
 
-- **PostgreSQL 16 + PostGIS 3.4 + TimescaleDB** : `vessel_positions` hypertable, ~4M lignes/jour bbox Bretagne.
-- **RabbitMQ 3.13** : exchange `ais.raw` (direct), `ais.positions` (topic), futurs `raster.ready`, `alerts`, `geoserver.sync`.
-- **GeoServer 2.27** : WFS layer `v_vessels_live` (rafraîchi 30s). Mosaic stores raster timeseries au sprint 4+.
-- **NestJS 11** : services `ais-ingester` (WebSocket producer), `ais-decoder` (consumer + writer PostGIS).
-- **Angular 19 + OpenLayers 10** : UI map (sprint 1.5).
+| Service | Tech | Port hôte | Rôle |
+|---|---|---|---|
+| `postgres` | timescaledb-ha:pg16 | 15432 | PostGIS + TimescaleDB, hypertable `vessel_positions`, tables users/palettes |
+| `rabbitmq` | rabbitmq:3.13-management | 5672 / 15672 | Glue messaging `ais.raw` → `ais.positions` |
+| `geoserver` | osgeo/geoserver:2.27 | 8080 | WMS / WFS / WMTS (vessels, SST, vent, vagues, tracks) |
+| `geoserver-provisioner` | alpine/curl (one-shot) | — | Crée workspace + datastore + layers + styles via REST (idempotent) |
+| `ais-ingester` | NestJS 11 | — | WS aisstream.io → publish `ais.raw` (bbox France métropole) |
+| `ais-decoder` | NestJS 11 | — | Consume `ais.raw` → normalise → INSERT PostGIS + UPSERT vessels |
+| `track-builder` | NestJS 11 | — | Cron horaire (xx:35) `vessel_positions` → `vessel_tracks_daily` (LineStrings) |
+| `sst-fetcher` | Python (xarray + rioxarray) | — | Cron quotidien 06:00 UTC, NOAA OISST → GeoTIFF mosaic store |
+| `weather-fetcher` | Python (cfgrib + xarray) | — | Cron 4×/jour, GFS (vent 10m) + WW3 (HTSGW + DIRPW), forecasts +72h, GeoTIFF + GeoJSON arrows |
+| `api` | NestJS 11 + Drizzle | — | Auth JWT 24h + CRUD palettes (max 5/user, miroir GeoServer styles) |
+| `frontend` | Angular 19 + nginx | 4204 | UI map, nginx proxy `/api/` et `/geoserver/` (CORS-free) |
+
+## Stack technique
+
+| Couche | Tech |
+|---|---|
+| Storage | PostgreSQL 16 + PostGIS 3.4 + TimescaleDB (hypertable retention 30j) |
+| Messaging | RabbitMQ 3.13 (`ais.raw` direct, `ais.positions` topic) |
+| Tile/WFS server | GeoServer 2.27 (image mosaic stores time-aware pour rasters) |
+| Backend | NestJS 11 + TypeScript 5, Drizzle ORM (api), amqplib (ais), node-cron (track-builder) |
+| Raster pipeline | Python 3 + xarray + rioxarray + cfgrib + gdal natif |
+| Frontend | Angular 19 + OpenLayers 10 + nginx alpine |
+| Sources externes | aisstream.io · NOAA OISST · NOAA GFS · NOAA WaveWatch III · RainViewer |
+| Auth | JWT (`@nestjs/jwt`), bcrypt, 24h, scoped au workspace `maritime` |
+| Build | Docker multi-stage par service |
+
+## Sprints livrés
+
+| Sprint | Livrable |
+|---|---|
+| **1** | AIS → PostGIS hypertable + GeoServer scaffold |
+| **1.5** | Angular 19 + OpenLayers UI, WFS `v_vessels_live`, TTL retention 30j |
+| **2** | `track-builder` cron horaire + bbox étendue France métropole `[-6, 41, 10, 51.5]` |
+| **3** | SST raster (NOAA OISST quotidien) + time slider globale + replay temporel passé |
+| **4a** | `weather-fetcher` Python — GFS vent 10m + WW3 vagues (Hs + direction), forecasts +72h |
+| **4b** | Radar pluie via RainViewer (XYZ tiles time-aware, **sans backend**, direct browser) |
+| **5** | API NestJS + Drizzle + JWT, palettes utilisateur (max 5/user), miroir GeoServer styles |
+| **6** | Flèches vent (GFS) + flèches vagues (WW3) — VectorLayer GeoJSON via volume partagé |
+
+## Bbox
+
+```
+France métropolitaine élargie
+SW: (41.0°N,  -6.0°W)   NE: (51.5°N, 10.0°E)
+```
+
+Couvre Manche, Atlantique (Bretagne + golfe de Gascogne), Méditerranée occidentale,
+mer du Nord sud.
 
 ## Démarrer
 
 ### 1. Prérequis
 
 - Docker + Docker Compose
-- Une API key gratuite sur [aisstream.io](https://aisstream.io) (créer un compte → settings → générer la key)
+- Une API key gratuite sur [aisstream.io](https://aisstream.io) (créer un compte → settings)
 
 ### 2. Configuration
 
 ```bash
 cp .env.example .env
-# Édite .env, remplace AISSTREAM_API_KEY par ta vraie clé
+# Édite .env, renseigne AISSTREAM_API_KEY et un JWT_SECRET solide
 ```
 
 ### 3. Boot
@@ -59,6 +126,9 @@ docker compose ps
 docker compose logs -f ais-ingester ais-decoder
 ```
 
+Le sidecar `geoserver-provisioner` crée automatiquement workspace, datastore PostGIS,
+layers et styles dès que GeoServer répond. Aucune étape manuelle dans l'admin UI.
+
 ### 4. Smoke tests
 
 ```bash
@@ -67,71 +137,45 @@ docker compose exec postgres psql -U maritime -d maritime -c \
   "SELECT count(*) FROM vessel_positions WHERE ts > now() - interval '1 minute';"
 
 # RabbitMQ Management UI : http://localhost:15672 (maritime / maritime)
-# → Exchanges : ais.raw doit recevoir des messages
-
-# GeoServer : http://localhost:8080/geoserver (admin / geoserver)
+# GeoServer :              http://localhost:8080/geoserver (admin / geoserver)
+# Frontend Angular :       http://localhost:4204
 ```
-
-### 5. Configurer le layer GeoServer
-
-Une fois que `vessel_positions` se remplit :
-
-1. Ouvre http://localhost:8080/geoserver
-2. **Stores** → **Add new Store** → **PostGIS** :
-   - Workspace : `maritime`
-   - Data Source Name : `maritime-pg`
-   - host=`postgres`, port=`5432`, database=`maritime`, schema=`public`
-   - user=`maritime`, password=`maritime`
-3. **Save**
-4. Pour la **vue** `v_vessels_live` : Layers → Add new layer → choisis le store → publish `v_vessels_live` (geom column = `geom`, SRID=4326).
-5. **Layer Preview** → OpenLayers preview → tu vois les bateaux !
-
-## Sprint plan
-
-| Sprint | Livrable | Focus |
-|---|---|---|
-| **1** ⏳ | AIS → PostGIS → GeoServer WFS layer | Pipeline producer/consumer/storage |
-| **1.5** | Angular + OL UI : map + WFS layer + popup | Front MVP |
-| **2** | Track builder (vessel_tracks_daily) + time slider OL | Aggregation + temporel |
-| **3** | SST raster (NOAA OISST quotidien) → mosaic store | Premier raster timeseries |
-| **4** | Aires marines protégées (WDPA) + alert engine | Polygons + rule engine |
-| **5** | Density heatmap raster (aggregated AIS) | GeoTIFF généré dynamiquement |
-| **6** | Replicas GeoServer Docker Swarm + sync RabbitMQ | Pattern préféré : `geoserver.sync` fanout |
-| **7** | Currents Copernicus (NetCDF→GeoTIFF flow vectors) | Conversion raster + flow viz OL |
-| **8** | Détections comportements (vessel turns off AIS, anchor anormale) | Rule engine étendu |
-| **9** | Ports + arrivées/départs (port-call detection) | Événement géo + dashboard |
 
 ## Sources de données
 
 | Donnée | Source | Format | Fréquence | Sprint |
 |---|---|---|---|---|
 | Positions AIS | aisstream.io | JSON WS | seconde | 1 |
-| Détails navires | OpenSky / aisstream `ShipStaticData` | JSON WS | event | 1 |
-| Aires marines protégées | WDPA (UNEP-WCMC) | shapefile | snapshot | 4 |
-| SST | NOAA OISST sur AWS | GeoTIFF | quotidien | 3 |
-| Density pêche | Global Fishing Watch (CC-BY-NC) | GeoTIFF | mensuel | 5 |
-| Courants | Copernicus Marine | NetCDF | 6h | 7 |
+| Détails navires | aisstream `ShipStaticData` | JSON WS | event | 1 |
+| SST | NOAA OISST v2.1 (AWS) | NetCDF → GeoTIFF | quotidien | 3 |
+| Vent 10m | NOAA GFS (NOMADS subsetter) | GRIB → GeoTIFF + GeoJSON | 4×/jour | 4a / 6 |
+| Vagues (Hs + dir) | NOAA WaveWatch III | GRIB → GeoTIFF + GeoJSON | 4×/jour | 4a / 6 |
+| Radar pluie | RainViewer | XYZ tiles | 10 min | 4b |
 
-## Bbox
+## Limitations & roadmap
 
-```
-Bretagne + golfe de Gascogne nord
-SW: (46.0°N, -6.5°W)   NE: (49.0°N, -1.0°W)
-```
+- **Single-node GeoServer** — un seul container, pas de HA. Voir Sprint 9 ci-dessous.
+- **Bbox figée à la France métropole** — élargir nécessite re-baseline des hypertables.
+- **Retention 30j** sur `vessel_positions` (TimescaleDB), historique long via `vessel_tracks_daily`.
+- **Pas d'alerting** — pas de moteur de règles sur les positions (vessel quitte AIS, ancrage anormal, etc.).
 
-À étendre vers la Manche centrale ou la Méditerranée si la zone semble trop calme.
+Pistes prochaines :
+
+| Sprint | Idée |
+|---|---|
+| **7** | Foudre live (Blitzortung WebSocket ou source équivalente), VectorLayer animée |
+| **8** | Particules vent style Windy.com (WebGL custom layer OpenLayers + UV GFS) |
+| **9** | Replicas GeoServer en Docker Swarm + sync via RabbitMQ `geoserver.sync` (fanout) |
+
+## Stack alignée avec mon taff
+
+À Campbell Scientific (Neo) j'utilise déjà Angular + OpenLayers + GeoServer +
+Docker Swarm replicas + RabbitMQ pour synchroniser les replicas. Ce repo est un
+terrain de jeu **maritime** (et météo/océano) plutôt que **météo aéroport** pour
+explorer les mêmes patterns d'archi sur un domaine ouvert, avec des sources publiques.
 
 ## Licences sources
 
 - aisstream.io : free tier non-commercial, attribution requise
-- WDPA : free for non-commercial, attribution UNEP-WCMC
-- NOAA / NASA : public domain
-- Copernicus : free, attribution requise
-- Global Fishing Watch : CC-BY-NC
-
-## Stack alignée avec mon taff
-
-J'utilise déjà à Campbell Scientific (Neo) : Angular + OpenLayers + GeoServer
-Docker Swarm replicas + RabbitMQ pour synchroniser les replicas. Ce repo
-est un terrain de jeu **maritime** plutôt que **météo aéroport** pour
-explorer les mêmes patterns d'architecture sur un domaine différent.
+- NOAA OISST / GFS / WW3 : public domain
+- RainViewer : free tier, attribution requise

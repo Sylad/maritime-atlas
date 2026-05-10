@@ -144,6 +144,25 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # ─── Worker : lightning-fetcher (sprint 7) ────────────────────────
+  # Consomme le WebSocket public Blitzortung community, décode LZW,
+  # filtre la bbox France, persiste dans la hypertable lightning_strikes
+  # (TimescaleDB retention 7 jours). Publie chaque strike sur le topic
+  # exchange `lightning.strike` avec routing_key = geohash3.
+  lightning-fetcher:
+    build: ./services/lightning-fetcher
+    container_name: maritime-lightning-fetcher
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-maritime}:${POSTGRES_PASSWORD:-maritime}@postgres:5432/${POSTGRES_DB:-maritime}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-maritime}:${RABBITMQ_PASSWORD:-maritime}@rabbitmq:5672
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
   # ─── Worker : weather-fetcher (sprint 4a) ─────────────────────────
   # Cron 4×/jour (04/10/16/22 UTC, calé sur runs NOAA +4h de latence) qui
   # télécharge GFS (vent 10m UGRD/VGRD) + WaveWatch III (HTSGW + DIRPW)

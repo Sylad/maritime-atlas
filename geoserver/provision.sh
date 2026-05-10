@@ -130,6 +130,7 @@ EOF
 publish_feature "v_vessels_live" "Vessels live (last 15 minutes)"
 publish_feature "v_vessels_live_categorized" "Vessels live categorized by ship type"
 publish_feature "vessel_tracks_daily" "Vessel tracks aggregated by day (LineStrings)"
+publish_feature "v_lightning_recent" "Lightning strikes (last 30 minutes, Blitzortung)"
 
 # ─── SQL view paramétrée : vessels à un instant T ────────────────────
 # Permet le replay temporel piloté par le time slider. Le client passe
