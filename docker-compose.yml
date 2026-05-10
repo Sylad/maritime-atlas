@@ -59,6 +59,8 @@ services:
       - "${GEOSERVER_PORT:-8080}:8080"
     volumes:
       - geoserver-data:/opt/geoserver_data
+      # Volume partagé avec sst-fetcher pour les GeoTIFF mosaic stores.
+      - coverage-data:/coverage
     healthcheck:
       test: ["CMD-SHELL", "curl -sf -u ${GEOSERVER_ADMIN_USER:-admin}:${GEOSERVER_ADMIN_PASSWORD:-geoserver} http://localhost:8080/geoserver/rest/about/status > /dev/null || exit 1"]
       interval: 15s
@@ -141,6 +143,27 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # ─── Worker : sst-fetcher (sprint 3) ───────────────────────────────
+  # Cron quotidien (06:00 UTC) qui télécharge NOAA OISST v2.1 (NetCDF),
+  # subset bbox France métropole, exporte en GeoTIFF dans le mosaic
+  # store partagé. Au premier fetch crée le coverage store + active
+  # time dimension. Service Python (xarray + rioxarray + gdal natif).
+  sst-fetcher:
+    build: ./services/sst-fetcher
+    container_name: maritime-sst-fetcher
+    env_file: .env
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-maritime}:${RABBITMQ_PASSWORD:-maritime}@rabbitmq:5672
+      GEOSERVER_URL: http://geoserver:8080/geoserver
+      GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
+      GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}
+      COVERAGE_DIR: /coverage/sst-daily
+    volumes:
+      - coverage-data:/coverage
+    depends_on:
+      - geoserver
+    restart: unless-stopped
+
   # ─── Frontend Angular + OpenLayers (sprint 1.5) ────────────────────
   # nginx proxy /geoserver/ → service GeoServer interne (CORS-free).
   frontend:
@@ -156,3 +179,6 @@ volumes:
   postgres-data:
   rabbitmq-data:
   geoserver-data:
+  # Volume partagé entre sst-fetcher (writer GeoTIFF) et geoserver
+  # (mosaic store reader). Mounted /coverage côté both.
+  coverage-data:

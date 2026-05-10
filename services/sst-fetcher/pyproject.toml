@@ -1,0 +1,16 @@
+[project]
+name = "sst-fetcher"
+version = "0.1.0"
+description = "Fetch NOAA OISST daily SST NetCDF + convert to GeoTIFF for GeoServer ImageMosaic"
+requires-python = ">=3.12"
+dependencies = [
+    "xarray>=2024.10.0",
+    "rioxarray>=0.18.0",
+    "netcdf4>=1.7.0",
+    "requests>=2.32.0",
+    "apscheduler>=3.10.4",
+    "pika>=1.3.2",
+]
+
+[tool.uv]
+package = false
