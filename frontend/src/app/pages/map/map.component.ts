@@ -31,9 +31,13 @@ import type { Feature } from 'ol';
 import type { FeatureLike } from 'ol/Feature';
 import type { Geometry, Point } from 'ol/geom';
 
+import { Router, RouterLink } from '@angular/router';
+import type { LayerKind, Palette } from '../../services/palettes.service';
 import { TimeSliderComponent } from '../../components/time-slider/time-slider.component';
 import { VesselsService, type VesselProperties } from '../../services/vessels.service';
 import { RainviewerService, type RainViewerSnapshot } from '../../services/rainviewer.service';
+import { AuthService } from '../../services/auth.service';
+import { PalettesService } from '../../services/palettes.service';
 
 // France métropole — centré sur l'hexagone, zoom large.
 const INITIAL_CENTER: [number, number] = [3.0, 46.5];
@@ -70,10 +74,22 @@ function toIsoTimestamp(d: Date): string {
 
 @Component({
   selector: 'app-map',
-  imports: [DatePipe, TimeSliderComponent],
+  imports: [DatePipe, TimeSliderComponent, RouterLink],
   template: `
     <div class="map-container">
       <div class="map" #mapEl></div>
+
+      <div class="auth-corner">
+        @if (currentUser(); as u) {
+          <a routerLink="/palettes" class="auth-link">{{ u.email }}</a>
+          <span class="auth-sep">·</span>
+          <button type="button" class="auth-btn" (click)="logout()">Déconnexion</button>
+        } @else {
+          <a routerLink="/auth/login" class="auth-link">Connexion</a>
+          <span class="auth-sep">·</span>
+          <a routerLink="/auth/register" class="auth-link">Inscription</a>
+        }
+      </div>
 
       <div class="legend">
         <div class="legend-title">MARITIME ATLAS</div>
@@ -113,6 +129,12 @@ function toIsoTimestamp(d: Date): string {
               <span class="toggle-name">SST</span>
               <span class="toggle-count">température mer (NOAA)</span>
             </span>
+            @if (isAuthenticated() && palettesFor('sst').length > 0) {
+              <select class="palette-select" [value]="prefFor('sst')" (change)="setPalettePref('sst', $any($event.target).value)" (click)="$event.stopPropagation()">
+                <option value="">Style par défaut</option>
+                @for (p of palettesFor('sst'); track p.id) { <option [value]="p.id">{{ p.name }}</option> }
+              </select>
+            }
           </label>
           <label class="layer-toggle" [class.dim]="!rainActive()">
             <input type="checkbox" [checked]="showRain()" (change)="showRain.set($any($event.target).checked)" />
@@ -133,6 +155,12 @@ function toIsoTimestamp(d: Date): string {
               <span class="toggle-name">Vent</span>
               <span class="toggle-count">forecast 10m (GFS)</span>
             </span>
+            @if (isAuthenticated() && palettesFor('wind').length > 0) {
+              <select class="palette-select" [value]="prefFor('wind')" (change)="setPalettePref('wind', $any($event.target).value)" (click)="$event.stopPropagation()">
+                <option value="">Style par défaut</option>
+                @for (p of palettesFor('wind'); track p.id) { <option [value]="p.id">{{ p.name }}</option> }
+              </select>
+            }
           </label>
           <label class="layer-toggle" [class.dim]="!wavesActive()">
             <input type="checkbox" [checked]="showWaves()" (change)="showWaves.set($any($event.target).checked)" />
@@ -143,6 +171,12 @@ function toIsoTimestamp(d: Date): string {
               <span class="toggle-name">Vagues</span>
               <span class="toggle-count">hauteur sig. (WW3)</span>
             </span>
+            @if (isAuthenticated() && palettesFor('waves').length > 0) {
+              <select class="palette-select" [value]="prefFor('waves')" (change)="setPalettePref('waves', $any($event.target).value)" (click)="$event.stopPropagation()">
+                <option value="">Style par défaut</option>
+                @for (p of palettesFor('waves'); track p.id) { <option [value]="p.id">{{ p.name }}</option> }
+              </select>
+            }
           </label>
         </div>
 
@@ -212,6 +246,44 @@ function toIsoTimestamp(d: Date): string {
       height: 100%;
       width: 100%;
       background: var(--bg-2);
+    }
+    .auth-corner {
+      position: absolute;
+      top: 1em; right: 1em;
+      z-index: 10;
+      display: flex; align-items: center; gap: 0.5em;
+      background: rgba(19, 24, 38, 0.92);
+      border: 1px solid var(--border);
+      backdrop-filter: blur(8px);
+      border-radius: 8px;
+      padding: 0.5em 0.9em;
+      font-size: 0.78rem;
+      color: var(--fg-muted);
+    }
+    .auth-link {
+      color: var(--accent-bright);
+      text-decoration: none;
+      &:hover { color: var(--fg); }
+    }
+    .auth-sep { color: var(--fg-dim); }
+    .auth-btn {
+      background: transparent;
+      border: 0;
+      color: var(--fg-muted);
+      cursor: pointer;
+      font: inherit;
+      padding: 0;
+      &:hover { color: var(--negative); }
+    }
+    .palette-select {
+      background: var(--bg-3);
+      border: 1px solid var(--border);
+      color: var(--fg);
+      font-size: 0.7rem;
+      padding: 0.15em 0.3em;
+      border-radius: 4px;
+      margin-left: auto;
+      max-width: 110px;
     }
     .legend {
       position: absolute;
@@ -455,7 +527,13 @@ function toIsoTimestamp(d: Date): string {
 export class MapComponent implements AfterViewInit, OnDestroy {
   private readonly vessels = inject(VesselsService);
   private readonly rainviewer = inject(RainviewerService);
+  private readonly auth = inject(AuthService);
+  private readonly palettesSvc = inject(PalettesService);
+  private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+
+  readonly currentUser = this.auth.currentUser;
+  readonly isAuthenticated = this.auth.isAuthenticated;
 
   readonly mapEl = viewChild.required<ElementRef<HTMLDivElement>>('mapEl');
   readonly popupEl = viewChild.required<ElementRef<HTMLDivElement>>('popupEl');
@@ -545,6 +623,63 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       // Defer pour s'exécuter après ngAfterViewInit (this.*Layer dispo)
       queueMicrotask(() => this.applyLayerVisibility());
     });
+
+    // Effect réactif : applique le style user préféré sur chaque layer WMS.
+    // Quand le user choisit/clear un palette pour une layer, on update le
+    // STYLES param du TileWMS source — GeoServer applique alors le style
+    // user_<id>_<slug> au lieu du defaultStyle.
+    effect(() => {
+      const prefs = this.palettesSvc.myPreferences();
+      queueMicrotask(() => this.applyUserStyles(prefs));
+    });
+  }
+
+  /** Mémoize la liste des palettes par layer kind. */
+  palettesFor(kind: LayerKind): Palette[] {
+    return this.palettesSvc.myPalettes().filter((p) => p.layerKind === kind);
+  }
+
+  /** Préférence courante (string id ou '') pour le <select>. */
+  prefFor(kind: LayerKind): string {
+    const styleName = this.palettesSvc.myPreferences()[kind];
+    if (!styleName) return '';
+    // Look up the palette id matching this style
+    const found = this.palettesSvc.myPalettes().find(
+      (p) => `user_${p.userId}_${p.slug}` === styleName.replace(/^maritime:/, ''),
+    );
+    return found ? String(found.id) : '';
+  }
+
+  async setPalettePref(kind: LayerKind, value: string): Promise<void> {
+    const id = value === '' ? null : Number(value);
+    try {
+      await this.palettesSvc.setPreference(kind, id);
+    } catch (err) {
+      console.error('setPalettePref failed', err);
+    }
+  }
+
+  logout(): void {
+    this.auth.logout();
+    this.palettesSvc.clear();
+    // Force WMS layers to drop their custom STYLES (back to default)
+    this.applyUserStyles({});
+    this.router.navigate(['/auth/login']);
+  }
+
+  /**
+   * Applique le STYLES param sur les sources WMS selon les préférences user.
+   * `prefs` keys = layerKind, values = "user_<id>_<slug>" (ou null/absent).
+   * Quand absent → on reset le STYLES à '' (= defaultStyle côté GeoServer).
+   */
+  private applyUserStyles(prefs: Record<string, string | null>): void {
+    const styleParam = (kind: string): string => {
+      const sn = prefs[kind];
+      return sn ? `maritime:${sn}` : '';
+    };
+    if (this.sstSource)   this.sstSource.updateParams({ STYLES: styleParam('sst') });
+    if (this.windSource)  this.windSource.updateParams({ STYLES: styleParam('wind') });
+    if (this.wavesSource) this.wavesSource.updateParams({ STYLES: styleParam('waves') });
   }
 
   ngAfterViewInit(): void {
@@ -558,6 +693,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // découvre la nouvelle frame avec 5min de retard, OK).
     this.refreshRainSnapshot();
     this.rainSnapshotTimer = setInterval(() => this.refreshRainSnapshot(), 5 * 60_000);
+    // Bootstrap palette preferences si déjà connecté (le token est en
+    // localStorage et restaure currentUser via signal au chargement).
+    if (this.isAuthenticated()) {
+      this.palettesSvc.loadMyContext().catch(() => {/* token expiré ou api down — silence */});
+    }
   }
 
   ngOnDestroy(): void {

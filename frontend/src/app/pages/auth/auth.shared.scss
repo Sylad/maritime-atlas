@@ -1,0 +1,91 @@
+:host {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(140deg, var(--bg) 0%, var(--bg-2) 100%);
+}
+.auth-shell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 2em 1em;
+}
+.auth-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9em;
+  padding: 2em 2em 1.5em;
+  border-radius: 12px;
+  background: rgba(19, 24, 38, 0.92);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow);
+  width: 100%;
+  max-width: 360px;
+  color: var(--fg);
+}
+.auth-title {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.25em;
+  color: var(--accent);
+}
+.auth-sub {
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+  margin-bottom: 0.5em;
+}
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3em;
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+}
+input {
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  padding: 0.55em 0.7em;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 150ms;
+  &:focus { border-color: var(--accent); }
+}
+.auth-cta {
+  margin-top: 0.7em;
+  background: var(--accent);
+  color: var(--bg);
+  border: 0;
+  padding: 0.7em 1em;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 150ms;
+  &:hover:not(:disabled) { background: var(--accent-bright); }
+  &:disabled { opacity: 0.55; cursor: progress; }
+}
+.auth-error {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fecaca;
+  padding: 0.5em 0.7em;
+  border-radius: 6px;
+  font-size: 0.78rem;
+}
+.auth-link {
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+  a { color: var(--accent-bright); text-decoration: none; &:hover { text-decoration: underline; }}
+}
+.auth-back {
+  text-align: center;
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+  text-decoration: none;
+  margin-top: 0.5em;
+  &:hover { color: var(--fg); }
+}

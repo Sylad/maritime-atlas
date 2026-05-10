@@ -1,0 +1,109 @@
+:host { display: block; color: var(--fg); }
+.pe-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8em;
+  padding: 1em 1.2em;
+  background: rgba(19, 24, 38, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.pe-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.8em;
+}
+.pe-row label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+  gap: 0.3em;
+}
+input[type="text"], input[type="number"], select {
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  padding: 0.45em 0.6em;
+  border-radius: 5px;
+  font-size: 0.85rem;
+}
+.pe-preview {
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+.pe-preview-axis {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.5em;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+  align-items: center;
+  margin-top: -0.4em;
+}
+.pe-axis-label {
+  text-align: center;
+}
+.pe-stops {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+}
+.pe-stops-header,
+.pe-stop {
+  display: grid;
+  grid-template-columns: 56px 90px 110px 1fr 32px;
+  gap: 0.5em;
+  align-items: center;
+}
+.pe-stops-header {
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+.pe-stop input[type="color"] {
+  width: 100%;
+  height: 30px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.pe-stop input[type="range"] { width: 100%; accent-color: var(--accent); }
+.pe-stop-del {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  &:hover:not(:disabled) { color: var(--negative); border-color: var(--negative); }
+  &:disabled { opacity: 0.3; cursor: not-allowed; }
+}
+.pe-actions {
+  display: flex;
+  gap: 0.5em;
+  justify-content: flex-end;
+  margin-top: 0.5em;
+}
+.pe-add, .pe-cancel, .pe-save {
+  border: 1px solid var(--border);
+  background: var(--bg-3);
+  color: var(--fg);
+  padding: 0.45em 0.9em;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.78rem;
+}
+.pe-save {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+  &:hover:not(:disabled) { background: var(--accent-bright); }
+}
+.pe-add { margin-right: auto; &:hover { color: var(--accent-bright); border-color: var(--accent); }}
+.pe-cancel:hover { color: var(--fg); }
