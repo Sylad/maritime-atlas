@@ -32,6 +32,7 @@ import type { Geometry, Point } from 'ol/geom';
 
 import { TimeSliderComponent } from '../../components/time-slider/time-slider.component';
 import { VesselsService, type VesselProperties } from '../../services/vessels.service';
+import { RainviewerService, type RainViewerSnapshot } from '../../services/rainviewer.service';
 
 // France métropole — centré sur l'hexagone, zoom large.
 const INITIAL_CENTER: [number, number] = [3.0, 46.5];
@@ -110,6 +111,16 @@ function toIsoTimestamp(d: Date): string {
             <span class="toggle-text">
               <span class="toggle-name">SST</span>
               <span class="toggle-count">température mer (NOAA)</span>
+            </span>
+          </label>
+          <label class="layer-toggle" [class.dim]="!rainActive()">
+            <input type="checkbox" [checked]="showRain()" (change)="showRain.set($any($event.target).checked)" />
+            <span class="toggle-glyph">
+              <span class="glyph-rain"></span>
+            </span>
+            <span class="toggle-text">
+              <span class="toggle-name">Radar pluie</span>
+              <span class="toggle-count">{{ rainStatus() }}</span>
             </span>
           </label>
         </div>
@@ -244,6 +255,15 @@ function toIsoTimestamp(d: Date): string {
       height: 8px;
       border-radius: 2px;
       background: linear-gradient(to right, #1e3a8a 0%, #06b6d4 30%, #fde047 60%, #ef4444 100%);
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    .glyph-rain {
+      display: inline-block;
+      width: 36px;
+      height: 8px;
+      border-radius: 2px;
+      /* gradient pluie : transparent → bleu clair → vert → jaune → rouge (intensité radar) */
+      background: linear-gradient(to right, rgba(255,255,255,0.05) 0%, #38bdf8 25%, #4ade80 50%, #fbbf24 75%, #ef4444 100%);
       border: 1px solid rgba(255,255,255,0.15);
     }
     .toggle-text {
@@ -386,6 +406,7 @@ function toIsoTimestamp(d: Date): string {
 })
 export class MapComponent implements AfterViewInit, OnDestroy {
   private readonly vessels = inject(VesselsService);
+  private readonly rainviewer = inject(RainviewerService);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly mapEl = viewChild.required<ElementRef<HTMLDivElement>>('mapEl');
@@ -397,10 +418,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly lastRefreshAt = signal<Date | null>(null);
   readonly errorMsg = signal<string | null>(null);
 
-  // Toggles user — par défaut tout visible
+  // Toggles user — par défaut tout visible (sauf rain : opt-in pour éviter
+  // d'écraser l'image avec des tiles tant que pas demandé)
   readonly showVessels = signal(true);
   readonly showTracks = signal(true);
   readonly showSST = signal(true);
+  readonly showRain = signal(false);
 
   // Mode courant (signal-driven, recalculé à chaque tick du time slider).
   // Sert à colorer les badges + griser les toggles dont la layer ne peut
@@ -412,6 +435,15 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly vesselsActive = computed(() => this.showVessels() && !this.modeIsFuture());
   readonly tracksActive  = computed(() => this.showTracks() && !this.modeIsLive() && !this.modeIsFuture());
   readonly sstActive     = computed(() => this.showSST() && !this.modeIsFuture());
+  // Rain : RainViewer ne couvre que [-2h, +30min]. Hors fenêtre = inutile.
+  readonly rainStatus    = signal('précipitations 10min');
+  readonly rainActive    = computed(() => this.showRain() && this.rainHasFrameForCurrent());
+  // Helper : true si une frame RainViewer est dispo pour le cursor courant.
+  // Mis à jour à chaque tick via updateRainLayer().
+  private rainHasFrame = signal(false);
+  private rainHasFrameForCurrent(): boolean {
+    return this.rainHasFrame();
+  }
 
   // Catégories pour la légende
   readonly categories = (Object.keys(CATEGORY_COLOR) as Category[]).map((key) => ({
@@ -426,6 +458,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private trackLayer?: VectorLayer<VectorSource>;
   private sstLayer?: TileLayer<TileWMS>;
   private sstSource?: TileWMS;
+  private rainLayer?: TileLayer<XYZ>;
+  private rainSource?: XYZ;
+  private rainSnapshot?: RainViewerSnapshot;
+  private rainSnapshotTimer?: ReturnType<typeof setInterval>;
+  private currentRainPath?: string;
   private popupOverlay?: Overlay;
   private liveSub?: Subscription;
   private trackSub?: Subscription;
@@ -443,6 +480,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.applyLayerVisibility();
     this.refreshForTime(new Date());
     this.startLiveLoopIfNeeded();
+    // Bootstrap snapshot RainViewer + refresh toutes les 5 min (le serveur
+    // RV ajoute une frame toutes les 10min, donc 5min de poll = au pire on
+    // découvre la nouvelle frame avec 5min de retard, OK).
+    this.refreshRainSnapshot();
+    this.rainSnapshotTimer = setInterval(() => this.refreshRainSnapshot(), 5 * 60_000);
   }
 
   ngOnDestroy(): void {
@@ -450,6 +492,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.trackSub?.unsubscribe();
     this.pastVesselsSub?.unsubscribe();
     if (this.pastFetchDebounce) clearTimeout(this.pastFetchDebounce);
+    if (this.rainSnapshotTimer) clearInterval(this.rainSnapshotTimer);
     this.map?.setTarget(undefined);
     this.map?.dispose();
   }
@@ -460,7 +503,48 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.currentTimeSig.set(t);
     this.refreshForTime(t);
     this.startLiveLoopIfNeeded();
+    this.updateRainLayer(t);
     this.applyLayerVisibility();
+  }
+
+  // ─── RainViewer ───────────────────────────────────────────────────
+  private async refreshRainSnapshot(): Promise<void> {
+    try {
+      this.rainSnapshot = await this.rainviewer.getSnapshot();
+      // Re-eval du cursor courant avec le nouveau snapshot
+      this.updateRainLayer(this.currentTime);
+      this.applyLayerVisibility();
+    } catch (err) {
+      // Silencieux : RainViewer indispo n'empêche rien d'autre
+      this.rainStatus.set('indisponible');
+    }
+  }
+
+  /**
+   * Sélectionne la frame RainViewer la plus proche du cursor courant et
+   * met à jour l'URL XYZ de la layer. Si aucune frame ≤ 15min, cache la
+   * layer et signale "hors fenêtre" dans le toggle.
+   */
+  private updateRainLayer(t: Date): void {
+    if (!this.rainSource || !this.rainSnapshot) return;
+    const atSec = Math.floor(t.getTime() / 1000);
+    const frame = this.rainviewer.findNearestFrame(this.rainSnapshot, atSec);
+    if (!frame) {
+      this.rainHasFrame.set(false);
+      this.rainStatus.set('hors fenêtre (-2h, +30min)');
+      return;
+    }
+    // Évite de re-set le source.url si on est déjà sur la même frame —
+    // sinon OL refait tous les fetchs tile à chaque tick du slider.
+    if (this.currentRainPath !== frame.path) {
+      this.currentRainPath = frame.path;
+      const url = this.rainviewer.buildTileUrl(this.rainSnapshot.host, frame.path);
+      this.rainSource.setUrl(url);
+    }
+    this.rainHasFrame.set(true);
+    const deltaMin = Math.round((atSec - frame.time) / 60);
+    const sign = deltaMin === 0 ? '=' : (deltaMin > 0 ? `+${deltaMin}min` : `${deltaMin}min`);
+    this.rainStatus.set(`frame ${sign} du cursor`);
   }
 
   // ─── Layer visibility logic (combine user toggles + currentTime mode) ─
@@ -480,6 +564,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.trackLayer.setVisible(this.showTracks() && !this.isLive() && !this.isFuture());
     // SST = past only (forecast pas dispo)
     this.sstLayer.setVisible(this.showSST() && !this.isFuture());
+    // Rain : visible si toggle ON + frame disponible pour le cursor courant
+    if (this.rainLayer) {
+      this.rainLayer.setVisible(this.showRain() && this.rainHasFrame());
+    }
   }
 
   // ─── Refresh : déclenche le bon fetch selon currentTime ─────────────
@@ -657,6 +745,22 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       visible: false,
     });
 
+    // Radar pluie via RainViewer XYZ tiles. URL initiale "transparent" =
+    // 1×1 png vide, on remplace via setUrl() dès qu'un snapshot est dispo.
+    // Crossorigin obligatoire pour permettre canvas readback (au cas où).
+    this.rainSource = new XYZ({
+      url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgAAIAAAUAAarVyFEAAAAASUVORK5CYII=',
+      crossOrigin: 'anonymous',
+      attributions: '© <a href="https://rainviewer.com" target="_blank">RainViewer</a>',
+      maxZoom: 12,
+    });
+    this.rainLayer = new TileLayer({
+      source: this.rainSource,
+      opacity: 0.7,
+      zIndex: 40,             // au-dessus du SST mais sous les vessels/labels
+      visible: false,
+    });
+
     this.vesselLayer = new VectorLayer({
       source: this.vesselSource,
       style: (feature: FeatureLike) => this.styleVessel(feature),
@@ -680,7 +784,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
     this.map = new Map({
       target: this.mapEl().nativeElement,
-      layers: [baseTile, this.sstLayer, labelsTile, this.trackLayer, this.vesselLayer],
+      layers: [baseTile, this.sstLayer, this.rainLayer, labelsTile, this.trackLayer, this.vesselLayer],
       overlays: [this.popupOverlay],
       controls: defaultControls().extend([new ScaleLine({ units: 'nautical' })]),
       view: new View({
