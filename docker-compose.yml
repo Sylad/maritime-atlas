@@ -42,33 +42,112 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # ─── Tile/WFS server : GeoServer ───────────────────────────────────
-  geoserver:
+  # ─── Tile/WFS server : GeoServer cluster (3 replicas, sprint 9) ────
+  # Pattern cluster officiel :
+  #   * catalog (workspaces/layers/styles) partagé via JDBCConfig +
+  #     JDBCStore (community extensions) — schema `geoserver` dans la
+  #     base maritime existante. Vrai pattern enterprise.
+  #   * data_dir volume `geoserver-data` mount partagé (RWX) entre les
+  #     3 replicas — porte les blobs SLD + properties JDBCConfig/Store.
+  #   * sessions admin UI cohérentes via nginx `ip_hash` (sticky).
+  #     JDBCSessionDataStore Jetty demande de patcher le WAR, pas
+  #     proportionné pour notre besoin ; sticky atteint le même but UX.
+  #
+  # Anchor YAML `&geoserver-base` factorise la config commune ; chaque
+  # replica override juste container_name + GEOSERVER_NODE_ID. Tout le
+  # reste (image, env, volumes, healthcheck) est identique.
+  geoserver-1: &geoserver-base
     image: docker.osgeo.org/geoserver:2.27.0
-    container_name: maritime-geoserver
-    environment:
+    container_name: maritime-geoserver-1
+    environment: &geoserver-env
+      GEOSERVER_NODE_ID: geoserver-1
       GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
       GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}
       INSTALL_EXTENSIONS: "true"
       STABLE_EXTENSIONS: "wps,csw,inspire"
+      # JDBCConfig + JDBCStore = catalog clusterisé en Postgres.
+      # Ces deux extensions sont en `community` car non-stable upstream,
+      # mais c'est le mécanisme officiel recommandé pour le multi-node.
+      COMMUNITY_EXTENSIONS: "jdbcconfig,jdbcstore"
       EXTRA_JAVA_OPTS: "-Xms512m -Xmx2g"
-      # CORS pour que l'Angular puisse appeler WMS/WFS depuis localhost:4204
+      # CORS — chaque replica doit le re-déclarer.
       CORS_ENABLED: "true"
       CORS_ALLOWED_ORIGINS: "*"
-    ports:
-      - "${GEOSERVER_PORT:-8080}:8080"
-    volumes:
+      # Credentials Postgres injectés dans les .properties par le wrapper
+      # cluster-bootstrap.sh via envsubst.
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-maritime}
+      POSTGRES_USER: ${POSTGRES_USER:-maritime}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-maritime}
+    volumes: &geoserver-volumes
       - geoserver-data:/opt/geoserver_data
-      # Volume partagé avec sst-fetcher pour les GeoTIFF mosaic stores.
       - coverage-data:/coverage
-    healthcheck:
+      # Templates jdbcconfig.properties / jdbcstore.properties (lecture
+      # seule) + entrypoint wrapper qui les hydrate au boot.
+      - ./geoserver/cluster:/cluster-config:ro
+    entrypoint: ["/bin/bash", "/cluster-config/cluster-bootstrap.sh"]
+    healthcheck: &geoserver-healthcheck
       test: ["CMD-SHELL", "curl -sf -u ${GEOSERVER_ADMIN_USER:-admin}:${GEOSERVER_ADMIN_PASSWORD:-geoserver} http://localhost:8080/geoserver/rest/about/status > /dev/null || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 30
-      start_period: 90s
+      start_period: 120s
     depends_on:
       postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  geoserver-2:
+    <<: *geoserver-base
+    container_name: maritime-geoserver-2
+    environment:
+      <<: *geoserver-env
+      GEOSERVER_NODE_ID: geoserver-2
+    # Replica 2/3 attendent que replica-1 ait initialisé les tables
+    # JDBCConfig (initdb=true ne tourne qu'au premier boot, après c'est
+    # un no-op idempotent). Évite race au tout premier `compose up`.
+    depends_on:
+      postgres:
+        condition: service_healthy
+      geoserver-1:
+        condition: service_healthy
+
+  geoserver-3:
+    <<: *geoserver-base
+    container_name: maritime-geoserver-3
+    environment:
+      <<: *geoserver-env
+      GEOSERVER_NODE_ID: geoserver-3
+    depends_on:
+      postgres:
+        condition: service_healthy
+      geoserver-1:
+        condition: service_healthy
+
+  # Alias `geoserver` — service léger qui pointe vers le LB nginx du
+  # frontend pour que les autres services (provisioner, weather-fetcher,
+  # sst-fetcher, api) continuent à appeler `http://geoserver:8080/geoserver`
+  # exactement comme avant. Zéro changement côté services métier.
+  geoserver:
+    image: nginx:alpine
+    container_name: maritime-geoserver-lb
+    volumes:
+      - ./geoserver/cluster/nginx-lb.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "${GEOSERVER_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/geoserver/web/ > /dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    depends_on:
+      geoserver-1:
+        condition: service_healthy
+      geoserver-2:
+        condition: service_healthy
+      geoserver-3:
         condition: service_healthy
     restart: unless-stopped
 

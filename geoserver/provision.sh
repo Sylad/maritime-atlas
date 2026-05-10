@@ -236,6 +236,30 @@ if [ -f "/styles/wave-hs-rainbow.sld" ]; then
   upload_style "wave-hs-rainbow" "/styles/wave-hs-rainbow.sld" "wave-hs"
 fi
 
+# ─── Cluster sanity check (sprint 9) ─────────────────────────────────
+# Depuis sprint 9, GEOSERVER_URL pointe sur un LB nginx interne qui
+# fanouts vers 3 replicas (geoserver-1, geoserver-2, geoserver-3). Ces
+# replicas partagent leur catalog via JDBCConfig (Postgres). On vérifie
+# que les 3 replicas répondent et que le workspace `maritime` qu'on
+# vient de créer est bien visible depuis chacun — preuve de sync via DB.
+#
+# Important : on tape les replicas en direct (bypass LB) pour valider
+# que la conf JDBCConfig est OK. Si un replica voit pas le workspace,
+# c'est qu'il est resté sur son catalog XML local — bug de conf.
+if [ -z "${SKIP_CLUSTER_CHECK:-}" ]; then
+  log "Cluster sanity check — vérification que les 3 replicas voient le workspace…"
+  for node in geoserver-1 geoserver-2 geoserver-3; do
+    if curl -sf $AUTH "http://${node}:8080/geoserver/rest/workspaces/${WS}.json" \
+        > /dev/null 2>&1; then
+      log "  ✓ ${node} voit le workspace '${WS}'"
+    else
+      log "  ✗ ${node} ne voit PAS '${WS}' — JDBCConfig probablement pas init."
+      log "    Inspecte : docker compose logs ${node} | grep -i jdbcconfig"
+      # Non-fatal — le sidecar a quand même fait son job sur le LB.
+    fi
+  done
+fi
+
 # ─── CORS (pour Angular dev sur autre origin) ────────────────────────
 # CORS est déjà activé via env var dans le docker-compose, juste vérifier.
 log "Provisioning complete."

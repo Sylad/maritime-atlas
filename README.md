@@ -55,7 +55,8 @@ utilisateur.
 |---|---|---|---|
 | `postgres` | timescaledb-ha:pg16 | 15432 | PostGIS + TimescaleDB, hypertable `vessel_positions`, tables users/palettes |
 | `rabbitmq` | rabbitmq:3.13-management | 5672 / 15672 | Glue messaging `ais.raw` → `ais.positions` |
-| `geoserver` | osgeo/geoserver:2.27 | 8080 | WMS / WFS / WMTS (vessels, SST, vent, vagues, tracks) |
+| `geoserver-1/2/3` | osgeo/geoserver:2.27 (×3 replicas) | — | Cluster WMS/WFS/WMTS, catalog partagé via JDBCConfig (Postgres) |
+| `geoserver` | nginx:alpine (LB interne) | 8080 | Load balancer ip_hash devant les 3 replicas — alias DNS rétro-compat |
 | `geoserver-provisioner` | alpine/curl (one-shot) | — | Crée workspace + datastore + layers + styles via REST (idempotent) |
 | `ais-ingester` | NestJS 11 | — | WS aisstream.io → publish `ais.raw` (bbox France métropole) |
 | `ais-decoder` | NestJS 11 | — | Consume `ais.raw` → normalise → INSERT PostGIS + UPSERT vessels |
@@ -152,12 +153,89 @@ docker compose exec postgres psql -U maritime -d maritime -c \
 | Vagues (Hs + dir) | NOAA WaveWatch III | GRIB → GeoTIFF + GeoJSON | 4×/jour | 4a / 6 |
 | Radar pluie | RainViewer | XYZ tiles | 10 min | 4b |
 
+## Cluster GeoServer (sprint 9)
+
+Depuis le sprint 9, GeoServer tourne en **3 replicas** (`geoserver-1/2/3`) avec
+**catalog partagé en Postgres** via les community extensions `jdbcconfig`
++ `jdbcstore`. Un nginx interne fait load balancer et garde l'alias DNS
+`geoserver:8080` pour les services métier (provisioner, weather-fetcher,
+api, …) — zéro modif côté services existants.
+
+```
+                                       ┌─ geoserver-1 ─┐
+[frontend nginx /geoserver/]           │               │
+[services métier (api, fetchers)]  ──► │ geoserver:8080│  (LB nginx, ip_hash)
+                                       │  upstream     │ ──► geoserver-1
+                                       │  cluster      │ ──► geoserver-2
+                                       └───────────────┘ ──► geoserver-3
+                                                                  │
+                                                                  ▼
+                                                      ┌────────────────────────┐
+                                                      │ Postgres `maritime`    │
+                                                      │  schema `geoserver`    │
+                                                      │  (JDBCConfig tables)   │
+                                                      └────────────────────────┘
+```
+
+### Décisions d'archi
+
+| Choix | Pourquoi |
+|---|---|
+| JDBCConfig + JDBCStore (community) | Vrai pattern enterprise GeoServer. Catalog = source de vérité en DB, replicas stateless. Alternative (volume partagé seul) marche mais reste fragile sur les SLD/styles. |
+| Même DB `maritime`, schema dédié `geoserver` | Un seul Postgres à backup / monitorer. Schema isole bien les concerns. |
+| nginx `ip_hash` (sticky) pour l'UI admin | JDBCSessionDataStore (Jetty) demande de patcher le WAR de l'image officielle. Sticky atteint le même but UX (UI cohérente) avec un compromis acceptable : un user reste sur le même replica le temps de sa session. Round-robin reste possible côté API REST (catalog en DB, donc stateless). |
+| LB nginx interne, alias `geoserver` | Permet de garder l'API stable pour tous les services existants. Pas besoin de toucher au provisioner, à weather-fetcher, sst-fetcher, api ou frontend. |
+
+### Variables d'environnement
+
+Rien à ajouter pour les credentials cluster — JDBCConfig réutilise
+`POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB` déjà présents dans `.env`.
+Optionnel : `SKIP_CLUSTER_CHECK=1` côté provisioner pour passer outre le
+sanity check des 3 replicas.
+
+### Smoke tests cluster
+
+```bash
+# 1. Les 3 replicas répondent à /rest/about/status
+for n in 1 2 3; do
+  docker compose exec geoserver-${n} \
+    curl -sf -u admin:geoserver http://localhost:8080/geoserver/rest/about/status \
+    | jq -r '.about.resource[0].version' \
+    && echo "  → geoserver-${n} OK"
+done
+
+# 2. Création d'un workspace de test sur geoserver-1, visible sur geoserver-2
+docker compose exec geoserver-1 \
+  curl -sf -u admin:geoserver -X POST http://localhost:8080/geoserver/rest/workspaces \
+  -H "Content-Type: application/json" -d '{"workspace":{"name":"cluster-test"}}'
+
+docker compose exec geoserver-2 \
+  curl -sf -u admin:geoserver http://localhost:8080/geoserver/rest/workspaces/cluster-test.json
+# → 200 + JSON = catalog bien partagé via JDBCConfig
+
+# Cleanup
+docker compose exec geoserver-1 \
+  curl -sf -u admin:geoserver -X DELETE http://localhost:8080/geoserver/rest/workspaces/cluster-test
+```
+
+### Reset complet du cluster
+
+Si le catalog JDBCConfig est corrompu (init partielle, schema verrouillé) :
+
+```bash
+docker compose down
+docker volume rm maritime-atlas_geoserver-data
+docker compose exec postgres psql -U maritime -d maritime -c \
+  "DROP SCHEMA geoserver CASCADE; CREATE SCHEMA geoserver;"
+docker compose up -d
+# → re-bootstrap JDBCConfig + re-provisioning via le sidecar (workspace, layers, styles)
+```
+
 ## Limitations & roadmap
 
-- **Single-node GeoServer** — un seul container, pas de HA. Voir Sprint 9 ci-dessous.
 - **Bbox figée à la France métropole** — élargir nécessite re-baseline des hypertables.
 - **Retention 30j** sur `vessel_positions` (TimescaleDB), historique long via `vessel_tracks_daily`.
-- **Pas d'alerting** — pas de moteur de règles sur les positions (vessel quitte AIS, ancrage anormal, etc.).
+- **Sticky sessions ip_hash** plutôt que vraies sessions partagées Jetty — voir Cluster GeoServer ci-dessus pour le compromis.
 
 Pistes prochaines :
 
@@ -165,7 +243,8 @@ Pistes prochaines :
 |---|---|
 | **7** | Foudre live (Blitzortung WebSocket ou source équivalente), VectorLayer animée |
 | **8** | Particules vent style Windy.com (WebGL custom layer OpenLayers + UV GFS) |
-| **9** | Replicas GeoServer en Docker Swarm + sync via RabbitMQ `geoserver.sync` (fanout) |
+| **9** | ✅ Cluster 3 replicas GeoServer + catalog Postgres (JDBCConfig + JDBCStore) |
+| **10** | Sessions Jetty partagées en DB (JDBCSessionDataStore) pour vraie HA active-active sur l'UI admin |
 
 ## Stack alignée avec mon taff
 
