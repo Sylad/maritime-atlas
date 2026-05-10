@@ -1,9 +1,11 @@
 import { DatePipe } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  effect,
   ElementRef,
   inject,
   OnDestroy,
@@ -28,11 +30,12 @@ import type { Feature } from 'ol';
 import type { FeatureLike } from 'ol/Feature';
 import type { Geometry, Point } from 'ol/geom';
 
-import { VesselsService, type VesselProperties } from '../../services/vessels.service';
+import { VesselsService, type VesselProperties, type TrackProperties } from '../../services/vessels.service';
 
-// Bbox Bretagne+Gascogne pour l'init view (centré sur le golfe de Gascogne nord).
-const INITIAL_CENTER: [number, number] = [-3.75, 47.5];
-const INITIAL_ZOOM = 7;
+// France métropole — centré sur l'hexagone, zoom large pour voir Manche +
+// Atlantique + Méditerranée + Corse en une vue.
+const INITIAL_CENTER: [number, number] = [3.0, 46.5];
+const INITIAL_ZOOM = 6;
 const REFRESH_INTERVAL_MS = 30_000;
 
 // Couleurs par catégorie ship_type (cf v_vessels_live_categorized).
@@ -55,26 +58,64 @@ function categoryOf(shipType: number | null): Category {
   return 'other';
 }
 
+type Mode = 'live' | 'history';
+
 @Component({
   selector: 'app-map',
-  imports: [DatePipe],
+  imports: [DatePipe, FormsModule],
   template: `
     <div class="map-container">
       <div class="map" #mapEl></div>
 
       <div class="legend">
         <div class="legend-title">MARITIME ATLAS</div>
-        <div class="legend-subtitle">Bretagne · Gascogne nord</div>
+        <div class="legend-subtitle">France métropole</div>
+
+        <div class="mode-toggle">
+          <button
+            type="button"
+            class="mode-btn"
+            [class.active]="mode() === 'live'"
+            (click)="setMode('live')">
+            ◉ Live
+          </button>
+          <button
+            type="button"
+            class="mode-btn"
+            [class.active]="mode() === 'history'"
+            (click)="setMode('history')">
+            ⏱ Historique
+          </button>
+        </div>
+
+        @if (mode() === 'history') {
+          <div class="date-picker">
+            <label for="day-input">Jour</label>
+            <input
+              id="day-input"
+              type="date"
+              [min]="minDate"
+              [max]="maxDate"
+              [ngModel]="selectedDay()"
+              (ngModelChange)="setDay($event)" />
+          </div>
+        }
+
         @for (cat of categories; track cat.key) {
           <div class="legend-item">
             <span class="legend-dot" [style.background]="cat.color.fill" [style.border-color]="cat.color.stroke"></span>
             <span>{{ cat.color.label }}</span>
           </div>
         }
+
         <div class="legend-stats">
-          <div><strong>{{ vesselsCount() }}</strong> navires actifs</div>
-          @if (lastRefreshAt()) {
-            <div class="legend-refresh">Rafraîchi à {{ lastRefreshAt() | date:'HH:mm:ss' }}</div>
+          @if (mode() === 'live') {
+            <div><strong>{{ vesselsCount() }}</strong> navires actifs</div>
+            @if (lastRefreshAt()) {
+              <div class="legend-refresh">Rafraîchi à {{ lastRefreshAt() | date:'HH:mm:ss' }}</div>
+            }
+          } @else {
+            <div><strong>{{ tracksCount() }}</strong> tracks ce jour</div>
           }
           @if (errorMsg()) {
             <div class="legend-error">{{ errorMsg() }}</div>
@@ -162,6 +203,58 @@ function categoryOf(shipType: number | null): Category {
       width: 12px; height: 12px;
       border-radius: 50%;
       border: 1px solid;
+    }
+    .mode-toggle {
+      display: flex;
+      gap: 0.3em;
+      margin: 0.6em 0 0.8em;
+      padding-bottom: 0.8em;
+      border-bottom: 1px solid var(--border);
+    }
+    .mode-btn {
+      flex: 1;
+      background: var(--bg-3);
+      border: 1px solid var(--border);
+      color: var(--fg-muted);
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      letter-spacing: 0.1em;
+      padding: 0.4em 0.6em;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 150ms;
+      &:hover { color: var(--fg); border-color: var(--accent); }
+      &.active {
+        background: rgba(45, 212, 191, 0.15);
+        color: var(--accent-bright);
+        border-color: var(--accent);
+      }
+    }
+    .date-picker {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2em;
+      margin: 0.4em 0 0.8em;
+      label {
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 0.15em;
+        color: var(--fg-dim);
+      }
+      input {
+        background: var(--bg-3);
+        border: 1px solid var(--border);
+        color: var(--fg);
+        padding: 0.4em 0.6em;
+        border-radius: 4px;
+        font-family: var(--font-mono);
+        font-size: 0.85rem;
+        color-scheme: dark;
+        &:focus {
+          outline: none;
+          border-color: var(--accent);
+        }
+      }
     }
     .legend-stats {
       margin-top: 0.8em;
@@ -266,8 +359,15 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
   readonly selectedVessel = signal<VesselProperties | null>(null);
   readonly vesselsCount = signal(0);
+  readonly tracksCount = signal(0);
   readonly lastRefreshAt = signal<Date | null>(null);
   readonly errorMsg = signal<string | null>(null);
+
+  // Mode switch live/historique
+  readonly mode = signal<Mode>('live');
+  readonly selectedDay = signal<string>(this.toIsoDate(new Date(Date.now() - 86400_000))); // J-1 par défaut
+  readonly minDate = this.toIsoDate(new Date(Date.now() - 30 * 86400_000)); // -30j (TTL retention)
+  readonly maxDate = this.toIsoDate(new Date()); // aujourd'hui
 
   // Pour la légende.
   readonly categories = (Object.keys(CATEGORY_COLOR) as Category[]).map((key) => ({
@@ -277,13 +377,46 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
   private map?: Map;
   private vesselSource?: VectorSource;
+  private trackSource?: VectorSource;
+  private vesselLayer?: VectorLayer<VectorSource>;
+  private trackLayer?: VectorLayer<VectorSource>;
   private popupOverlay?: Overlay;
   private refreshSub?: Subscription;
   private readonly geoJsonFmt = new GeoJSON({ featureProjection: 'EPSG:3857', dataProjection: 'EPSG:4326' });
 
+  constructor() {
+    // Effect : quand le mode ou le jour change, on relance le bon flux.
+    // Plus propre que de wirer tous les setters manuellement.
+    effect(() => {
+      const m = this.mode();
+      const d = this.selectedDay();
+      // Cleanup avant de relancer.
+      this.refreshSub?.unsubscribe();
+      this.errorMsg.set(null);
+      if (this.map) {
+        // Toggle visibility des deux layers.
+        this.vesselLayer?.setVisible(m === 'live');
+        this.trackLayer?.setVisible(m === 'history');
+        if (m === 'live') {
+          this.trackSource?.clear();
+          this.startLiveLoop();
+        } else {
+          this.vesselSource?.clear();
+          this.closePopup();
+          this.fetchTracks(d);
+        }
+      }
+    });
+  }
+
+  setMode(m: Mode): void { this.mode.set(m); }
+  setDay(d: string): void { this.selectedDay.set(d); }
+  private toIsoDate(d: Date): string { return d.toISOString().slice(0, 10); }
+
   ngAfterViewInit(): void {
     this.initMap();
-    this.startRefreshLoop();
+    // Trigger l'effect post-init pour démarrer le bon mode (initial = live).
+    this.startLiveLoop();
   }
 
   ngOnDestroy(): void {
@@ -307,6 +440,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // ─── Map init ───────────────────────────────────────────────────────
   private initMap(): void {
     this.vesselSource = new VectorSource();
+    this.trackSource = new VectorSource();
 
     // CARTO Dark Matter — base layer sombre, mood océan nuit.
     const baseTile = new TileLayer({
@@ -326,10 +460,18 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       zIndex: 50,
     });
 
-    const vesselLayer = new VectorLayer({
+    this.vesselLayer = new VectorLayer({
       source: this.vesselSource,
       style: (feature: FeatureLike) => this.styleVessel(feature),
       zIndex: 100,
+      visible: true,
+    });
+
+    this.trackLayer = new VectorLayer({
+      source: this.trackSource,
+      style: () => this.styleTrack(),
+      zIndex: 90,
+      visible: false,
     });
 
     this.popupOverlay = new Overlay({
@@ -341,7 +483,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
     this.map = new Map({
       target: this.mapEl().nativeElement,
-      layers: [baseTile, labelsTile, vesselLayer],
+      layers: [baseTile, labelsTile, this.trackLayer, this.vesselLayer],
       overlays: [this.popupOverlay],
       controls: defaultControls().extend([new ScaleLine({ units: 'nautical' })]),
       view: new View({
@@ -381,9 +523,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     });
   }
 
-  // ─── Refresh loop : fetch WFS toutes les 30s ───────────────────────
-  private startRefreshLoop(): void {
-    interval(REFRESH_INTERVAL_MS)
+  // ─── Live loop : fetch v_vessels_live toutes les 30s ───────────────
+  private startLiveLoop(): void {
+    this.refreshSub = interval(REFRESH_INTERVAL_MS)
       .pipe(
         startWith(0),
         switchMap(() => this.vessels.fetchLiveVessels()),
@@ -395,14 +537,33 @@ export class MapComponent implements AfterViewInit, OnDestroy {
           this.lastRefreshAt.set(new Date());
           this.vesselsCount.set(fc.features.length);
           if (!this.vesselSource) return;
-          // Recharge complet : pour MVP sprint 1.5 c'est suffisant. Sprint 2+
-          // on fera un diff (id-based) pour préserver les sélections.
           this.vesselSource.clear();
           const features = this.geoJsonFmt.readFeatures(fc);
           this.vesselSource.addFeatures(features);
         },
         error: (err) => {
-          this.errorMsg.set(`Erreur WFS : ${err.message ?? err}`);
+          this.errorMsg.set(`Erreur WFS live : ${err.message ?? err}`);
+        },
+      });
+  }
+
+  // ─── Historique : fetch tracks d'un jour donné (1 shot, pas de loop) ─
+  private fetchTracks(day: string): void {
+    this.refreshSub = this.vessels
+      .fetchTracksForDay(day)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (fc) => {
+          this.errorMsg.set(null);
+          this.tracksCount.set(fc.features.length);
+          if (!this.trackSource) return;
+          this.trackSource.clear();
+          const features = this.geoJsonFmt.readFeatures(fc);
+          this.trackSource.addFeatures(features);
+        },
+        error: (err) => {
+          this.errorMsg.set(`Erreur WFS tracks : ${err.message ?? err}`);
+          this.tracksCount.set(0);
         },
       });
   }
@@ -417,6 +578,18 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         radius: 5,
         fill: new Fill({ color: colors.fill }),
         stroke: new Stroke({ color: colors.stroke, width: 1.5 }),
+      }),
+    });
+  }
+
+  // ─── Style track : LineString fine teal semi-transparente ──────────
+  // Pas de couleur par catégorie en historique car on n'a pas le ship_type
+  // dans la table vessel_tracks_daily (sprint 3 : enrich JOIN vessels).
+  private styleTrack(): Style {
+    return new Style({
+      stroke: new Stroke({
+        color: 'rgba(45, 212, 191, 0.5)',
+        width: 1.2,
       }),
     });
   }

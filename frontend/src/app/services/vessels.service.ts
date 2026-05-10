@@ -33,11 +33,32 @@ export interface VesselsFeatureCollection {
   timeStamp: string;
 }
 
+/** GeoJSON FeatureCollection typé pour tracks daily (LineStrings). */
+export interface TrackProperties {
+  mmsi: number;
+  day: string;          // ISO date YYYY-MM-DD
+  points_n: number;
+}
+export interface TracksFeatureCollection {
+  type: 'FeatureCollection';
+  features: Array<{
+    type: 'Feature';
+    id?: string;
+    properties: TrackProperties;
+    geometry: { type: 'LineString'; coordinates: [number, number][] };
+  }>;
+  totalFeatures: number;
+  numberMatched: number;
+  numberReturned: number;
+}
+
 /**
- * Wrapper WFS GeoServer pour la couche maritime:v_vessels_live.
+ * Wrapper WFS GeoServer pour les couches :
+ *   - maritime:v_vessels_live → positions live (last 15 min)
+ *   - maritime:vessel_tracks_daily → tracks aggregés par jour (LineStrings)
+ *
  * En dev nginx proxy /geoserver/* → http://geoserver:8080/geoserver/* —
- * pas besoin de gérer CORS côté front, et la conf est portée par le
- * reverse proxy nginx.
+ * pas besoin de gérer CORS côté front, conf portée par le reverse proxy.
  */
 @Injectable({ providedIn: 'root' })
 export class VesselsService {
@@ -53,6 +74,27 @@ export class VesselsService {
         typeName: 'maritime:v_vessels_live',
         outputFormat: 'application/json',
         srsName: 'EPSG:4326',
+      },
+    });
+  }
+
+  /**
+   * Tracks d'un jour donné via CQL_FILTER. L'index (mmsi, day) sur
+   * vessel_tracks_daily fait que la requête est instantanée même sur
+   * 100 jours d'historique. Cap à 5000 features pour éviter le DOM
+   * choke (5000 LineStrings de quelques dizaines de points = OK).
+   */
+  fetchTracksForDay(day: string): Observable<TracksFeatureCollection> {
+    return this.http.get<TracksFeatureCollection>(this.wfsUrl, {
+      params: {
+        service: 'WFS',
+        version: '2.0.0',
+        request: 'GetFeature',
+        typeName: 'maritime:vessel_tracks_daily',
+        outputFormat: 'application/json',
+        srsName: 'EPSG:4326',
+        CQL_FILTER: `day=${day}`,
+        count: '5000',
       },
     });
   }

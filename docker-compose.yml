@@ -126,6 +126,21 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # ─── Worker : track-builder (sprint 2) ─────────────────────────────
+  # Cron horaire (xx:35) qui agrège vessel_positions → vessel_tracks_daily
+  # (LineStrings par mmsi+day). Permet à GeoServer de servir des tracks
+  # pré-aggregés en WFS, instantané même sur 30j d'historique.
+  track-builder:
+    build: ./services/track-builder
+    container_name: maritime-track-builder
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-maritime}:${POSTGRES_PASSWORD:-maritime}@postgres:5432/${POSTGRES_DB:-maritime}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   # ─── Frontend Angular + OpenLayers (sprint 1.5) ────────────────────
   # nginx proxy /geoserver/ → service GeoServer interne (CORS-free).
   frontend:

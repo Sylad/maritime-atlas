@@ -113,10 +113,10 @@ publish_feature() {
     "title": "${title}",
     "srs": "EPSG:4326",
     "nativeBoundingBox": {
-      "minx": -7.0, "maxx": 0.0, "miny": 45.5, "maxy": 50.0, "crs": "EPSG:4326"
+      "minx": -6.0, "maxx": 10.0, "miny": 41.0, "maxy": 51.5, "crs": "EPSG:4326"
     },
     "latLonBoundingBox": {
-      "minx": -7.0, "maxx": 0.0, "miny": 45.5, "maxy": 50.0, "crs": "EPSG:4326"
+      "minx": -6.0, "maxx": 10.0, "miny": 41.0, "maxy": 51.5, "crs": "EPSG:4326"
     },
     "enabled": true
   }
@@ -129,6 +129,7 @@ EOF
 
 publish_feature "v_vessels_live" "Vessels live (last 15 minutes)"
 publish_feature "v_vessels_live_categorized" "Vessels live categorized by ship type"
+publish_feature "vessel_tracks_daily" "Vessel tracks aggregated by day (LineStrings)"
 
 # ─── CORS (pour Angular dev sur autre origin) ────────────────────────
 # CORS est déjà activé via env var dans le docker-compose, juste vérifier.
