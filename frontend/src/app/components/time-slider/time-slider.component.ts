@@ -287,10 +287,16 @@ export class TimeSliderComponent {
 
   private startPlay(): void {
     this.playing.set(true);
-    // 6h advance per second of real time (1d visible = 4s)
+    // 6h advance per second de temps réel. L'animation s'arrête à NOW :
+    // au-delà = forecast pas dispo, donc inutile de traverser. L'utilisateur
+    // doit explicitement déplacer le cursor au-delà de NOW pour voir le futur.
     this.playTimer = setInterval(() => {
-      const next = this.currentTime().getTime() + 6 * 3600_000;
-      if (next >= this.maxTime().getTime()) {
+      const cur = this.currentTime().getTime();
+      const next = cur + 6 * 3600_000;
+      const limit = Math.min(this.maxTime().getTime(), Date.now());
+      // Si on est déjà ≥ NOW, ou si l'avance dépasse NOW, on stoppe à NOW.
+      if (cur >= limit || next >= limit) {
+        this.setTime(new Date(limit));
         this.stopPlay();
         return;
       }

@@ -336,8 +336,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private popupOverlay?: Overlay;
   private liveSub?: Subscription;
   private trackSub?: Subscription;
+  private pastVesselsSub?: Subscription;
   private currentTime: Date = new Date();
   private lastTrackDay: string | null = null;
+  // Coalesce past-mode vessel fetches : si l'utilisateur drag rapidement
+  // le slider, on n'envoie qu'une requête après ~150ms d'inactivité.
+  private pastFetchDebounce?: ReturnType<typeof setTimeout>;
   private readonly geoJsonFmt = new GeoJSON({ featureProjection: 'EPSG:3857', dataProjection: 'EPSG:4326' });
 
   ngAfterViewInit(): void {
@@ -351,6 +355,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   ngOnDestroy(): void {
     this.liveSub?.unsubscribe();
     this.trackSub?.unsubscribe();
+    this.pastVesselsSub?.unsubscribe();
+    if (this.pastFetchDebounce) clearTimeout(this.pastFetchDebounce);
     this.map?.setTarget(undefined);
     this.map?.dispose();
   }
@@ -373,9 +379,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
   private applyLayerVisibility(): void {
     if (!this.vesselLayer || !this.trackLayer || !this.sstLayer) return;
-    // Vessels = live only (positions = points instantanés sans historique en table dédiée)
-    this.vesselLayer.setVisible(this.showVessels() && this.isLive());
-    // Tracks = past only
+    // Vessels = visible en live ET en past (replay via SQL view paramétrable
+    // vessels_at_time). Pas en futur (pas de forecast trajectoire).
+    this.vesselLayer.setVisible(this.showVessels() && !this.isFuture());
+    // Tracks = past only — résumé daily (LineStrings agrégés)
     this.trackLayer.setVisible(this.showTracks() && !this.isLive() && !this.isFuture());
     // SST = past only (forecast pas dispo)
     this.sstLayer.setVisible(this.showSST() && !this.isFuture());
@@ -385,24 +392,73 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private refreshForTime(t: Date): void {
     const isLive = Math.abs(Date.now() - t.getTime()) < LIVE_THRESHOLD_MS;
     if (isLive) {
-      // En mode live, le startLiveLoopIfNeeded gère le fetch.
+      // En mode live, le startLiveLoopIfNeeded gère le fetch vessels.
       this.trackSource?.clear();
       this.tracksCount.set(0);
       this.lastTrackDay = null;
+      this.cancelPastVesselsFetch();
       this.closePopup();
-    } else {
-      // Past mode : fetch tracks du jour. Évite re-fetch si même jour.
+    } else if (!this.isFuture()) {
+      // Past mode : tracks daily (LineStrings) + vessels positions à T (debounced).
       const day = toIsoDate(t);
       if (day !== this.lastTrackDay) {
         this.lastTrackDay = day;
         this.fetchTracks(day);
       }
+      this.scheduleFetchVesselsAt(t);
+    } else {
+      // Future : aucun fetch (forecast pas implémenté).
+      this.cancelPastVesselsFetch();
+      this.vesselSource?.clear();
+      this.vesselsCount.set(0);
     }
     // SST : update TIME param du WMS source à chaque change si pas futur
     if (this.sstSource && !this.isFuture()) {
       const isoTs = toIsoTimestamp(t);
       this.sstSource.updateParams({ TIME: isoTs });
     }
+  }
+
+  /**
+   * Debounce les fetches WFS pendant le drag du slider — évite de spammer
+   * GeoServer (la SQL view scanne vessel_positions et coûte ~50-200ms).
+   * Fenêtre par défaut ±5min : compromis entre densité (assez de bateaux
+   * visibles) et précision temporelle.
+   */
+  private scheduleFetchVesselsAt(t: Date): void {
+    if (this.pastFetchDebounce) clearTimeout(this.pastFetchDebounce);
+    this.pastFetchDebounce = setTimeout(() => this.fetchVesselsAt(t), 150);
+  }
+
+  private fetchVesselsAt(t: Date): void {
+    this.pastVesselsSub?.unsubscribe();
+    this.pastVesselsSub = this.vessels
+      .fetchVesselsAtTime(t, 300)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (fc) => {
+          this.errorMsg.set(null);
+          this.lastRefreshAt.set(new Date());
+          this.vesselsCount.set(fc.features.length);
+          if (!this.vesselSource) return;
+          this.vesselSource.clear();
+          const features = this.geoJsonFmt.readFeatures(fc);
+          this.vesselSource.addFeatures(features);
+        },
+        error: (err) => {
+          this.errorMsg.set(`Erreur WFS replay : ${err.message ?? err}`);
+          this.vesselsCount.set(0);
+        },
+      });
+  }
+
+  private cancelPastVesselsFetch(): void {
+    if (this.pastFetchDebounce) {
+      clearTimeout(this.pastFetchDebounce);
+      this.pastFetchDebounce = undefined;
+    }
+    this.pastVesselsSub?.unsubscribe();
+    this.pastVesselsSub = undefined;
   }
 
   private startLiveLoopIfNeeded(): void {

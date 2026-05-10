@@ -79,6 +79,31 @@ export class VesselsService {
   }
 
   /**
+   * Replay temporel : positions des navires à un instant T donné, avec une
+   * fenêtre `windowSecs` autour. Implémenté côté GeoServer via SQL view
+   * paramétrable `vessels_at_time` (DISTINCT ON mmsi + ORDER BY ts DESC) —
+   * cf geoserver/provision.sh. Garantit 1 position par MMSI = la dernière
+   * connue dans [T-window, T+window].
+   *
+   * Cap à 5000 features (suffisant pour France métro où on tourne autour de
+   * 1500-3000 navires actifs simultanés).
+   */
+  fetchVesselsAtTime(at: Date, windowSecs = 300): Observable<VesselsFeatureCollection> {
+    return this.http.get<VesselsFeatureCollection>(this.wfsUrl, {
+      params: {
+        service: 'WFS',
+        version: '2.0.0',
+        request: 'GetFeature',
+        typeName: 'maritime:vessels_at_time',
+        outputFormat: 'application/json',
+        srsName: 'EPSG:4326',
+        viewparams: `at:${at.toISOString()};window:${windowSecs}`,
+        count: '5000',
+      },
+    });
+  }
+
+  /**
    * Tracks d'un jour donné via CQL_FILTER. L'index (mmsi, day) sur
    * vessel_tracks_daily fait que la requête est instantanée même sur
    * 100 jours d'historique. Cap à 5000 features pour éviter le DOM

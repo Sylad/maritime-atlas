@@ -131,6 +131,68 @@ publish_feature "v_vessels_live" "Vessels live (last 15 minutes)"
 publish_feature "v_vessels_live_categorized" "Vessels live categorized by ship type"
 publish_feature "vessel_tracks_daily" "Vessel tracks aggregated by day (LineStrings)"
 
+# ─── SQL view paramétrée : vessels à un instant T ────────────────────
+# Permet le replay temporel piloté par le time slider. Le client passe
+# `viewparams=at:ISO;window:300` et GS substitue dans le SQL — DISTINCT ON
+# garde la dernière position par MMSI dans la fenêtre [at-window, at+window].
+# Index naturel sur (mmsi, ts DESC) couvre la requête.
+publish_sql_view() {
+  layer="vessels_at_time"
+  if exists "workspaces/${WS}/datastores/${STORE}/featuretypes/${layer}.json"; then
+    log "SQL view '${layer}' already published."
+    return
+  fi
+  log "Publishing SQL view '${layer}' (XML)…"
+  # XML format pour SQL view paramétrée — plus fiable que JSON pour les
+  # JDBC virtual tables (substitution des params %at% / %window%).
+  # Le SQL utilise des CDATA pour préserver les caractères spéciaux.
+  cat > /tmp/vessels_at_time.xml <<'XML_EOF'
+<featureType>
+  <name>vessels_at_time</name>
+  <nativeName>vessels_at_time</nativeName>
+  <title>Vessels at specific time (parameterized)</title>
+  <srs>EPSG:4326</srs>
+  <nativeBoundingBox>
+    <minx>-6.0</minx><maxx>10.0</maxx><miny>41.0</miny><maxy>51.5</maxy>
+    <crs>EPSG:4326</crs>
+  </nativeBoundingBox>
+  <latLonBoundingBox>
+    <minx>-6.0</minx><maxx>10.0</maxx><miny>41.0</miny><maxy>51.5</maxy>
+    <crs>EPSG:4326</crs>
+  </latLonBoundingBox>
+  <metadata>
+    <entry key="JDBC_VIRTUAL_TABLE">
+      <virtualTable>
+        <name>vessels_at_time</name>
+        <sql><![CDATA[SELECT DISTINCT ON (vp.mmsi) vp.mmsi, vp.ts AS last_seen, v.name, v.callsign, v.ship_type, v.flag, v.length_m, v.width_m, v.destination, vp.geom::geometry(Point, 4326) AS geom FROM vessel_positions vp LEFT JOIN vessels v USING (mmsi) WHERE vp.ts BETWEEN ('%at%')::timestamptz - make_interval(secs => (%window%)::int) AND ('%at%')::timestamptz + make_interval(secs => (%window%)::int) ORDER BY vp.mmsi, vp.ts DESC]]></sql>
+        <geometry>
+          <name>geom</name>
+          <type>Point</type>
+          <srid>4326</srid>
+        </geometry>
+        <parameter>
+          <name>at</name>
+          <defaultValue>2020-01-01T00:00:00Z</defaultValue>
+          <regexpValidator>^[0-9TZ:.\-+]+$</regexpValidator>
+        </parameter>
+        <parameter>
+          <name>window</name>
+          <defaultValue>300</defaultValue>
+          <regexpValidator>^[0-9]+$</regexpValidator>
+        </parameter>
+      </virtualTable>
+    </entry>
+  </metadata>
+  <enabled>true</enabled>
+</featureType>
+XML_EOF
+  curl -sf $AUTH -X POST "${GS_URL}/rest/workspaces/${WS}/datastores/${STORE}/featuretypes" \
+    -H "Content-Type: application/xml" --data @/tmp/vessels_at_time.xml
+  log "  → SQL view published."
+}
+
+publish_sql_view
+
 # ─── CORS (pour Angular dev sur autre origin) ────────────────────────
 # CORS est déjà activé via env var dans le docker-compose, juste vérifier.
 log "Provisioning complete."
