@@ -296,6 +296,39 @@ services:
       - geoserver
     restart: unless-stopped
 
+  # ─── Worker : weather-fetcher-arome (sprint 11) ───────────────────
+  # Cron 4×/jour (02:30 / 08:30 / 14:30 / 20:30 UTC, alignés sur les runs
+  # AROME +2h de latence) qui télécharge les bundles SP1 0025 de Météo-France
+  # depuis le bucket public PNT (object.data.gouv.fr/meteofrance-pnt) — AUCUNE
+  # clé API requise (open data, sans inscription). Résolution 0.025° (~2.5km)
+  # = 10× plus fin que le GFS 0.25° (25km) côté finesse côtière. Extrait
+  # u10/v10 → speed, écrit GeoTIFF dans /coverage/wind-speed-arome/ + GeoJSON
+  # arrows dans /wind-arrows/arome_wind_arrows_*.geojson. Layer GeoServer
+  # publié au premier cycle = maritime:wind-speed-arome (style SLD partagé
+  # avec GFS via provision.sh sprint 11).
+  weather-fetcher-arome:
+    build: ./services/weather-fetcher-arome
+    container_name: maritime-weather-fetcher-arome
+    env_file: .env
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-maritime}:${RABBITMQ_PASSWORD:-maritime}@rabbitmq:5672
+      GEOSERVER_URL: http://geoserver:8080/geoserver
+      GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
+      GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}
+      WIND_DIR: /coverage/wind-speed-arome
+      WIND_ARROWS_DIR: /wind-arrows
+      # AROME couvre jusqu'à +51h ; on prend 24h pour limiter la charge
+      # (4 bundles × 55MB ≈ 220MB / run × 4 runs/jour ≈ 880MB / jour).
+      FORECAST_HOURS: "24"
+      # Bundles GRIB2 contiennent du pas horaire ; 3h aligne avec le slider GFS.
+      SAMPLE_STEP_HOURS: "3"
+    volumes:
+      - coverage-data:/coverage
+      - wind-arrows-data:/wind-arrows
+    depends_on:
+      - geoserver
+    restart: unless-stopped
+
   # ─── Worker : sst-fetcher (sprint 3) ───────────────────────────────
   # Cron quotidien (06:00 UTC) qui télécharge NOAA OISST v2.1 (NetCDF),
   # subset bbox France métropole, exporte en GeoTIFF dans le mosaic

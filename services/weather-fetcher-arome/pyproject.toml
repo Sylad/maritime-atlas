@@ -1,0 +1,18 @@
+[project]
+name = "weather-fetcher-arome"
+version = "0.1.0"
+description = "Fetch Météo-France AROME (0.025°, France métropole) wind forecasts from public PNT S3 bucket → GeoTIFF for GeoServer ImageMosaic"
+requires-python = ">=3.12"
+dependencies = [
+    "xarray>=2024.10.0",
+    "rioxarray>=0.18.0",
+    "cfgrib>=0.9.14",
+    "eccodes>=2.38.0",
+    "numpy>=2.0.0",
+    "requests>=2.32.0",
+    "apscheduler>=3.10.4",
+    "pika>=1.3.2",
+]
+
+[tool.uv]
+package = false

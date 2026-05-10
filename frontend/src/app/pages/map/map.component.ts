@@ -160,7 +160,25 @@ function toIsoTimestamp(d: Date): string {
             </span>
             <span class="toggle-text">
               <span class="toggle-name">Vent</span>
-              <span class="toggle-count">forecast 10m (GFS)</span>
+              <span class="toggle-count">{{ windSource() === 'arome' ? 'forecast 10m (AROME 2.5km)' : 'forecast 10m (GFS 25km)' }}</span>
+            </span>
+            <!-- Sprint 11 : sélecteur de modèle (GFS NOAA vs AROME Météo-France).
+                 Pilote à la fois le layer WMS (maritime:wind-speed-{arome|}) et les
+                 arrows GeoJSON (arome_wind_arrows_ vs wind_arrows_). Affiché en
+                 inline-radio pour gagner de la place dans la légende. -->
+            <span class="wind-source-radios" (click)="$event.stopPropagation()">
+              <label class="radio-mini">
+                <input type="radio" name="windSrc" value="gfs"
+                       [checked]="windSource() === 'gfs'"
+                       (change)="windSource.set('gfs')" />
+                GFS
+              </label>
+              <label class="radio-mini">
+                <input type="radio" name="windSrc" value="arome"
+                       [checked]="windSource() === 'arome'"
+                       (change)="windSource.set('arome')" />
+                AROME
+              </label>
             </span>
             @if (isAuthenticated() && palettesFor('wind').length > 0) {
               <select class="palette-select" [value]="prefFor('wind')" (change)="setPalettePref('wind', $any($event.target).value)" (click)="$event.stopPropagation()">
@@ -192,7 +210,7 @@ function toIsoTimestamp(d: Date): string {
             </span>
             <span class="toggle-text">
               <span class="toggle-name">Vent flèches</span>
-              <span class="toggle-count">{{ windArrowsStatus() }}</span>
+              <span class="toggle-count">{{ windSource() === 'arome' ? 'AROME · ' : 'GFS · ' }}{{ windArrowsStatus() }}</span>
             </span>
           </label>
           <label class="layer-toggle" [class.dim]="!showWaveArrows()">
@@ -374,6 +392,37 @@ function toIsoTimestamp(d: Date): string {
       border-radius: 4px;
       margin-left: auto;
       max-width: 110px;
+    }
+    /* Sprint 11 : sélecteur de modèle (GFS vs AROME) inline dans le toggle Vent.
+       Très compact (2 radios + 2 labels) pour ne pas casser la légende. */
+    .wind-source-radios {
+      display: inline-flex;
+      gap: 0.4em;
+      margin-left: 0.5em;
+      align-items: center;
+      font-size: 0.65rem;
+      color: var(--fg-muted);
+      font-family: var(--font-mono);
+      letter-spacing: 0.05em;
+    }
+    .wind-source-radios .radio-mini {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.15em;
+      cursor: pointer;
+      padding: 0.05em 0.3em;
+      border-radius: 3px;
+      transition: background 0.15s, color 0.15s;
+    }
+    .wind-source-radios .radio-mini:has(input:checked) {
+      background: var(--bg-3);
+      color: var(--accent);
+    }
+    .wind-source-radios .radio-mini input {
+      margin: 0;
+      width: 9px;
+      height: 9px;
+      accent-color: var(--accent);
     }
     .legend {
       position: absolute;
@@ -742,9 +791,16 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly showRain = signal(false);
   readonly showWind = signal(false);
   readonly showWaves = signal(false);
+  // Sprint 11 : choix du modèle météo pour le vent. 'gfs' = NOAA 25km (defaut,
+  // dispo immédiatement, couverture monde). 'arome' = Météo-France 2.5km
+  // (France métro uniquement, ~10× plus fin côté côtier, dispo après ~2h
+  // de latence depuis le run). Le toggle pilote à la fois le layer WMS
+  // (maritime:wind-speed vs maritime:wind-speed-arome) ET les arrows GeoJSON
+  // (wind_arrows_*.geojson vs arome_wind_arrows_*.geojson).
+  readonly windSource = signal<'gfs' | 'arome'>('gfs');
   readonly showWindArrows = signal(false);
   readonly showWaveArrows = signal(false);
-  readonly windArrowsStatus = signal('forecast vent (GFS)');
+  readonly windArrowsStatus = signal('forecast vent');
   readonly waveArrowsStatus = signal('vagues primaires (WW3)');
   readonly showLightning = signal(false);
   readonly lightningStatus = signal('strikes 30min (Blitzortung)');
@@ -798,7 +854,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private rainSnapshotTimer?: ReturnType<typeof setInterval>;
   private currentRainPath?: string;
   private windLayer?: TileLayer<TileWMS>;
-  private windSource?: TileWMS;
+  // Renommé en sprint 11 (était `windSource`) pour libérer le nom au signal
+  // user-facing `windSource: 'gfs' | 'arome'`. Cette ref pointe vers le
+  // TileWMS du layer "Vent" — peu importe la source choisie, le LAYERS
+  // param est mis à jour dynamiquement via updateParams().
+  private windWmsSource?: TileWMS;
   private wavesLayer?: TileLayer<TileWMS>;
   private wavesSource?: TileWMS;
   private windArrowsLayer?: VectorLayer<VectorSource>;
@@ -844,6 +904,26 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         this.applyLayerVisibility();
         // Si on vient d'activer un toggle arrows, déclenche un fetch
         if (this.showWindArrows() || this.showWaveArrows()) {
+          this.refreshArrowsForTime(this.currentTime);
+        }
+      });
+    });
+
+    // Sprint 11 : effet dédié pour le switch GFS↔AROME.
+    // - Met à jour le LAYERS du WMS wind (force un refresh des tiles)
+    // - Reset le lastWindArrowsTs pour forcer le re-fetch du GeoJSON
+    //   correspondant (arome_wind_arrows_ vs wind_arrows_) au prochain tick
+    // - Re-déclenche immédiatement le fetch arrows si la couche est ON
+    effect(() => {
+      const src = this.windSource();
+      queueMicrotask(() => {
+        if (this.windWmsSource) {
+          this.windWmsSource.updateParams({
+            LAYERS: src === 'arome' ? 'maritime:wind-speed-arome' : 'maritime:wind-speed',
+          });
+        }
+        this.lastWindArrowsTs = undefined;
+        if (this.showWindArrows()) {
           this.refreshArrowsForTime(this.currentTime);
         }
       });
@@ -902,9 +982,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       const sn = prefs[kind];
       return sn ? `maritime:${sn}` : '';
     };
-    if (this.sstSource)   this.sstSource.updateParams({ STYLES: styleParam('sst') });
-    if (this.windSource)  this.windSource.updateParams({ STYLES: styleParam('wind') });
-    if (this.wavesSource) this.wavesSource.updateParams({ STYLES: styleParam('waves') });
+    if (this.sstSource)     this.sstSource.updateParams({ STYLES: styleParam('sst') });
+    if (this.windWmsSource) this.windWmsSource.updateParams({ STYLES: styleParam('wind') });
+    if (this.wavesSource)   this.wavesSource.updateParams({ STYLES: styleParam('waves') });
   }
 
   ngAfterViewInit(): void {
@@ -1070,13 +1150,22 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     const manifest = await this.arrows.getManifest();
     if (!manifest) return;
     if (wantWind && this.windArrowsSource) {
-      const ts = this.arrows.findNearestTs(manifest.wind, t);
+      // Sprint 11 : choisit la source manifest selon windSource().
+      // AROME a sa propre liste de ts (manifest.arome). Fallback automatique
+      // sur GFS si AROME pas encore alimenté (premier boot, ou volume vide).
+      const src = this.windSource();
+      const useArome = src === 'arome' && Array.isArray(manifest.arome) && manifest.arome.length > 0;
+      const tsList = useArome ? (manifest.arome ?? []) : manifest.wind;
+      const kind: ArrowsKind = useArome ? 'arome' : 'wind';
+      const ts = this.arrows.findNearestTs(tsList, t);
       if (!ts) {
         this.windArrowsSource.clear();
-        this.windArrowsStatus.set('hors fenêtre forecast');
+        this.windArrowsStatus.set(useArome
+          ? 'hors fenêtre AROME'
+          : (src === 'arome' ? 'AROME indispo, fallback GFS vide' : 'hors fenêtre GFS'));
       } else if (ts !== this.lastWindArrowsTs) {
         try {
-          const fc = await this.arrows.fetchArrows('wind', ts);
+          const fc = await this.arrows.fetchArrows(kind, ts);
           this.windArrowsSource.clear();
           const features = this.geoJsonFmt.readFeatures(fc);
           this.windArrowsSource.addFeatures(features);
@@ -1133,9 +1222,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
   private styleArrow(kind: ArrowsKind, feat: FeatureLike): Style {
     const props = feat.getProperties() as { speed?: number; hs?: number; dirTo: number };
-    const value = kind === 'wind' ? (props.speed ?? 0) : (props.hs ?? 0);
+    // 'arome' partage la sémantique 'wind' (m/s + dirTo) — Beaufort palette.
+    const isWindLike = kind === 'wind' || kind === 'arome';
+    const value = isWindLike ? (props.speed ?? 0) : (props.hs ?? 0);
     const color = this.colorForArrow(kind, value);
-    const scale = kind === 'wind' ? this.scaleForWind(value) : this.scaleForWaves(value);
+    const scale = isWindLike ? this.scaleForWind(value) : this.scaleForWaves(value);
     return new Style({
       image: new Icon({
         src: this.arrowDataUrl(color),
@@ -1148,7 +1239,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   }
 
   private colorForArrow(kind: ArrowsKind, v: number): string {
-    if (kind === 'wind') {
+    if (kind === 'wind' || kind === 'arome') {
       // Beaufort-like : ≤3 bleu, ≤6 cyan, ≤10 vert, ≤14 jaune, ≤18 orange, >18 rouge
       if (v <= 3)  return '#38bdf8';
       if (v <= 6)  return '#06b6d4';
@@ -1361,14 +1452,21 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.windParticlesStatus.set('manifest indispo');
       return;
     }
-    const ts = this.arrows.findNearestTs(manifest.wind, t);
+    // Sprint 11 : aligne les particules sur la source choisie (GFS ou AROME).
+    // Si AROME est sélectionné mais manifest.arome est vide → fallback GFS
+    // (mieux d'afficher quelque chose plutôt que rien).
+    const src = this.windSource();
+    const useArome = src === 'arome' && Array.isArray(manifest.arome) && manifest.arome.length > 0;
+    const tsList = useArome ? (manifest.arome ?? []) : manifest.wind;
+    const kind: ArrowsKind = useArome ? 'arome' : 'wind';
+    const ts = this.arrows.findNearestTs(tsList, t);
     if (!ts) {
       this.windParticlesStatus.set('hors fenêtre forecast');
       this.particlesEngine.setGrid([]);
       return;
     }
     try {
-      const fc = await this.arrows.fetchArrows('wind', ts);
+      const fc = await this.arrows.fetchArrows(kind, ts);
       const grid: WindParticlePoint[] = fc.features.map((f: any) => {
         const speed = f.properties.speed as number;
         const dirTo = f.properties.dirTo as number;
@@ -1423,8 +1521,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // Wind/Waves : forecast peut couvrir le passé (run analyse) ET le futur
     // jusqu'à +72h. On utilise la même plage [past..cursor] pour le past
     // mode, mais en mode futur on accepte aussi le forecast.
-    if (this.windSource)  this.windSource.updateParams({ TIME: timeRange });
-    if (this.wavesSource) this.wavesSource.updateParams({ TIME: timeRange });
+    if (this.windWmsSource) this.windWmsSource.updateParams({ TIME: timeRange });
+    if (this.wavesSource)   this.wavesSource.updateParams({ TIME: timeRange });
   }
 
   /**
@@ -1573,14 +1671,18 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
     // Vent (force, m/s) — WMS time-enabled depuis ImageMosaic GeoServer.
     // GeoServer applique automatiquement un style "raster" arc-en-ciel par
-    // défaut sur les valeurs réelles ; on pourra customiser via SLD plus tard.
-    this.windSource = new TileWMS({
+    // défaut. Sprint 11 : le LAYERS param est dynamique (signal `windSource`)
+    // entre 'maritime:wind-speed' (GFS) et 'maritime:wind-speed-arome' (AROME).
+    const initialWindLayer = this.windSource() === 'arome'
+      ? 'maritime:wind-speed-arome'
+      : 'maritime:wind-speed';
+    this.windWmsSource = new TileWMS({
       url: '/geoserver/maritime/wms',
-      params: { LAYERS: 'maritime:wind-speed', TILED: true, TRANSPARENT: true },
+      params: { LAYERS: initialWindLayer, TILED: true, TRANSPARENT: true },
       serverType: 'geoserver',
     });
     this.windLayer = new TileLayer({
-      source: this.windSource,
+      source: this.windWmsSource,
       opacity: 0.55,
       zIndex: 32,
       visible: false,
@@ -1628,7 +1730,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.windArrowsSource = new VectorSource();
     this.windArrowsLayer = new VectorLayer({
       source: this.windArrowsSource,
-      style: (feat: FeatureLike) => this.styleArrow('wind', feat),
+      // Le `kind` passé au style suit le signal `windSource()` — comme ça
+      // un éventuel re-render à un changement de source utilise la bonne
+      // palette/scale (en pratique : Beaufort wind dans les 2 cas, donc
+      // visuel identique — mais on garde la sémantique propre).
+      style: (feat: FeatureLike) => this.styleArrow(
+        this.windSource() === 'arome' ? 'arome' : 'wind', feat,
+      ),
       zIndex: 95,
       visible: false,
       declutter: true,

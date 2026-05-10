@@ -63,6 +63,7 @@ utilisateur.
 | `track-builder` | NestJS 11 | — | Cron horaire (xx:35) `vessel_positions` → `vessel_tracks_daily` (LineStrings) |
 | `sst-fetcher` | Python (xarray + rioxarray) | — | Cron quotidien 06:00 UTC, NOAA OISST → GeoTIFF mosaic store |
 | `weather-fetcher` | Python (cfgrib + xarray) | — | Cron 4×/jour, GFS (vent 10m) + WW3 (HTSGW + DIRPW), forecasts +72h, GeoTIFF + GeoJSON arrows |
+| `weather-fetcher-arome` | Python (cfgrib + xarray) | — | **Sprint 11.** Cron 4×/jour, Météo-France AROME 0.025° (~2.5km) en parallèle du GFS 25km, forecasts +24h, layer `wind-speed-arome` |
 | `api` | NestJS 11 + Drizzle | — | Auth JWT 24h + CRUD palettes (max 5/user, miroir GeoServer styles) |
 | `frontend` | Angular 19 + nginx | 4204 | UI map, nginx proxy `/api/` et `/geoserver/` (CORS-free) |
 
@@ -76,7 +77,7 @@ utilisateur.
 | Backend | NestJS 11 + TypeScript 5, Drizzle ORM (api), amqplib (ais), node-cron (track-builder) |
 | Raster pipeline | Python 3 + xarray + rioxarray + cfgrib + gdal natif |
 | Frontend | Angular 19 + OpenLayers 10 + nginx alpine |
-| Sources externes | aisstream.io · NOAA OISST · NOAA GFS · NOAA WaveWatch III · RainViewer |
+| Sources externes | aisstream.io · NOAA OISST · NOAA GFS · NOAA WaveWatch III · Météo-France AROME (data.gouv.fr) · RainViewer |
 | Auth | JWT (`@nestjs/jwt`), bcrypt, 24h, scoped au workspace `maritime` |
 | Build | Docker multi-stage par service |
 

@@ -231,6 +231,12 @@ if [ -f "/styles/sst-rainbow.sld" ]; then
 fi
 if [ -f "/styles/wind-speed-rainbow.sld" ]; then
   upload_style "wind-speed-rainbow" "/styles/wind-speed-rainbow.sld" "wind-speed"
+  # Sprint 11 — Météo-France AROME en parallèle de GFS. Le mosaic store
+  # 'wind_speed_arome' (et donc le layer 'wind-speed-arome') est créé au
+  # premier cycle weather-fetcher-arome, pas par ce sidecar. Si la layer
+  # existe déjà à ce boot, on lui ré-applique le SLD (idempotent).
+  # Le 404 silencieux (>/dev/null sur le PUT) couvre le cas premier-boot.
+  upload_style "wind-speed-rainbow" "/styles/wind-speed-rainbow.sld" "wind-speed-arome"
 fi
 if [ -f "/styles/wave-hs-rainbow.sld" ]; then
   upload_style "wave-hs-rainbow" "/styles/wave-hs-rainbow.sld" "wave-hs"
