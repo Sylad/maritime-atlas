@@ -192,8 +192,36 @@ services:
       - geoserver
     restart: unless-stopped
 
+  # ─── API NestJS (sprint 5) — auth + palettes utilisateur ──────────
+  # Service jeune avec Postgres (réutilise la base maritime existante,
+  # 3 nouvelles tables isolées : users, palettes, user_layer_preferences).
+  # JWT 24h, mirroring des palettes en styles GeoServer "user_<id>_<slug>".
+  api:
+    build: ./services/api
+    container_name: maritime-api
+    env_file: .env
+    environment:
+      PORT: "3010"
+      CORS_ORIGIN: ${API_CORS_ORIGIN:-http://localhost:4204,http://nas:4204}
+      DATABASE_URL: postgres://${POSTGRES_USER:-maritime}:${POSTGRES_PASSWORD:-maritime}@postgres:5432/${POSTGRES_DB:-maritime}
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-in-prod}
+      JWT_EXPIRES_IN: "24h"
+      GEOSERVER_URL: http://geoserver:8080/geoserver
+      GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
+      GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}
+      GEOSERVER_WORKSPACE: maritime
+      PALETTE_LIMIT_PER_USER: "5"
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      geoserver:
+        condition: service_healthy
+    restart: unless-stopped
+
   # ─── Frontend Angular + OpenLayers (sprint 1.5) ────────────────────
   # nginx proxy /geoserver/ → service GeoServer interne (CORS-free).
+  # nginx proxy /api/ → service api NestJS (sprint 5).
   frontend:
     build: ./frontend
     container_name: maritime-frontend
@@ -201,6 +229,7 @@ services:
       - "4204:80"
     depends_on:
       - geoserver
+      - api
     restart: unless-stopped
 
 volumes:
