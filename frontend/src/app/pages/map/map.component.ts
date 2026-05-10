@@ -5,6 +5,7 @@ import {
   Component,
   computed,
   DestroyRef,
+  effect,
   ElementRef,
   inject,
   OnDestroy,
@@ -531,6 +532,20 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // le slider, on n'envoie qu'une requête après ~150ms d'inactivité.
   private pastFetchDebounce?: ReturnType<typeof setTimeout>;
   private readonly geoJsonFmt = new GeoJSON({ featureProjection: 'EPSG:3857', dataProjection: 'EPSG:4326' });
+
+  constructor() {
+    // Effect réactif : à chaque changement de signal toggle, on ré-applique
+    // la visibility des layers OL. Sans ça, cocher/décocher un toggle ne
+    // déclenche aucune mise à jour côté Map (les layers OL ne sont pas
+    // bound aux signals — ils sont créés impérativement dans initMap).
+    effect(() => {
+      // Read pour s'abonner — le get suffit avec signals
+      this.showVessels(); this.showTracks(); this.showSST();
+      this.showRain();    this.showWind();   this.showWaves();
+      // Defer pour s'exécuter après ngAfterViewInit (this.*Layer dispo)
+      queueMicrotask(() => this.applyLayerVisibility());
+    });
+  }
 
   ngAfterViewInit(): void {
     this.initMap();

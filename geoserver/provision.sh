@@ -193,6 +193,44 @@ XML_EOF
 
 publish_sql_view
 
+# ─── SLD styles pour les rasters météo ───────────────────────────────
+# Wind / waves utilisent le style "raster" gris par défaut, peu visible.
+# On uploade des SLD coloriés et on les associe comme defaultStyle.
+upload_style() {
+  style="$1"      # nom du style (ex: wind-speed-rainbow)
+  sld_file="$2"   # chemin vers le .sld monté dans le container
+  layer="$3"      # layer à styler (ex: wind-speed) — workspace maritime
+  if exists "workspaces/${WS}/styles/${style}.json"; then
+    log "Style '${style}' already exists, refreshing SLD body."
+    curl -sf $AUTH -X PUT "${GS_URL}/rest/workspaces/${WS}/styles/${style}" \
+      -H "Content-Type: application/vnd.ogc.sld+xml" \
+      --data @"${sld_file}" >/dev/null
+  else
+    log "Creating style '${style}'…"
+    # Step 1: register the style entry (filename = name.sld)
+    curl -sf $AUTH -X POST "${GS_URL}/rest/workspaces/${WS}/styles" \
+      -H "Content-Type: application/json" \
+      -d "{\"style\":{\"name\":\"${style}\",\"filename\":\"${style}.sld\"}}"
+    # Step 2: PUT the SLD body
+    curl -sf $AUTH -X PUT "${GS_URL}/rest/workspaces/${WS}/styles/${style}" \
+      -H "Content-Type: application/vnd.ogc.sld+xml" \
+      --data @"${sld_file}" >/dev/null
+  fi
+  # Associate as defaultStyle on the layer
+  curl -sf $AUTH -X PUT "${GS_URL}/rest/layers/${WS}:${layer}" \
+    -H "Content-Type: application/json" \
+    -d "{\"layer\":{\"defaultStyle\":{\"name\":\"${style}\",\"workspace\":\"${WS}\"}}}" >/dev/null
+  log "  → '${style}' applied to ${layer}"
+}
+
+# Les fichiers SLD sont montés via le compose (cf docker-compose.yml).
+if [ -f "/styles/wind-speed-rainbow.sld" ]; then
+  upload_style "wind-speed-rainbow" "/styles/wind-speed-rainbow.sld" "wind-speed"
+fi
+if [ -f "/styles/wave-hs-rainbow.sld" ]; then
+  upload_style "wave-hs-rainbow" "/styles/wave-hs-rainbow.sld" "wave-hs"
+fi
+
 # ─── CORS (pour Angular dev sur autre origin) ────────────────────────
 # CORS est déjà activé via env var dans le docker-compose, juste vérifier.
 log "Provisioning complete."

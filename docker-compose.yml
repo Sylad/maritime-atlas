@@ -91,6 +91,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-maritime}
     volumes:
       - ./geoserver/provision.sh:/provision.sh:ro
+      - ./geoserver/styles:/styles:ro
     command: ["sh", "/provision.sh"]
     depends_on:
       geoserver:
