@@ -277,7 +277,11 @@ def fetch_and_convert(date: datetime) -> bool:
                     f.write(chunk)
 
         # Subset bbox France + export GeoTIFF
-        ds = xr.open_dataset(tmp_nc)
+        # mask_and_scale=True (default) applique scale_factor + offset en
+        # float32 lors du lazy-load. Sans ça, certains pipelines OpenDAP
+        # ré-encodent les valeurs en int16 raw lors de to_raster, et
+        # GeoServer voit 1200-2000 au lieu de 12-20°C.
+        ds = xr.open_dataset(tmp_nc, mask_and_scale=True)
         # OISST utilise lon en [0, 360] pour certains datasets et [-180, 180]
         # pour d'autres. On normalise pour avoir [-180, 180].
         if ds['lon'].max() > 180:
@@ -294,6 +298,14 @@ def fetch_and_convert(date: datetime) -> bool:
             sst = sst.isel(zlev=0)
 
         # rioxarray attend x/y comme noms de dim ; OISST utilise lon/lat.
+        # Force lat décroissant (north→south) pour que le GeoTIFF soit
+        # north-up (sinon Origin = (lon_min, lat_min) = coin sud-ouest et
+        # le raster est flippé verticalement → "tuiles inversées" côté WMS).
+        sst = sst.sortby('lat', ascending=False)
+        # Cast en float32 explicite : sécurise le contenu réel du GeoTIFF
+        # (sinon rio.to_raster peut écrire un int16 raw avec scale_factor
+        # en metadata seulement, ce que GeoServer lit comme valeur brute).
+        sst = sst.astype('float32')
         sst = sst.rio.set_spatial_dims(x_dim='lon', y_dim='lat', inplace=False)
         sst = sst.rio.write_crs('EPSG:4326')
         sst.rio.to_raster(

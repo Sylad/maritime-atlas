@@ -224,6 +224,9 @@ upload_style() {
 }
 
 # Les fichiers SLD sont montés via le compose (cf docker-compose.yml).
+if [ -f "/styles/sst-rainbow.sld" ]; then
+  upload_style "sst-rainbow" "/styles/sst-rainbow.sld" "sst-daily"
+fi
 if [ -f "/styles/wind-speed-rainbow.sld" ]; then
   upload_style "wind-speed-rainbow" "/styles/wind-speed-rainbow.sld" "wind-speed"
 fi

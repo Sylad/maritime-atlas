@@ -287,6 +287,11 @@ def grib_to_geotiffs(grib: Path, valid_time: datetime) -> dict[str, Path]:
             ds = ds.sortby('longitude')
 
     def export(da: xr.DataArray, dest: Path) -> None:
+        # Force latitude décroissante avant rename (north-up GeoTIFF,
+        # sinon Origin = coin sud-ouest et le WMS sert des tuiles flippées
+        # verticalement). Le sortby doit se faire AVANT le set_spatial_dims.
+        if 'latitude' in da.coords:
+            da = da.sortby('latitude', ascending=False)
         # Renomme dims en x/y pour rioxarray
         da = da.rename({'longitude': 'x', 'latitude': 'y'}) if 'longitude' in da.dims else da
         da = da.rio.set_spatial_dims(x_dim='x', y_dim='y', inplace=False)
