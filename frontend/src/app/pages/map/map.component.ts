@@ -1,4 +1,4 @@
-import { DatePipe } from '@angular/common';
+import { DatePipe, DecimalPipe } from '@angular/common';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
@@ -40,6 +40,7 @@ import { AuthService } from '../../services/auth.service';
 import { PalettesService } from '../../services/palettes.service';
 import { ArrowsService, type ArrowsKind } from '../../services/arrows.service';
 import { LightningService, type LightningProperties } from '../../services/lightning.service';
+import { AlertsService, type AlertProperties, type AlertSeverity } from '../../services/alerts.service';
 
 // France métropole — centré sur l'hexagone, zoom large.
 const INITIAL_CENTER: [number, number] = [3.0, 46.5];
@@ -76,7 +77,7 @@ function toIsoTimestamp(d: Date): string {
 
 @Component({
   selector: 'app-map',
-  imports: [DatePipe, TimeSliderComponent, RouterLink],
+  imports: [DatePipe, DecimalPipe, TimeSliderComponent, RouterLink],
   template: `
     <div class="map-container">
       <div class="map" #mapEl></div>
@@ -210,7 +211,41 @@ function toIsoTimestamp(d: Date): string {
               <span class="toggle-count">{{ lightningStatus() }}</span>
             </span>
           </label>
+          <label class="layer-toggle" [class.dim]="!showAlerts()">
+            <input type="checkbox" [checked]="showAlerts()" (change)="showAlerts.set($any($event.target).checked)" />
+            <span class="toggle-glyph">
+              <span class="glyph-alert">⚠</span>
+            </span>
+            <span class="toggle-text">
+              <span class="toggle-name">Alertes</span>
+              <span class="toggle-count">{{ alertsStatus() }}</span>
+            </span>
+          </label>
         </div>
+
+        @if (showAlerts() && alertsList().length > 0) {
+          <div class="alerts-panel">
+            <div class="legend-section-title">Alertes actives ({{ alertsList().length }})</div>
+            <div class="alerts-feed">
+              @for (a of alertsList().slice(0, 10); track a.id) {
+                <div class="alert-item" [class.danger]="a.severity === 'danger'" [class.warning]="a.severity === 'warning'">
+                  <div class="alert-head">
+                    <span class="alert-kind">{{ alertKindLabel(a.kind) }}</span>
+                    <span class="alert-age">{{ formatAge(a.age_seconds) }}</span>
+                  </div>
+                  <div class="alert-meta">
+                    {{ a.vessel_name || ('MMSI ' + a.mmsi) }}
+                    @if (a.kind === 'high-wind') {
+                      · {{ a.detail?.windSpeed | number:'1.0-1' }} m/s
+                    } @else if (a.kind === 'lightning-proximity') {
+                      · {{ a.detail?.distanceM | number:'1.0-0' }} m
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+          </div>
+        }
 
         <div class="legend-section-title">Catégories navires</div>
         @for (cat of categories; track cat.key) {
@@ -451,6 +486,54 @@ function toIsoTimestamp(d: Date): string {
       color: #fde047;
       text-shadow: 0 0 4px rgba(253,224,71,0.6);
     }
+    .glyph-alert {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 16px;
+      border-radius: 2px;
+      font-size: 0.95rem;
+      line-height: 1;
+      border: 1px solid rgba(251,146,60,0.45);
+      background: linear-gradient(to right, rgba(251,146,60,0.18), rgba(220,38,38,0.32));
+      color: #fbbf24;
+    }
+    .alerts-panel {
+      margin-top: 0.5em;
+      padding-top: 0.6em;
+      border-top: 1px solid var(--border);
+      max-height: 280px;
+      overflow-y: auto;
+    }
+    .alerts-feed {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3em;
+    }
+    .alert-item {
+      padding: 0.4em 0.5em;
+      border-left: 2px solid var(--accent);
+      background: rgba(255,255,255,0.03);
+      font-size: 0.75rem;
+      border-radius: 0 4px 4px 0;
+      &.warning { border-left-color: var(--warning); }
+      &.danger  { border-left-color: var(--negative); background: rgba(239,68,68,0.08); }
+    }
+    .alert-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.5em;
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+    }
+    .alert-kind { color: var(--fg); letter-spacing: 0.05em; }
+    .alert-age  { color: var(--fg-dim); }
+    .alert-meta {
+      color: var(--fg-muted);
+      font-size: 0.72rem;
+      margin-top: 0.15em;
+    }
     .toggle-text {
       display: flex;
       flex-direction: column;
@@ -594,6 +677,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private readonly rainviewer = inject(RainviewerService);
   private readonly arrows = inject(ArrowsService);
   private readonly lightning = inject(LightningService);
+  private readonly alertsSvc = inject(AlertsService);
   private readonly auth = inject(AuthService);
   private readonly palettesSvc = inject(PalettesService);
   private readonly router = inject(Router);
@@ -625,6 +709,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly waveArrowsStatus = signal('vagues primaires (WW3)');
   readonly showLightning = signal(false);
   readonly lightningStatus = signal('strikes 30min (Blitzortung)');
+  readonly showAlerts = signal(false);
+  readonly alertsStatus = signal('alertes maritimes 1h');
+  readonly alertsList = this.alertsSvc.latestAlerts;
 
   // Mode courant (signal-driven, recalculé à chaque tick du time slider).
   // Sert à colorer les badges + griser les toggles dont la layer ne peut
@@ -684,6 +771,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private lightningSource?: VectorSource;
   private lightningTimer?: ReturnType<typeof setInterval>;
   private lightningSub?: Subscription;
+  private alertsLayer?: VectorLayer<VectorSource>;
+  private alertsSource?: VectorSource;
+  private alertsTimer?: ReturnType<typeof setInterval>;
   private popupOverlay?: Overlay;
   private liveSub?: Subscription;
   private trackSub?: Subscription;
@@ -705,7 +795,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.showVessels(); this.showTracks(); this.showSST();
       this.showRain();    this.showWind();   this.showWaves();
       this.showWindArrows(); this.showWaveArrows();
-      this.showLightning();
+      this.showLightning(); this.showAlerts();
       // Defer pour s'exécuter après ngAfterViewInit (this.*Layer dispo)
       queueMicrotask(() => {
         this.applyLayerVisibility();
@@ -800,6 +890,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     if (this.rainSnapshotTimer) clearInterval(this.rainSnapshotTimer);
     if (this.arrowsFetchDebounce) clearTimeout(this.arrowsFetchDebounce);
     this.stopLightningLoop();
+    this.stopAlertsLoop();
     this.map?.setTarget(undefined);
     this.map?.dispose();
   }
@@ -891,6 +982,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.lightningLayer.setVisible(wanted);
       if (wanted) this.startLightningLoop();
       else this.stopLightningLoop();
+    }
+    // Alerts : visible si toggle ON ET mode live
+    if (this.alertsLayer) {
+      const wanted = this.showAlerts() && this.isLive();
+      this.alertsLayer.setVisible(wanted);
+      if (wanted) this.startAlertsLoop();
+      else this.stopAlertsLoop();
     }
   }
 
@@ -1087,6 +1185,60 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.lightningSub?.unsubscribe();
     this.lightningSub = undefined;
     this.lightningSource?.clear();
+  }
+
+  // ─── Alerts (sprint 10) ───────────────────────────────────────────
+  private styleAlert(feat: FeatureLike): Style {
+    const props = feat.getProperties() as AlertProperties;
+    const severity = props.severity ?? 'info';
+    const color = severity === 'danger' ? '#dc2626' : severity === 'warning' ? '#fb923c' : '#fde047';
+    const radius = severity === 'danger' ? 12 : 9;
+    return new Style({
+      image: new CircleStyle({
+        radius,
+        fill: new Fill({ color: 'rgba(0,0,0,0)' }),
+        stroke: new Stroke({ color, width: 3 }),
+      }),
+    });
+  }
+
+  alertKindLabel(kind: string): string {
+    if (kind === 'high-wind') return 'Vent fort';
+    if (kind === 'lightning-proximity') return 'Foudre à proximité';
+    return kind;
+  }
+
+  formatAge(seconds: number): string {
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) return `${Math.round(seconds / 60)}min`;
+    return `${Math.round(seconds / 3600)}h`;
+  }
+
+  private startAlertsLoop(): void {
+    if (this.alertsTimer) return;
+    const fetchAndPaint = async () => {
+      try {
+        const fc = await this.alertsSvc.refresh();
+        if (!this.alertsSource) return;
+        this.alertsSource.clear();
+        const features = this.geoJsonFmt.readFeatures(fc);
+        this.alertsSource.addFeatures(features);
+        this.alertsStatus.set(`${fc.features.length} alertes 1h`);
+      } catch (err: any) {
+        this.alertsStatus.set(`erreur : ${err?.message ?? err}`);
+      }
+    };
+    fetchAndPaint();
+    this.alertsTimer = setInterval(fetchAndPaint, 30_000);
+  }
+
+  private stopAlertsLoop(): void {
+    if (this.alertsTimer) {
+      clearInterval(this.alertsTimer);
+      this.alertsTimer = undefined;
+    }
+    this.alertsSource?.clear();
+    this.alertsSvc.clear();
   }
 
   // ─── Refresh : déclenche le bon fetch selon currentTime ─────────────
@@ -1302,6 +1454,18 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       visible: false,
     });
 
+    // Sprint 10 : alertes maritimes. VectorSource peuplé toutes les 30s
+    // via WFS sur v_alerts_recent. Style triangle de warning coloré selon
+    // severity (warning=orange, danger=rouge).
+    this.alertsSource = new VectorSource();
+    this.alertsLayer = new VectorLayer({
+      source: this.alertsSource,
+      style: (feat: FeatureLike) => this.styleAlert(feat),
+      zIndex: 115,
+      visible: false,
+      declutter: true,
+    });
+
     // Sprint 7 : éclairs (lightning strikes) overlay. VectorSource peuplé
     // toutes les 30s via WFS sur v_lightning_recent. Style "zap" pulsé selon
     // age_seconds : flash blanc-jaune pour <60s, jaune pour <5min, ambre
@@ -1384,6 +1548,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         this.trackLayer,
         this.vesselLayer,
         this.lightningLayer,
+        this.alertsLayer,
       ],
       overlays: [this.popupOverlay],
       controls: defaultControls().extend([new ScaleLine({ units: 'nautical' })]),

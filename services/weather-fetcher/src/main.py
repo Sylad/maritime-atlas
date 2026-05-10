@@ -510,9 +510,35 @@ def grib_to_geotiffs(grib: Path, valid_time: datetime) -> dict[str, Path]:
 
 
 # ─── Cycle ──────────────────────────────────────────────────────────────
+def cleanup_old_files(retention_days: int = 7) -> None:
+    """Sprint 10b — supprime .tif et .geojson plus vieux que retention_days.
+    Forecasts météo deviennent obsolètes vite, 7j suffit. Parse le timestamp
+    YYYYMMDDTHHMMSSZ depuis le nom de fichier."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    removed = 0
+    for d in (WIND_DIR, WAVE_HS_DIR, WAVE_DIR_DIR, WIND_ARROWS_DIR):
+        if not d.exists():
+            continue
+        for f in list(d.glob('*.tif')) + list(d.glob('*.geojson')):
+            try:
+                parts = f.stem.split('_')
+                ts_token = next((p for p in parts if len(p) == 16 and p.endswith('Z') and 'T' in p), None)
+                if not ts_token:
+                    continue
+                file_date = datetime.strptime(ts_token, '%Y%m%dT%H%M%SZ').replace(tzinfo=timezone.utc)
+                if file_date < cutoff:
+                    f.unlink()
+                    removed += 1
+            except (ValueError, IndexError):
+                continue
+    if removed > 0:
+        log.info('Cleanup: removed %d weather files older than %dd', removed, retention_days)
+
+
 def run_fetch_cycle() -> None:
     log.info('weather-fetcher cycle starting (forecast=%dh, step=%dh)',
              FORECAST_HOURS, FORECAST_STEP)
+    cleanup_old_files(retention_days=int(os.environ.get('WEATHER_RETENTION_DAYS', '7')))
     for d in (WIND_DIR, WAVE_HS_DIR, WAVE_DIR_DIR):
         ensure_mosaic_config_files(d)
 

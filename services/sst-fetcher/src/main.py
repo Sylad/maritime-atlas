@@ -333,10 +333,29 @@ def fetch_and_convert(date: datetime) -> bool:
         return False
 
 
+def cleanup_old_files(retention_days: int = 30) -> None:
+    """Sprint 10b — supprime les .tif plus vieux que retention_days dans
+    COVERAGE_DIR. SST = 30 jours (cohérent avec vessel_positions TTL)."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    removed = 0
+    for tif in COVERAGE_DIR.glob('sst_*.tif'):
+        try:
+            date_str = tif.stem.split('_', 1)[1]  # 'sst_20240515' → '20240515'
+            file_date = datetime.strptime(date_str, '%Y%m%d').replace(tzinfo=timezone.utc)
+            if file_date < cutoff:
+                tif.unlink()
+                removed += 1
+        except (ValueError, IndexError):
+            continue
+    if removed > 0:
+        log.info('Cleanup: removed %d SST tif older than %dd', removed, retention_days)
+
+
 def run_fetch_cycle() -> None:
     """Tente LOOKBACK_DAYS jours (skip ceux déjà présents)."""
     log.info('SST fetch cycle starting (lookback %dd)', LOOKBACK_DAYS)
     ensure_mosaic_config_files()
+    cleanup_old_files(retention_days=int(os.environ.get('SST_RETENTION_DAYS', '30')))
 
     if SST_START_DATE:
         try:

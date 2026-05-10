@@ -144,6 +144,31 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # ─── Worker : alerts-engine (sprint 10) ───────────────────────────
+  # Souscrit à ais.positions + lightning.strike + raster.ready. Applique
+  # règles métier (high-wind sur cargo/tanker, lightning à <10km d'un
+  # navire) et publie sur exchange alerts.maritime + persiste en hypertable.
+  # Cooldown 30min par (mmsi, kind) pour éviter le spam.
+  alerts-engine:
+    build: ./services/alerts-engine
+    container_name: maritime-alerts-engine
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-maritime}:${POSTGRES_PASSWORD:-maritime}@postgres:5432/${POSTGRES_DB:-maritime}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-maritime}:${RABBITMQ_PASSWORD:-maritime}@rabbitmq:5672
+      WIND_ARROWS_DIR: /wind-arrows
+      WIND_SPEED_ALERT_THRESHOLD: "10"
+      LIGHTNING_PROXIMITY_KM: "10"
+      COOLDOWN_MIN: "30"
+    volumes:
+      - wind-arrows-data:/wind-arrows:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
   # ─── Worker : lightning-fetcher (sprint 7) ────────────────────────
   # Consomme le WebSocket public Blitzortung community, décode LZW,
   # filtre la bbox France, persiste dans la hypertable lightning_strikes
