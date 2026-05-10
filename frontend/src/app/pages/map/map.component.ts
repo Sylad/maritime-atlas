@@ -123,6 +123,26 @@ function toIsoTimestamp(d: Date): string {
               <span class="toggle-count">{{ rainStatus() }}</span>
             </span>
           </label>
+          <label class="layer-toggle" [class.dim]="!windActive()">
+            <input type="checkbox" [checked]="showWind()" (change)="showWind.set($any($event.target).checked)" />
+            <span class="toggle-glyph">
+              <span class="glyph-wind"></span>
+            </span>
+            <span class="toggle-text">
+              <span class="toggle-name">Vent</span>
+              <span class="toggle-count">forecast 10m (GFS)</span>
+            </span>
+          </label>
+          <label class="layer-toggle" [class.dim]="!wavesActive()">
+            <input type="checkbox" [checked]="showWaves()" (change)="showWaves.set($any($event.target).checked)" />
+            <span class="toggle-glyph">
+              <span class="glyph-waves"></span>
+            </span>
+            <span class="toggle-text">
+              <span class="toggle-name">Vagues</span>
+              <span class="toggle-count">hauteur sig. (WW3)</span>
+            </span>
+          </label>
         </div>
 
         <div class="legend-section-title">Catégories navires</div>
@@ -232,9 +252,18 @@ function toIsoTimestamp(d: Date): string {
       font-size: 0.8rem;
       color: var(--fg);
       cursor: pointer;
-      transition: opacity 200ms;
-      input { accent-color: var(--accent); cursor: pointer; flex-shrink: 0; }
-      &.dim { opacity: 0.45; }
+      input {
+        accent-color: var(--accent);
+        cursor: pointer;
+        flex-shrink: 0;
+        width: 16px;
+        height: 16px;
+      }
+      /* Dim only the visual preview + label, NOT the checkbox itself —
+         so on/off state is always crystal clear. */
+      &.dim {
+        .toggle-glyph, .toggle-text { opacity: 0.4; transition: opacity 200ms; }
+      }
     }
     .toggle-glyph {
       display: inline-flex;
@@ -264,6 +293,24 @@ function toIsoTimestamp(d: Date): string {
       border-radius: 2px;
       /* gradient pluie : transparent → bleu clair → vert → jaune → rouge (intensité radar) */
       background: linear-gradient(to right, rgba(255,255,255,0.05) 0%, #38bdf8 25%, #4ade80 50%, #fbbf24 75%, #ef4444 100%);
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    .glyph-wind {
+      display: inline-block;
+      width: 36px;
+      height: 8px;
+      border-radius: 2px;
+      /* gradient force vent (Beaufort) : calme → frais → fort → tempête */
+      background: linear-gradient(to right, #cbd5e1 0%, #38bdf8 35%, #fbbf24 70%, #dc2626 100%);
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    .glyph-waves {
+      display: inline-block;
+      width: 36px;
+      height: 8px;
+      border-radius: 2px;
+      /* gradient hauteur vagues : plat → houle → forte → grosse mer */
+      background: linear-gradient(to right, #1e3a8a 0%, #06b6d4 30%, #fbbf24 70%, #ef4444 100%);
       border: 1px solid rgba(255,255,255,0.15);
     }
     .toggle-text {
@@ -418,12 +465,14 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly lastRefreshAt = signal<Date | null>(null);
   readonly errorMsg = signal<string | null>(null);
 
-  // Toggles user — par défaut tout visible (sauf rain : opt-in pour éviter
-  // d'écraser l'image avec des tiles tant que pas demandé)
+  // Toggles user — par défaut tout visible (sauf rain/wind/waves : opt-in
+  // pour éviter d'écraser l'image avec des tiles tant que pas demandé)
   readonly showVessels = signal(true);
   readonly showTracks = signal(true);
   readonly showSST = signal(true);
   readonly showRain = signal(false);
+  readonly showWind = signal(false);
+  readonly showWaves = signal(false);
 
   // Mode courant (signal-driven, recalculé à chaque tick du time slider).
   // Sert à colorer les badges + griser les toggles dont la layer ne peut
@@ -438,6 +487,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // Rain : RainViewer ne couvre que [-2h, +30min]. Hors fenêtre = inutile.
   readonly rainStatus    = signal('précipitations 10min');
   readonly rainActive    = computed(() => this.showRain() && this.rainHasFrameForCurrent());
+  // Wind/Waves : forecast NOAA jusqu'à +72h. Pas de back-history (on garde
+  // que les forecasts les plus récents). Donc visible si le cursor est
+  // dans [run-1h, run+forecast_hours].
+  readonly windActive    = computed(() => this.showWind());
+  readonly wavesActive   = computed(() => this.showWaves());
   // Helper : true si une frame RainViewer est dispo pour le cursor courant.
   // Mis à jour à chaque tick via updateRainLayer().
   private rainHasFrame = signal(false);
@@ -463,6 +517,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private rainSnapshot?: RainViewerSnapshot;
   private rainSnapshotTimer?: ReturnType<typeof setInterval>;
   private currentRainPath?: string;
+  private windLayer?: TileLayer<TileWMS>;
+  private windSource?: TileWMS;
+  private wavesLayer?: TileLayer<TileWMS>;
+  private wavesSource?: TileWMS;
   private popupOverlay?: Overlay;
   private liveSub?: Subscription;
   private trackSub?: Subscription;
@@ -568,6 +626,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     if (this.rainLayer) {
       this.rainLayer.setVisible(this.showRain() && this.rainHasFrame());
     }
+    // Wind/Waves : visibles à n'importe quel moment où il y a un forecast
+    // (NOAA accepte TIME=NEAREST → matche le timestep le plus proche).
+    if (this.windLayer)  this.windLayer.setVisible(this.showWind());
+    if (this.wavesLayer) this.wavesLayer.setVisible(this.showWaves());
   }
 
   // ─── Refresh : déclenche le bon fetch selon currentTime ─────────────
@@ -594,11 +656,21 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.vesselSource?.clear();
       this.vesselsCount.set(0);
     }
-    // SST : update TIME param du WMS source à chaque change si pas futur
+    // Snap-to-latest pour les WMS time-enabled : on passe une PLAGE
+    // [old, cursor] au lieu d'un instant pile. GeoServer ImageMosaic
+    // matche le timestep le plus récent dispo dans la plage — donc on
+    // affiche toujours la dernière donnée connue jusqu'au cursor, plutôt
+    // qu'une tile vide quand l'instant exact n'est pas indexé.
+    const isoTs = toIsoTimestamp(t);
+    const timeRange = `1970-01-01T00:00:00Z/${isoTs}`;
     if (this.sstSource && !this.isFuture()) {
-      const isoTs = toIsoTimestamp(t);
-      this.sstSource.updateParams({ TIME: isoTs });
+      this.sstSource.updateParams({ TIME: timeRange });
     }
+    // Wind/Waves : forecast peut couvrir le passé (run analyse) ET le futur
+    // jusqu'à +72h. On utilise la même plage [past..cursor] pour le past
+    // mode, mais en mode futur on accepte aussi le forecast.
+    if (this.windSource)  this.windSource.updateParams({ TIME: timeRange });
+    if (this.wavesSource) this.wavesSource.updateParams({ TIME: timeRange });
   }
 
   /**
@@ -745,6 +817,34 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       visible: false,
     });
 
+    // Vent (force, m/s) — WMS time-enabled depuis ImageMosaic GeoServer.
+    // GeoServer applique automatiquement un style "raster" arc-en-ciel par
+    // défaut sur les valeurs réelles ; on pourra customiser via SLD plus tard.
+    this.windSource = new TileWMS({
+      url: '/geoserver/maritime/wms',
+      params: { LAYERS: 'maritime:wind-speed', TILED: true, TRANSPARENT: true },
+      serverType: 'geoserver',
+    });
+    this.windLayer = new TileLayer({
+      source: this.windSource,
+      opacity: 0.55,
+      zIndex: 32,
+      visible: false,
+    });
+
+    // Vagues (hauteur sig., m) — WMS time-enabled.
+    this.wavesSource = new TileWMS({
+      url: '/geoserver/maritime/wms',
+      params: { LAYERS: 'maritime:wave-hs', TILED: true, TRANSPARENT: true },
+      serverType: 'geoserver',
+    });
+    this.wavesLayer = new TileLayer({
+      source: this.wavesSource,
+      opacity: 0.55,
+      zIndex: 33,
+      visible: false,
+    });
+
     // Radar pluie via RainViewer XYZ tiles. URL initiale "transparent" =
     // 1×1 png vide, on remplace via setUrl() dès qu'un snapshot est dispo.
     // Crossorigin obligatoire pour permettre canvas readback (au cas où).
@@ -784,7 +884,16 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
     this.map = new Map({
       target: this.mapEl().nativeElement,
-      layers: [baseTile, this.sstLayer, this.rainLayer, labelsTile, this.trackLayer, this.vesselLayer],
+      layers: [
+        baseTile,
+        this.sstLayer,
+        this.windLayer,
+        this.wavesLayer,
+        this.rainLayer,
+        labelsTile,
+        this.trackLayer,
+        this.vesselLayer,
+      ],
       overlays: [this.popupOverlay],
       controls: defaultControls().extend([new ScaleLine({ units: 'nautical' })]),
       view: new View({

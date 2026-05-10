@@ -59,22 +59,29 @@ export class RainviewerService {
   }
 
   /**
-   * Trouve la frame la plus proche d'un timestamp donné (en secondes Unix).
-   * Renvoie null si l'écart > 15 min — au-delà, on n'a pas de donnée pertinente
-   * et on doit cacher la layer plutôt qu'afficher des tiles obsolètes.
+   * Trouve la frame la plus récente <= atUnixSec, avec fallback sur la
+   * plus ancienne disponible si rien dans le passé du cursor.
+   *
+   * Rationale : le user attend que le slider montre "le dernier état connu
+   * jusqu'à cet instant" — pas un forecast nowcast s'il existe. Sinon en
+   * mode REPLAY on verrait jamais l'archive si le cursor est entre deux frames.
+   *
+   * Renvoie null si l'écart entre la frame retenue et le cursor > 30 min
+   * (au-delà = la layer perd son sens).
    */
   findNearestFrame(snapshot: RainViewerSnapshot, atUnixSec: number): RainFrame | null {
     if (snapshot.all.length === 0) return null;
-    let best = snapshot.all[0];
-    let bestDelta = Math.abs(best.time - atUnixSec);
-    for (const f of snapshot.all) {
-      const d = Math.abs(f.time - atUnixSec);
-      if (d < bestDelta) {
-        best = f;
-        bestDelta = d;
-      }
+    // Take the latest frame with time <= cursor
+    const eligible = snapshot.all.filter(f => f.time <= atUnixSec);
+    let chosen: RainFrame;
+    if (eligible.length > 0) {
+      chosen = eligible[eligible.length - 1]; // déjà sorted ascending
+    } else {
+      // Cursor avant la plus ancienne frame — on prend la plus ancienne quand même
+      chosen = snapshot.all[0];
     }
-    return bestDelta <= 15 * 60 ? best : null;
+    const delta = Math.abs(chosen.time - atUnixSec);
+    return delta <= 30 * 60 ? chosen : null;
   }
 
   /**

@@ -143,6 +143,33 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # ─── Worker : weather-fetcher (sprint 4a) ─────────────────────────
+  # Cron 4×/jour (04/10/16/22 UTC, calé sur runs NOAA +4h de latence) qui
+  # télécharge GFS (vent 10m UGRD/VGRD) + WaveWatch III (HTSGW + DIRPW)
+  # via les CGI subsetters NOMADS, recadre bbox France, exporte en
+  # GeoTIFF time-tagged dans 3 mosaic stores partagés (wind_speed,
+  # wave_hs, wave_dir). Au premier fetch crée les coverage stores +
+  # active time dimensions. Service Python (xarray + cfgrib + gdal).
+  weather-fetcher:
+    build: ./services/weather-fetcher
+    container_name: maritime-weather-fetcher
+    env_file: .env
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-maritime}:${RABBITMQ_PASSWORD:-maritime}@rabbitmq:5672
+      GEOSERVER_URL: http://geoserver:8080/geoserver
+      GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
+      GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}
+      WIND_DIR: /coverage/wind-speed
+      WAVE_HS_DIR: /coverage/wave-hs
+      WAVE_DIR_DIR: /coverage/wave-dir
+      FORECAST_HOURS: "72"
+      FORECAST_STEP: "6"
+    volumes:
+      - coverage-data:/coverage
+    depends_on:
+      - geoserver
+    restart: unless-stopped
+
   # ─── Worker : sst-fetcher (sprint 3) ───────────────────────────────
   # Cron quotidien (06:00 UTC) qui télécharge NOAA OISST v2.1 (NetCDF),
   # subset bbox France métropole, exporte en GeoTIFF dans le mosaic
