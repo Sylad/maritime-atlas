@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, real, jsonb, primaryKey, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, serial, text, integer, timestamp, real, jsonb, boolean, primaryKey, uniqueIndex } from 'drizzle-orm/pg-core';
 
 /**
  * 3 tables only. Schéma volontairement isolé du schéma TimescaleDB
@@ -60,6 +60,10 @@ export const userLayerPreferences = pgTable('user_layer_preferences', {
   userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   layerKind: text('layer_kind').notNull(),
   paletteId: integer('palette_id').references(() => palettes.id, { onDelete: 'set null' }),
+  /** Phase C UX V2 : state per layer pour TOUTES les layers (pas juste rasters).
+      NULL = défaut app (cf. DEFAULT_VISIBILITY/OPACITIES côté frontend). */
+  visible: boolean('visible'),
+  opacity: real('opacity'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({
   pk: primaryKey({ columns: [t.userId, t.layerKind] }),

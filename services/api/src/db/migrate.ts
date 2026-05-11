@@ -41,6 +41,14 @@ CREATE TABLE IF NOT EXISTS user_layer_preferences (
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, layer_kind)
 );
+-- Sprint Layer UX V2 Phase C (2026-05-11) : visibility + opacity per layer
+-- pour TOUTES les layers (vessels, tracks, sst, rain, ...). user_layer_preferences
+-- couvre désormais le state complet par layer (visibility + opacity + palette).
+ALTER TABLE user_layer_preferences ADD COLUMN IF NOT EXISTS visible BOOLEAN;
+ALTER TABLE user_layer_preferences ADD COLUMN IF NOT EXISTS opacity REAL;
+ALTER TABLE user_layer_preferences DROP CONSTRAINT IF EXISTS user_layer_preferences_opacity_check;
+ALTER TABLE user_layer_preferences ADD CONSTRAINT user_layer_preferences_opacity_check
+  CHECK (opacity IS NULL OR (opacity >= 0 AND opacity <= 1));
 
 -- ─── Sprint Auth refonte : colonnes additionnelles users ───
 ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;
