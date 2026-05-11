@@ -26,7 +26,7 @@ import GeoJSON from 'ol/format/GeoJSON';
 import Overlay from 'ol/Overlay';
 import { fromLonLat } from 'ol/proj';
 import { Style, Circle as CircleStyle, Fill, Stroke, Icon } from 'ol/style';
-import { defaults as defaultControls, ScaleLine } from 'ol/control';
+import { defaults as defaultControls, ScaleLine, Attribution } from 'ol/control';
 import type { Feature } from 'ol';
 import type { FeatureLike } from 'ol/Feature';
 import type { Geometry, Point } from 'ol/geom';
@@ -304,8 +304,9 @@ function toIsoTimestamp(d: Date): string {
         </div>
       </div>
 
-      <!-- Popup overlay (positionné par OL via Overlay) -->
-      <div class="popup" #popupEl [class.visible]="selectedVessel() !== null">
+      <!-- Popup overlay (positionné par OL via Overlay). Templates par
+           type de feature : vessel · lightning · alert. -->
+      <div class="popup" #popupEl [class.visible]="hasPopup()">
         @if (selectedVessel(); as v) {
           <button class="popup-close" type="button" (click)="closePopup()">×</button>
           <div class="popup-name">{{ v.name || ('MMSI ' + v.mmsi) }}</div>
@@ -326,6 +327,47 @@ function toIsoTimestamp(d: Date): string {
             <div class="popup-row"><span>Destination</span><strong>{{ v.destination }}</strong></div>
           }
           <div class="popup-row"><span>Vu</span><strong>{{ v.last_seen | date:'HH:mm:ss' }}</strong></div>
+        }
+        @if (selectedLightning(); as l) {
+          <button class="popup-close" type="button" (click)="closePopup()">×</button>
+          <div class="popup-name">⚡ Éclair détecté</div>
+          <div class="popup-meta">
+            <span class="badge" style="background:#fde047;color:#0a0e1a">Blitzortung</span>
+            <span class="popup-flag">il y a {{ formatAge(l.age_seconds) }}</span>
+          </div>
+          <div class="popup-row"><span>Heure</span><strong class="mono">{{ l.ts | date:'HH:mm:ss' }}</strong></div>
+          @if (l.alt != null) {
+            <div class="popup-row"><span>Altitude</span><strong>{{ l.alt | number:'1.0-0' }} m</strong></div>
+          }
+          @if (l.mcg != null) {
+            <div class="popup-row"><span>Détecteurs</span><strong class="mono">{{ l.mcg }}</strong></div>
+          }
+          @if (l.pol != null) {
+            <div class="popup-row"><span>Polarité</span><strong>{{ l.pol > 0 ? '+ positif' : '− négatif' }}</strong></div>
+          }
+        }
+        @if (selectedAlert(); as a) {
+          <button class="popup-close" type="button" (click)="closePopup()">×</button>
+          <div class="popup-name">⚠ {{ alertKindLabel(a.kind) }}</div>
+          <div class="popup-meta">
+            <span
+              class="badge"
+              [style.background]="a.severity === 'danger' ? '#dc2626' : a.severity === 'warning' ? '#fb923c' : '#fde047'"
+              [style.color]="a.severity === 'info' ? '#0a0e1a' : '#fff'">
+              {{ a.severity }}
+            </span>
+            <span class="popup-flag">il y a {{ formatAge(a.age_seconds) }}</span>
+          </div>
+          <div class="popup-row"><span>Navire</span><strong>{{ a.vessel_name || ('MMSI ' + a.mmsi) }}</strong></div>
+          @if (a.mmsi) {
+            <div class="popup-row"><span>MMSI</span><strong class="mono">{{ a.mmsi }}</strong></div>
+          }
+          @if (a.detail?.windSpeed != null) {
+            <div class="popup-row"><span>Vent</span><strong>{{ a.detail.windSpeed | number:'1.0-1' }} m/s</strong></div>
+          }
+          @if (a.detail?.distanceM != null) {
+            <div class="popup-row"><span>Distance strike</span><strong>{{ a.detail.distanceM | number:'1.0-0' }} m</strong></div>
+          }
         }
       </div>
 
@@ -783,6 +825,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly particlesEl = viewChild.required<ElementRef<HTMLCanvasElement>>('particlesEl');
 
   readonly selectedVessel = signal<VesselProperties | null>(null);
+  readonly selectedLightning = signal<LightningProperties | null>(null);
+  readonly selectedAlert = signal<AlertProperties | null>(null);
+  readonly hasPopup = computed(() =>
+    this.selectedVessel() !== null || this.selectedLightning() !== null || this.selectedAlert() !== null,
+  );
   readonly vesselsCount = signal(0);
   readonly tracksCount = signal(0);
   readonly lastRefreshAt = signal<Date | null>(null);
@@ -1637,6 +1684,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
   closePopup(): void {
     this.selectedVessel.set(null);
+    this.selectedLightning.set(null);
+    this.selectedAlert.set(null);
     this.popupOverlay?.setPosition(undefined);
   }
 
@@ -1839,7 +1888,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         this.alertsLayer,
       ],
       overlays: [this.popupOverlay],
-      controls: defaultControls().extend([new ScaleLine({ units: 'nautical' })]),
+      // attribution: false dans defaultControls() pour exclure celui par défaut
+      // qui s'affiche inline si le map est large. On le remplace par un Attribution
+      // configuré avec `collapsible: true` qui force le mode bouton (i) + popup.
+      controls: defaultControls({ attribution: false }).extend([
+        new Attribution({ collapsible: true, collapsed: true }),
+        new ScaleLine({ units: 'nautical' }),
+      ]),
       view: new View({
         center: fromLonLat(INITIAL_CENTER),
         zoom: INITIAL_ZOOM,
@@ -1848,23 +1903,37 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       }),
     });
 
-    // Click handler : sélectionne un vessel.
+    // Click handler — route le popup selon la layer source de la feature.
+    // forEachFeatureAtPixel passe le layer en 2e arg, ce qui permet de
+    // distinguer vessel / lightning / alert sans inspecter les props.
     this.map.on('singleclick', (evt) => {
-      const feat = this.map!.forEachFeatureAtPixel(
+      let matched: { feat: Feature<Geometry>; kind: 'vessel' | 'lightning' | 'alert' } | null = null;
+      this.map!.forEachFeatureAtPixel(
         evt.pixel,
-        (f) => f as Feature<Geometry>,
+        (f, layer) => {
+          if (matched) return;
+          if (layer === this.vesselLayer) matched = { feat: f as Feature<Geometry>, kind: 'vessel' };
+          else if (layer === this.lightningLayer) matched = { feat: f as Feature<Geometry>, kind: 'lightning' };
+          else if (layer === this.alertsLayer) matched = { feat: f as Feature<Geometry>, kind: 'alert' };
+        },
         { hitTolerance: 4 },
       );
-      if (feat) {
-        const props = feat.getProperties() as VesselProperties & { geometry?: Geometry };
-        delete props.geometry;
-        this.selectedVessel.set(props);
-        const geom = feat.getGeometry();
-        if (geom?.getType() === 'Point') {
-          this.popupOverlay?.setPosition((geom as Point).getCoordinates());
-        }
-      } else {
+      if (!matched) {
         this.closePopup();
+        return;
+      }
+      this.closePopup();      // reset les 3 signals avant le set
+      const m = matched as { feat: Feature<Geometry>; kind: 'vessel' | 'lightning' | 'alert' };
+      const props = m.feat.getProperties() as any;
+      delete props.geometry;
+      switch (m.kind) {
+        case 'vessel':    this.selectedVessel.set(props as VesselProperties); break;
+        case 'lightning': this.selectedLightning.set(props as LightningProperties); break;
+        case 'alert':     this.selectedAlert.set(props as AlertProperties); break;
+      }
+      const geom = m.feat.getGeometry();
+      if (geom?.getType() === 'Point') {
+        this.popupOverlay?.setPosition((geom as Point).getCoordinates());
       }
     });
 

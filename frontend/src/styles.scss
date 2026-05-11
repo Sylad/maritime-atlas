@@ -47,7 +47,9 @@ app-root {
 
 /* Attribution : bouton (i) compact + popup vers le HAUT au clic */
 .ol-attribution {
-  bottom: 1em !important;
+  /* Positionné AU-DESSUS de la time-slider toolbar (qui prend ~5em en bas
+     avec padding). Le popup ouvert vers le haut a donc tout l'espace. */
+  bottom: 6em !important;
   right: 1em !important;
   top: auto !important;
   left: auto !important;
@@ -113,9 +115,9 @@ app-root {
   }
 }
 
-/* ScaleLine : bottom-left, theme sombre */
+/* ScaleLine : bottom-left au-dessus de la slider */
 .ol-scale-line {
-  bottom: 1em !important;
+  bottom: 6em !important;
   left: 1em !important;
   background: rgba(19, 24, 38, 0.92) !important;
   border: 1px solid var(--border);
@@ -129,10 +131,10 @@ app-root {
   font-size: 0.7rem;
 }
 
-/* Zoom : bottom-left, au-dessus du scale, theme sombre */
+/* Zoom : bottom-left, au-dessus du scale (qui est au-dessus de slider) */
 .ol-zoom {
   top: auto !important;
-  bottom: 4em !important;
+  bottom: 9em !important;
   left: 1em !important;
   background: rgba(19, 24, 38, 0.92);
   border: 1px solid var(--border);
