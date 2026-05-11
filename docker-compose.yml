@@ -82,7 +82,10 @@ services:
   # replica override juste container_name + GEOSERVER_NODE_ID. Tout le
   # reste (image, env, volumes, healthcheck) est identique.
   geoserver-1: &geoserver-base
-    image: docker.osgeo.org/geoserver:2.28.2
+    build:
+      context: ./geoserver
+      dockerfile: Dockerfile
+    image: maritime-geoserver:2.28.2-with-gwc-s3
     container_name: maritime-geoserver-1
     environment: &geoserver-env
       GEOSERVER_NODE_ID: geoserver-1
@@ -94,7 +97,10 @@ services:
       # Ces deux extensions sont en `community` car non-stable upstream,
       # mais c'est le mécanisme officiel recommandé pour le multi-node.
       COMMUNITY_EXTENSIONS: "jdbcconfig,jdbcstore"
-      EXTRA_JAVA_OPTS: "-Xms512m -Xmx2g"
+      # JVM flags : endpoint AWS S3 override + path-style obligatoire pour
+      # SeaweedFS / MinIO (non-AWS endpoints). Sans ces 2 flags, l'AWS SDK
+      # contacte le vrai api.amazonaws.com et fail.
+      EXTRA_JAVA_OPTS: "-Xms512m -Xmx2g -Daws.s3.endpoint=http://seaweedfs:8333 -Daws.s3.pathStyleAccess=true"
       # CORS — chaque replica doit le re-déclarer.
       CORS_ENABLED: "true"
       CORS_ALLOWED_ORIGINS: "*"
@@ -120,6 +126,8 @@ services:
       start_period: 120s
     depends_on:
       postgres:
+        condition: service_healthy
+      seaweedfs:
         condition: service_healthy
     restart: unless-stopped
 
