@@ -127,6 +127,67 @@ export class AuthService {
   }
 
   /**
+   * Demande de reset password — Phase B Auth refonte. Génère un token
+   * UUID v4 (TTL 1h), envoie le mail Resend avec un lien
+   * `${publicBaseUrl}/auth/reset-password?token=...`.
+   *
+   * Réponse identique succès/inexistant pour empêcher l'énumération
+   * d'utilisateurs valides (pattern OWASP).
+   */
+  async forgotPassword(email: string): Promise<{ message: string }> {
+    const normalized = email.toLowerCase().trim();
+    const found = await this.db.select().from(users).where(eq(users.email, normalized)).limit(1);
+    if (found.length === 0) {
+      this.logger.log(`forgotPassword: email inconnu ${normalized} (réponse générique anti-énumération)`);
+      return { message: 'If the email exists, a reset link was sent.' };
+    }
+    const user = found[0];
+    const token = randomUUID();
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1h
+    await this.db.update(users)
+      .set({ passwordResetToken: token, passwordResetExpiresAt: expiresAt })
+      .where(eq(users.id, user.id));
+    await this.mail.sendPasswordResetEmail(user.email, user.username, token);
+    this.logger.log(`forgotPassword: token envoyé à ${normalized}, expire ${expiresAt.toISOString()}`);
+    return { message: 'If the email exists, a reset link was sent.' };
+  }
+
+  /**
+   * Reset password via token. Le user clique le lien dans le mail Resend
+   * qui ouvre `/auth/reset-password?token=...`. Le frontend lui demande
+   * un nouveau mot de passe, puis POST ici.
+   */
+  async resetPassword(token: string, newPassword: string): Promise<{ message: string }> {
+    if (!token || token.length < 8) {
+      throw new BadRequestException('Invalid reset token');
+    }
+    if (!newPassword || newPassword.length < 8) {
+      throw new BadRequestException('Password must be ≥ 8 characters');
+    }
+    const found = await this.db.select().from(users).where(eq(users.passwordResetToken, token)).limit(1);
+    if (found.length === 0) {
+      throw new BadRequestException('Unknown or expired reset token');
+    }
+    const user = found[0];
+    if (!user.passwordResetExpiresAt || user.passwordResetExpiresAt < new Date()) {
+      throw new BadRequestException('Reset token expired. Request a new one.');
+    }
+    const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+    await this.db.update(users)
+      .set({
+        passwordHash,
+        passwordResetToken: null,
+        passwordResetExpiresAt: null,
+        // Bonus : si l'email n'était pas vérifié, on profite du reset pour
+        // valider (l'user a prouvé qu'il contrôle l'email en cliquant le lien).
+        emailVerifiedAt: user.emailVerifiedAt ?? new Date(),
+      })
+      .where(eq(users.id, user.id));
+    this.logger.log(`resetPassword: ${user.email} (@${user.username}) password updated`);
+    return { message: 'Password updated. You can log in now.' };
+  }
+
+  /**
    * Verify email via token UUID v4 (envoyé par mail).
    * Idempotent : si déjà vérifié, retourne success sans re-set.
    */

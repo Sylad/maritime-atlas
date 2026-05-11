@@ -13,6 +13,22 @@ export class ResendVerificationDto {
   email!: string;
 }
 
+export class ForgotPasswordDto {
+  @IsEmail()
+  email!: string;
+}
+
+import { IsString, MinLength } from 'class-validator';
+export class ResetPasswordDto {
+  @IsString()
+  @MinLength(8)
+  token!: string;
+
+  @IsString()
+  @MinLength(8)
+  newPassword!: string;
+}
+
 @Controller('auth')
 export class AuthController {
   constructor(
@@ -43,6 +59,19 @@ export class AuthController {
   @Post('resend-verification')
   resendVerification(@Body() body: ResendVerificationDto) {
     return this.auth.resendVerification(body.email);
+  }
+
+  /** Phase B — Forgot password : envoie un mail de reset (TTL 1h).
+      Réponse identique succès/inexistant pour empêcher l'énumération. */
+  @Post('forgot-password')
+  forgotPassword(@Body() body: ForgotPasswordDto) {
+    return this.auth.forgotPassword(body.email);
+  }
+
+  /** Phase B — Reset password : valide le token + update password_hash. */
+  @Post('reset-password')
+  resetPassword(@Body() body: ResetPasswordDto) {
+    return this.auth.resetPassword(body.token, body.newPassword);
   }
 
   @Get('me')

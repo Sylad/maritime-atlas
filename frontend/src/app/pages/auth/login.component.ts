@@ -38,6 +38,7 @@ import { PalettesService } from '../../services/palettes.service';
         </a>
 
         <div class="auth-link">Pas de compte ? <a routerLink="/auth/register">Inscris-toi</a></div>
+        <div class="auth-link"><a routerLink="/auth/forgot-password">Mot de passe oublié ?</a></div>
         <a routerLink="/" class="auth-back">← Retour à la carte</a>
       </form>
     </div>

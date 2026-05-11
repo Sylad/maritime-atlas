@@ -170,7 +170,10 @@ services:
     ports:
       - "${GEOSERVER_PORT:-8080}:8080"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/geoserver/web/ > /dev/null 2>&1 || exit 1"]
+      # `/geoserver/web/` retourne 302 (redirect vers login UI) — wget par
+      # défaut le considère comme erreur. On accept 200/302/401 = serveur up.
+      # `wget --max-redirect=0 --spider` suit pas mais valide la réponse.
+      test: ["CMD-SHELL", "wget --max-redirect=0 -qO- http://localhost:8080/geoserver/web/ > /dev/null 2>&1; code=$$?; [ $$code -eq 0 ] || [ $$code -eq 8 ] || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 20

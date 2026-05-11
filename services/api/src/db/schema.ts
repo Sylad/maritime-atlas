@@ -26,6 +26,10 @@ export const users = pgTable('users', {
   /** Token UUID v4 généré au register, envoyé par mail Resend (Phase 2). */
   verificationToken: text('verification_token'),
   verificationTokenExpiresAt: timestamp('verification_token_expires_at', { withTimezone: true }),
+  /** Token UUID v4 pour reset password — envoyé par mail Resend.
+      Phase B Auth refonte (2026-05-11). TTL 1h. */
+  passwordResetToken: text('password_reset_token'),
+  passwordResetExpiresAt: timestamp('password_reset_expires_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({
   emailIdx: uniqueIndex('users_email_idx').on(t.email),

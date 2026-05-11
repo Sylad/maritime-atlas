@@ -24,6 +24,16 @@ export const routes: Routes = [
     title: 'Connexion Google · Maritime Atlas',
   },
   {
+    path: 'auth/forgot-password',
+    loadComponent: () => import('./pages/auth/forgot-password.component').then((m) => m.ForgotPasswordComponent),
+    title: 'Mot de passe oublié · Maritime Atlas',
+  },
+  {
+    path: 'auth/reset-password',
+    loadComponent: () => import('./pages/auth/reset-password.component').then((m) => m.ResetPasswordComponent),
+    title: 'Réinitialiser le mot de passe · Maritime Atlas',
+  },
+  {
     path: 'palettes',
     canActivate: [authGuard],
     loadComponent: () => import('./pages/palettes/palettes-page.component').then((m) => m.PalettesPageComponent),
