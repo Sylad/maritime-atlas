@@ -370,6 +370,13 @@ services:
       GEOSERVER_WORKSPACE: maritime
       PALETTE_LIMIT_PER_USER: "5"
       NODE_ENV: production
+      # ─── Sprint Auth refonte ───
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-sylvain.ladoire@gmail.com}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-sylvain}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://nas:4204}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-noreply@sladoire.dev}
     depends_on:
       postgres:
         condition: service_healthy
