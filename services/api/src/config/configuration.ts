@@ -28,6 +28,11 @@ const configuration = () => ({
       pour éviter les comptes orphelins sans mail de vérif. */
   resendApiKey: process.env.RESEND_API_KEY ?? '',
   resendFromEmail: process.env.RESEND_FROM_EMAIL ?? 'noreply@sladoire.dev',
+  // ─── Cron dormants (Phase 4) ───
+  /** Seuil après lequel un user sans connexion récente est supprimé. */
+  dormantAfterDays: parseInt(process.env.DORMANT_AFTER_DAYS ?? '90', 10),
+  /** Audit avant prod : true = log les candidats sans supprimer. */
+  dormantDryRun: (process.env.DORMANT_DRY_RUN ?? 'false').toLowerCase() === 'true',
 });
 
 export default configuration;

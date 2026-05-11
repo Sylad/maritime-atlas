@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, NotFoundException, Param, ParseIntPipe, Put, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, NotFoundException, Param, ParseIntPipe, Post, Put, UseGuards } from '@nestjs/common';
 import { IsIn } from 'class-validator';
 import { eq, desc } from 'drizzle-orm';
 import { Inject } from '@nestjs/common';
@@ -7,6 +7,7 @@ import { users, VALID_ROLES, type Role } from '../db/schema';
 import { JwtAuthGuard, CurrentUser } from '../auth/jwt-auth.guard';
 import { Roles, RolesGuard } from '../auth/roles.guard';
 import { AuthService } from '../auth/auth.service';
+import { DormantCleanupService } from '../auth/dormant-cleanup.service';
 
 export class UpdateRoleDto {
   @IsIn(VALID_ROLES as readonly string[])
@@ -31,6 +32,7 @@ export class AdminUsersController {
   constructor(
     @Inject(DB_TOKEN) private readonly db: Db,
     private readonly auth: AuthService,
+    private readonly dormantCleanup: DormantCleanupService,
   ) {}
 
   @Get()
@@ -57,6 +59,13 @@ export class AdminUsersController {
     }
     await this.db.update(users).set({ role: body.role }).where(eq(users.id, id));
     return this.auth.toPublic({ ...found[0], role: body.role });
+  }
+
+  /** Trigger manuel du cleanup dormants — pour audit avant de laisser
+      tourner le cron quotidien. Respecte DORMANT_DRY_RUN env. */
+  @Post('cleanup-dormants')
+  async triggerDormantCleanup() {
+    return this.dormantCleanup.runCleanup();
   }
 
   @Delete(':id')
