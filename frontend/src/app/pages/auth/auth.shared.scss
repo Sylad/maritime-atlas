@@ -78,6 +78,45 @@ input {
   border-radius: 6px;
   font-size: 0.78rem;
 }
+.auth-or {
+  position: relative;
+  text-align: center;
+  margin: 0.5em 0;
+  span {
+    background: rgba(19, 24, 38, 0.92);
+    padding: 0 0.8em;
+    color: var(--fg-dim);
+    font-size: 0.72rem;
+    font-family: var(--font-mono);
+    letter-spacing: 0.2em;
+    position: relative;
+    z-index: 1;
+  }
+  &::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0; right: 0;
+    height: 1px;
+    background: var(--border);
+    z-index: 0;
+  }
+}
+.auth-cta-google {
+  background: white;
+  color: #1f1f1f;
+  border: 1px solid #dadce0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7em;
+  font-weight: 500;
+  &:hover:not(:disabled) {
+    background: #f8f9fa;
+    color: #1f1f1f;
+    border-color: #c1c4c8;
+  }
+}
 .auth-error {
   background: rgba(239, 68, 68, 0.12);
   border: 1px solid rgba(239, 68, 68, 0.4);

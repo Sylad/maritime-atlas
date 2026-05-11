@@ -19,6 +19,11 @@ export const routes: Routes = [
     title: 'Vérification · Maritime Atlas',
   },
   {
+    path: 'auth/google-success',
+    loadComponent: () => import('./pages/auth/google-success.component').then((m) => m.GoogleSuccessComponent),
+    title: 'Connexion Google · Maritime Atlas',
+  },
+  {
     path: 'palettes',
     canActivate: [authGuard],
     loadComponent: () => import('./pages/palettes/palettes-page.component').then((m) => m.PalettesPageComponent),

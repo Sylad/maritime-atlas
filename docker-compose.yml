@@ -410,6 +410,9 @@ services:
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://nas:4204}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-noreply@sladoire.dev}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-https://maritime.sladoire.dev/api/auth/google/callback}
     depends_on:
       postgres:
         condition: service_healthy

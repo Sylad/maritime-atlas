@@ -33,6 +33,12 @@ const configuration = () => ({
   dormantAfterDays: parseInt(process.env.DORMANT_AFTER_DAYS ?? '90', 10),
   /** Audit avant prod : true = log les candidats sans supprimer. */
   dormantDryRun: (process.env.DORMANT_DRY_RUN ?? 'false').toLowerCase() === 'true',
+  // ─── Google OAuth (sprint Auth refonte — Phase 3.5) ───
+  googleClientId: process.env.GOOGLE_CLIENT_ID ?? '',
+  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
+  /** URL de retour Google après l'auth. Doit être whitelist côté Google
+      Cloud Console "Identifiants" → "ID client OAuth" → URI de redirection. */
+  googleCallbackUrl: process.env.GOOGLE_CALLBACK_URL ?? 'http://localhost:4204/api/auth/google/callback',
 });
 
 export default configuration;

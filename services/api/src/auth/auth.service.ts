@@ -3,11 +3,12 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { eq, or } from 'drizzle-orm';
 import * as bcrypt from 'bcryptjs';
-import { randomUUID } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { DB_TOKEN, type Db } from '../db/db.module';
 import { users, type User, type Role } from '../db/schema';
 import type { JwtPayload, UserPublic } from './dto';
 import { MailService } from './mail.service';
+import type { GoogleProfilePublic } from './google.strategy';
 
 const BCRYPT_ROUNDS = 10;
 /** Verification token life. 24h c'est confortable (le user a le temps de
@@ -149,6 +150,76 @@ export class AuthService {
       .where(eq(users.id, user.id));
     this.logger.log(`Email verified : ${user.email} (@${user.username})`);
     return { message: 'Email verified. You can now log in.' };
+  }
+
+  /**
+   * Login/register via Google OAuth.
+   *
+   *  - Si l'email existe en DB → just login (sign JWT, update last_login_at).
+   *    Le user a forcément un mot de passe (créé via /auth/register) qu'il
+   *    pourra continuer à utiliser séparément ; Google = méthode additive.
+   *  - Sinon → on crée un user avec :
+   *      - username = email local-part normalisé + suffixe _N si collision
+   *      - password_hash = random (le user ne pourra jamais login via mdp,
+   *        sauf à demander un reset password)
+   *      - email_verified_at = now() (Google a déjà vérifié pour nous)
+   *      - role = 'user'
+   *
+   * Retourne le JWT et le user public — utilisé par le callback Google
+   * pour redirect vers le frontend avec `#token=...`.
+   */
+  async loginOrCreateGoogleUser(profile: GoogleProfilePublic): Promise<{ token: string; user: UserPublic; created: boolean }> {
+    const email = profile.email.toLowerCase();
+    const existing = await this.db.select().from(users).where(eq(users.email, email)).limit(1);
+
+    if (existing.length > 0) {
+      const u = existing[0];
+      const now = new Date();
+      // On force email_verified_at si NULL (un user créé avec mdp mais jamais
+      // vérifié peut se valider via Google — c'est plus pratique que d'exiger
+      // le clic mail si Google a déjà fait le travail).
+      const updates: Partial<typeof users.$inferInsert> = { lastLoginAt: now };
+      if (!u.emailVerifiedAt) updates.emailVerifiedAt = now;
+      await this.db.update(users).set(updates).where(eq(users.id, u.id));
+      this.logger.log(`Google login : ${email} (@${u.username}, existing)`);
+      return {
+        token: this.signToken(u),
+        user: this.toPublic({ ...u, ...updates }),
+        created: false,
+      };
+    }
+
+    // Création : générer un username unique à partir de l'email local-part.
+    const baseUsername = email.split('@')[0].replace(/[^a-z0-9_-]/g, '').toLowerCase() || 'user';
+    let candidateUsername = baseUsername;
+    let suffix = 1;
+    while (true) {
+      const collision = await this.db.select().from(users).where(eq(users.username, candidateUsername)).limit(1);
+      if (collision.length === 0) break;
+      candidateUsername = `${baseUsername}_${suffix++}`;
+      if (suffix > 1000) throw new Error('Username generation: too many collisions, aborting');
+    }
+    // Random password — le user ne pourra pas se connecter via /auth/login
+    // mdp, il devra utiliser Google ou un /auth/forgot-password (Phase 5
+    // hypothétique). Hash bcrypt quand même pour l'invariant `passwordHash NOT NULL`.
+    const randomPwd = randomBytes(32).toString('hex');
+    const passwordHash = await bcrypt.hash(randomPwd, BCRYPT_ROUNDS);
+    const now = new Date();
+    const [created] = await this.db.insert(users).values({
+      email,
+      username: candidateUsername,
+      passwordHash,
+      role: 'user',
+      emailVerifiedAt: now,
+      lastLoginAt: now,
+    }).returning();
+
+    this.logger.log(`Google register : ${email} → @${candidateUsername} (created new account)`);
+    return {
+      token: this.signToken(created),
+      user: this.toPublic(created),
+      created: true,
+    };
   }
 
   /**
