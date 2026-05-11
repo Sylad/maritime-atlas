@@ -82,13 +82,17 @@ import { DatePipe } from '@angular/common';
       transform: translateX(-50%);
       width: calc(100% - 260px);
       max-width: 1320px;
-      background: rgba(19, 24, 38, 0.95);
-      backdrop-filter: blur(8px);
-      border: 1px solid var(--border);
+      background: rgb(15, 23, 42);
+      border: 1px solid hsl(195 80% 45% / 0.4);
       border-radius: 10px;
       padding: 0.55em 1em;
       z-index: 20;
-      box-shadow: 0 4px 24px -4px rgba(0,0,0,0.6);
+      /* Glow neon cyan, cohérent avec legend + popup attribution */
+      box-shadow:
+        0 0 0 1px hsl(195 80% 50% / 0.15),
+        0 0 16px 1px hsl(195 95% 55% / 0.18),
+        0 0 40px 4px hsl(195 90% 50% / 0.08),
+        0 10px 30px -6px rgba(0, 0, 0, 0.7);
       @media (max-width: 760px) {
         width: calc(100% - 24px);
         bottom: 0.4em;

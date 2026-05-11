@@ -407,13 +407,16 @@ function toIsoTimestamp(d: Date): string {
       top: 1em; right: 1em;
       z-index: 10;
       display: flex; align-items: center; gap: 0.5em;
-      background: rgba(19, 24, 38, 0.92);
-      border: 1px solid var(--border);
-      backdrop-filter: blur(8px);
+      background: rgb(15, 23, 42);
+      border: 1px solid hsl(195 80% 45% / 0.4);
       border-radius: 8px;
       padding: 0.5em 0.9em;
       font-size: 0.78rem;
       color: var(--fg-muted);
+      box-shadow:
+        0 0 0 1px hsl(195 80% 50% / 0.15),
+        0 0 16px 1px hsl(195 95% 55% / 0.15),
+        0 0 36px 4px hsl(195 90% 50% / 0.06);
     }
     .auth-link {
       color: var(--accent-bright);
@@ -475,14 +478,18 @@ function toIsoTimestamp(d: Date): string {
       position: absolute;
       top: 1em;
       left: 1em;
-      background: rgba(19, 24, 38, 0.92);
-      backdrop-filter: blur(8px);
-      border: 1px solid var(--border);
+      background: rgb(15, 23, 42);
+      border: 1px solid hsl(195 80% 45% / 0.4);
       border-radius: 8px;
       padding: 1em 1.2em;
-      box-shadow: var(--shadow);
       z-index: 10;
       min-width: 200px;
+      /* Glow neon cyan, inspiré OL Companion sidebar */
+      box-shadow:
+        0 0 0 1px hsl(195 80% 50% / 0.15),
+        0 0 16px 1px hsl(195 95% 55% / 0.18),
+        0 0 40px 4px hsl(195 90% 50% / 0.08),
+        0 10px 30px -6px rgba(0, 0, 0, 0.7);
     }
     .legend-title {
       font-family: var(--font-mono);
@@ -736,14 +743,18 @@ function toIsoTimestamp(d: Date): string {
     .popup {
       position: absolute;
       pointer-events: auto;
-      background: rgba(19, 24, 38, 0.96);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 0.8em 1em;
-      min-width: 240px;
-      box-shadow: var(--shadow);
+      background: rgb(15, 23, 42);
+      border: 1px solid hsl(195 80% 45% / 0.4);
+      border-radius: 8px;
+      padding: 0.85em 1.05em;
+      min-width: 260px;
       transform: translate(-50%, calc(-100% - 12px));
       visibility: hidden;
+      box-shadow:
+        0 0 0 1px hsl(195 80% 50% / 0.15),
+        0 0 18px 1px hsl(195 95% 55% / 0.2),
+        0 0 40px 4px hsl(195 90% 50% / 0.08),
+        0 12px 32px -6px rgba(0, 0, 0, 0.8);
       &.visible { visibility: visible; }
 
       &::after {
@@ -753,9 +764,9 @@ function toIsoTimestamp(d: Date): string {
         left: 50%;
         transform: translateX(-50%) rotate(45deg);
         width: 12px; height: 12px;
-        background: rgba(19, 24, 38, 0.96);
-        border-right: 1px solid var(--border);
-        border-bottom: 1px solid var(--border);
+        background: rgb(15, 23, 42);
+        border-right: 1px solid hsl(195 80% 45% / 0.4);
+        border-bottom: 1px solid hsl(195 80% 45% / 0.4);
       }
     }
     .popup-close {
@@ -1955,9 +1966,21 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private vesselIconDataUrl(fill: string, stroke: string): string {
     const key = `${fill}|${stroke}`;
     if (this.vesselIconCache[key]) return this.vesselIconCache[key];
-    // Petit losange allongé "vaisseau vu du dessus" pointant vers le haut
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14">
-      <path d="M7 1 L11 7 L7 13 L3 7 Z" fill="${fill}" stroke="${stroke}" stroke-width="1.2" stroke-linejoin="round"/>
+    // Silhouette bateau vu du dessus, style marinetraffic / vesselfinder :
+    // bow pointu en haut, stern arrondi en bas avec encoche centrale (V-tail).
+    // Asymétrique avant/arrière = orientation lisible même sans rotation.
+    // Inspiration : Lucide `ship` simplifié pour des petits zoom levels.
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="18" viewBox="0 0 16 18">
+      <path d="M8 1
+               C 10.5 4, 12 7.5, 12 11
+               L 12 14
+               L 9 15
+               L 8 13
+               L 7 15
+               L 4 14
+               L 4 11
+               C 4 7.5, 5.5 4, 8 1 Z"
+        fill="${fill}" stroke="${stroke}" stroke-width="1" stroke-linejoin="round"/>
     </svg>`;
     const url = 'data:image/svg+xml;base64,' + btoa(svg);
     this.vesselIconCache[key] = url;
