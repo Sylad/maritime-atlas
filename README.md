@@ -1,5 +1,23 @@
 # Maritime Atlas
 
+[![Built with Claude Code](https://img.shields.io/badge/Built%20with-Claude%20Code-D97757?logo=anthropic&logoColor=white)](https://claude.com/claude-code)
+[![100% Solo with Claude](https://img.shields.io/badge/100%25%20Solo%20with-Claude-2dd4bf?logo=anthropic&logoColor=white)](https://claude.com/claude-code)
+[![Angular 19](https://img.shields.io/badge/Angular-19-DD0031?logo=angular&logoColor=white)](https://angular.dev)
+[![OpenLayers 10](https://img.shields.io/badge/OpenLayers-10-1F6B75?logo=openlayers&logoColor=white)](https://openlayers.org)
+[![NestJS 11](https://img.shields.io/badge/NestJS-11-E0234E?logo=nestjs&logoColor=white)](https://nestjs.com)
+[![GeoServer 2.27](https://img.shields.io/badge/GeoServer-2.27%20cluster-79AF00?logo=geoserver&logoColor=white)](https://geoserver.org)
+[![TimescaleDB](https://img.shields.io/badge/TimescaleDB-PG16-FDB515?logo=timescale&logoColor=white)](https://www.timescale.com)
+[![RabbitMQ](https://img.shields.io/badge/RabbitMQ-3.13-FF6600?logo=rabbitmq&logoColor=white)](https://www.rabbitmq.com)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+> Atlas maritime live multi-source — AIS navires, météo NOAA + Météo-France,
+> radar pluie, foudre Blitzortung, alerts engine RabbitMQ. France métropole.
+>
+> **100% du code écrit en pair-programming avec [Claude Code](https://claude.com/claude-code).**
+> Premier projet *solo avec Claude* — pas de ChatGPT pour les visuels, pas de
+> Copilot pour le code. Voir la page [/about](https://maritime.sladoire.dev/about)
+> du site live pour le récit complet.
+
 Atlas live du trafic maritime et de l'environnement marin sur la **France métropolitaine**
 (façades Manche, Atlantique, Méditerranée).
 

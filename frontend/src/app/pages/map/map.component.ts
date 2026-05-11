@@ -348,70 +348,9 @@ function toIsoTimestamp(d: Date): string {
       width: 100%;
       background: var(--bg-2);
     }
-    /* ── OpenLayers controls overrides — visibles sur fond sombre ── */
-    :host ::ng-deep .ol-attribution {
-      bottom: 1em !important;
-      right: 1em !important;
-      background: rgba(19, 24, 38, 0.92);
-      border: 1px solid var(--border);
-      backdrop-filter: blur(8px);
-      border-radius: 6px;
-      padding: 0;
-      max-width: min(60%, 700px);
-      font-size: 0.7rem;
-      color: var(--fg-muted);
-    }
-    :host ::ng-deep .ol-attribution button {
-      background: transparent;
-      color: var(--accent);
-      width: 28px;
-      height: 28px;
-      font-size: 0.9rem;
-      font-weight: 700;
-      border: 0;
-      cursor: pointer;
-      &:hover { color: var(--accent-bright); }
-    }
-    :host ::ng-deep .ol-attribution.ol-collapsed ul { display: none; }
-    :host ::ng-deep .ol-attribution ul {
-      padding: 0.4em 0.8em;
-      margin: 0;
-      list-style: none;
-      max-width: 100%;
-      li { padding: 0.15em 0; }
-      a { color: var(--accent-bright); text-decoration: none;
-        &:hover { text-decoration: underline; }
-      }
-    }
-    :host ::ng-deep .ol-scale-line {
-      bottom: 1em !important;
-      left: 1em !important;
-      background: rgba(19, 24, 38, 0.85);
-      border: 1px solid var(--border);
-      backdrop-filter: blur(8px);
-      border-radius: 4px;
-      padding: 2px 6px;
-    }
-    :host ::ng-deep .ol-scale-line-inner {
-      color: var(--fg-muted);
-      border-color: var(--fg-muted);
-      font-family: var(--font-mono);
-      font-size: 0.7rem;
-    }
-    :host ::ng-deep .ol-zoom {
-      top: auto;
-      bottom: 4em !important;
-      left: 1em !important;
-      background: rgba(19, 24, 38, 0.85);
-      border: 1px solid var(--border);
-      backdrop-filter: blur(8px);
-      border-radius: 6px;
-    }
-    :host ::ng-deep .ol-zoom button {
-      background: transparent;
-      color: var(--fg-muted);
-      &:hover { color: var(--accent-bright); background: transparent; }
-    }
+    /* OL controls overrides → vivent dans styles.scss global pour ne pas
+       être bloqués par l'encapsulation Angular (les controls OL sont
+       injectés dans le DOM imperativement). */
     .wind-particles-canvas {
       position: absolute;
       top: 0; left: 0; right: 0; bottom: 0;
@@ -1331,38 +1270,52 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   }
 
   /**
-   * Style "zap" pour les éclairs : disque jaune + halo selon age.
-   * - <60s : blanc-jaune brillant (très récent, flash visuel)
+   * Style "bolt" SVG ⚡ pour les éclairs — forme distincte des navires
+   * (losange) pour ne pas confondre les 2 types de features.
+   * - <60s : blanc-jaune brillant + halo large (flash récent)
    * - 60s-5min : jaune saturé
-   * - 5-30min : ambre, halo réduit (fading)
+   * - 5-30min : ambre fading
    */
+  private lightningIconCache: Record<string, string> = {};
+  private lightningIconDataUrl(fill: string, stroke: string): string {
+    const key = `${fill}|${stroke}`;
+    if (this.lightningIconCache[key]) return this.lightningIconCache[key];
+    // SVG éclair classique (bolt vertical)
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="22" viewBox="0 0 18 22">
+      <path d="M11 1 L2 13 L8 13 L7 21 L16 9 L10 9 L11 1 Z"
+        fill="${fill}" stroke="${stroke}" stroke-width="1" stroke-linejoin="round" />
+    </svg>`;
+    const url = 'data:image/svg+xml;base64,' + btoa(svg);
+    this.lightningIconCache[key] = url;
+    return url;
+  }
   private styleLightning(feat: FeatureLike): Style {
     const age = (feat.getProperties() as LightningProperties).age_seconds ?? 0;
     let fill: string;
-    let halo: string;
-    let radius: number;
+    let stroke: string;
+    let scale: number;
     if (age < 60) {
       fill = '#ffffff';
-      halo = 'rgba(253, 224, 71, 0.6)';
-      radius = 8;
+      stroke = '#fde047';
+      scale = 1.1;
     } else if (age < 300) {
       fill = '#fde047';
-      halo = 'rgba(253, 224, 71, 0.45)';
-      radius = 6;
+      stroke = '#fbbf24';
+      scale = 1.0;
     } else if (age < 1800) {
       fill = '#fbbf24';
-      halo = 'rgba(251, 191, 36, 0.25)';
-      radius = 5;
+      stroke = '#a16207';
+      scale = 0.85;
     } else {
       fill = '#a16207';
-      halo = 'rgba(161, 98, 7, 0.15)';
-      radius = 4;
+      stroke = '#78350f';
+      scale = 0.7;
     }
     return new Style({
-      image: new CircleStyle({
-        radius,
-        fill: new Fill({ color: fill }),
-        stroke: new Stroke({ color: halo, width: 4 }),
+      image: new Icon({
+        src: this.lightningIconDataUrl(fill, stroke),
+        scale,
+        anchor: [0.5, 0.5],
       }),
     });
   }
@@ -1924,15 +1877,35 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   }
 
   // ─── Styles ─────────────────────────────────────────────────────────
+  /**
+   * Icône navire : SVG losange (boat-like silhouette) coloré selon la
+   * catégorie + rotation par cog si disponible (sinon orienté nord).
+   * Forme distinctive des éclairs (qui sont des bolts ⚡).
+   */
+  private vesselIconCache: Record<string, string> = {};
+  private vesselIconDataUrl(fill: string, stroke: string): string {
+    const key = `${fill}|${stroke}`;
+    if (this.vesselIconCache[key]) return this.vesselIconCache[key];
+    // Petit losange allongé "vaisseau vu du dessus" pointant vers le haut
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14">
+      <path d="M7 1 L11 7 L7 13 L3 7 Z" fill="${fill}" stroke="${stroke}" stroke-width="1.2" stroke-linejoin="round"/>
+    </svg>`;
+    const url = 'data:image/svg+xml;base64,' + btoa(svg);
+    this.vesselIconCache[key] = url;
+    return url;
+  }
   private styleVessel(feature: FeatureLike): Style {
     const props = feature.getProperties() as VesselProperties;
     const cat = categoryOf(props.ship_type);
     const colors = CATEGORY_COLOR[cat];
+    const cog = typeof (props as any).cog === 'number' ? (props as any).cog : 0;
     return new Style({
-      image: new CircleStyle({
-        radius: 5,
-        fill: new Fill({ color: colors.fill }),
-        stroke: new Stroke({ color: colors.stroke, width: 1.5 }),
+      image: new Icon({
+        src: this.vesselIconDataUrl(colors.fill, colors.stroke),
+        rotation: (cog * Math.PI) / 180,
+        rotateWithView: true,
+        scale: 1.0,
+        anchor: [0.5, 0.5],
       }),
     });
   }
