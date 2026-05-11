@@ -15,6 +15,15 @@
   --warning: #fbbf24;                   /* ambre */
   --negative: #ef4444;
   --border: rgba(255, 255, 255, 0.08);
+  /* Glow neon partagé entre tous les controls custom (bordure + box-shadow).
+     Sert à l'identité visuelle : tout ce qui flotte au-dessus de la carte
+     a la même bordure bleu électrique. */
+  --neon-border: 1px solid hsl(224 85% 55% / 0.5);
+  --neon-glow:
+    0 0 0 1px hsl(224 95% 60% / 0.2),
+    0 0 16px 1px hsl(224 95% 60% / 0.26),
+    0 0 40px 4px hsl(224 90% 55% / 0.13),
+    0 10px 30px -6px rgba(0, 0, 0, 0.7);
   --shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.6);
   --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
@@ -42,19 +51,45 @@ app-root {
   height: 100%;
 }
 
-/* ── OL controls overrides (ScaleLine + Zoom uniquement) ──
-   L'Attribution OL natif est désactivé côté map.component (controls)
-   et remplacé par un <div> Angular maison — fini les batailles avec
-   l'encapsulation et le text-shadow par défaut d'OL. */
+/* ── OL controls overrides — Phase Layer UX V2.1 ──
+   Les controls OL (Zoom, ScaleLine, MousePosition) sont injectés dans
+   nos docks Angular via le `target` option. Donc plus de positionnement
+   absolute hérité ; ils s'écoulent naturellement dans le dock parent.
+   On garde juste le styling visuel cohérent (bordures + couleurs). */
 
-/* ScaleLine : bottom-left au-dessus de la slider */
-.ol-scale-line {
-  bottom: 6em !important;
-  left: 1em !important;
+.ol-zoom {
+  position: static !important;   /* override default OL absolute */
+  background: transparent;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ol-zoom button {
   background: rgba(19, 24, 38, 0.92) !important;
-  border: 1px solid var(--border);
+  color: var(--fg-muted) !important;
+  border: var(--neon-border) !important;
+  border-radius: 6px !important;
+  width: 34px;
+  height: 30px;
+  font-size: 1.05rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 150ms, border-color 150ms, background 150ms;
+  &:hover, &:focus-visible {
+    color: var(--accent-bright) !important;
+    border-color: var(--accent-bright) !important;
+    background: hsl(224 90% 55% / 0.15) !important;
+  }
+}
+
+.ol-scale-line {
+  position: static !important;
+  background: rgba(19, 24, 38, 0.92) !important;
+  border: var(--neon-border);
   border-radius: 4px;
   padding: 2px 6px;
+  align-self: flex-end;     /* aligne à droite dans le dock */
 }
 .ol-scale-line-inner {
   color: var(--fg-muted) !important;
@@ -63,50 +98,24 @@ app-root {
   font-size: 0.7rem;
 }
 
-/* MousePosition (HDMS lat/lon sous le curseur) : bottom-left au-dessus
-   du zoom. Caché sur mobile (touch n'a pas de hover / cursor).
-   Format : "48° 51' 24.3" N 2° 21' 03.1" E" — ~280px de large. */
+/* MousePosition (HDMS lat/lon sous le curseur) — dans infoDockEl.
+   Caché sur mobile (touch n'a pas de hover / cursor). */
 .ol-mouse-position {
-  position: absolute;
-  /* `em` se résout sur la font-size de l'élément (0.7rem) → 12em devient
-     trop petit. On utilise `rem` pour rester aligné sur le root et au-dessus
-     du zoom (qui est à 9em × 14px ≈ 126px). 12rem = 168px depuis le bas. */
-  bottom: 12rem !important;
-  left: 1em !important;
-  top: auto !important;
-  right: auto !important;
+  position: static !important;
   background: rgba(19, 24, 38, 0.92);
-  border: 1px solid var(--border);
+  border: var(--neon-border);
   border-radius: 4px;
   padding: 3px 8px;
   font-family: var(--font-mono);
   font-size: 0.7rem;
   color: var(--fg-muted);
   letter-spacing: 0.02em;
-  pointer-events: none;     /* le label ne doit pas intercepter les clics */
+  pointer-events: none;
   user-select: none;
   min-width: 0;
   white-space: nowrap;
+  text-align: center;
   @media (max-width: 760px) {
     display: none;          /* touch = pas de cursor */
-  }
-}
-
-/* Zoom : bottom-left, au-dessus du scale */
-.ol-zoom {
-  top: auto !important;
-  bottom: 9em !important;
-  left: 1em !important;
-  background: rgba(19, 24, 38, 0.92);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-.ol-zoom button {
-  background: transparent !important;
-  color: var(--fg-muted) !important;
-  border: 0 !important;
-  &:hover {
-    color: var(--accent-bright) !important;
-    background: hsl(224 90% 55% / 0.12) !important;
   }
 }

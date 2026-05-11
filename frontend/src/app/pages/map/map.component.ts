@@ -26,7 +26,7 @@ import GeoJSON from 'ol/format/GeoJSON';
 import Overlay from 'ol/Overlay';
 import { fromLonLat } from 'ol/proj';
 import { Style, Circle as CircleStyle, Fill, Stroke, Icon } from 'ol/style';
-import { defaults as defaultControls, ScaleLine, MousePosition } from 'ol/control';
+import { defaults as defaultControls, ScaleLine, MousePosition, Zoom } from 'ol/control';
 import { toStringHDMS } from 'ol/coordinate';
 import type { Feature } from 'ol';
 import type { FeatureLike } from 'ol/Feature';
@@ -107,6 +107,54 @@ function toIsoTimestamp(d: Date): string {
           <a routerLink="/auth/login" class="auth-link">Connexion</a>
           <span class="auth-sep">·</span>
           <a routerLink="/auth/register" class="auth-link">Inscription</a>
+        }
+      </div>
+
+      <!-- Dock controls TOP-RIGHT (sous auth-corner) : zoom +/-.
+           OL injecte .ol-zoom dans ce div via le target option. -->
+      <div class="controls-dock controls-dock-top-right" #zoomDockEl></div>
+
+      <!-- Dock controls BOTTOM-RIGHT (au-dessus de la time-slider) :
+           HDMS coords (top), scale 100 NM, attribution (i) bottom.
+           OL inject les 2 premiers via target ; le dernier (attribution)
+           reste un button Angular maison. -->
+      <div class="controls-dock controls-dock-bottom-right">
+        <div class="controls-dock-info" #infoDockEl></div>
+        <button type="button" class="attribution-trigger"
+                [class.is-open]="attrOpen()"
+                (click)="toggleAttr()"
+                [attr.aria-label]="attrOpen() ? 'Fermer les sources' : 'Voir les sources'"
+                title="Sources de données">
+          {{ attrOpen() ? '×' : 'i' }}
+        </button>
+        @if (attrOpen()) {
+          <div class="attribution-panel">
+            <div class="attribution-title">Sources</div>
+            <div class="attribution-row">
+              <span class="attribution-label">Fond carto</span>
+              <span>©&nbsp;<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · ©&nbsp;<a href="https://carto.com/attribution" target="_blank" rel="noopener">CARTO</a></span>
+            </div>
+            <div class="attribution-row">
+              <span class="attribution-label">Modèles météo</span>
+              <span><a href="https://nomads.ncep.noaa.gov" target="_blank" rel="noopener">NOAA NOMADS</a> · <a href="https://meteo.data.gouv.fr/datasets" target="_blank" rel="noopener">Météo-France AROME</a></span>
+            </div>
+            <div class="attribution-row">
+              <span class="attribution-label">Positions navires</span>
+              <span>©&nbsp;<a href="https://aisstream.io" target="_blank" rel="noopener">aisstream.io</a></span>
+            </div>
+            <div class="attribution-row">
+              <span class="attribution-label">Radar pluie</span>
+              <span><a href="https://www.rainviewer.com" target="_blank" rel="noopener">RainViewer</a></span>
+            </div>
+            <div class="attribution-row">
+              <span class="attribution-label">Foudre</span>
+              <span><a href="https://www.blitzortung.org" target="_blank" rel="noopener">Blitzortung</a> (community)</span>
+            </div>
+            <div class="attribution-row">
+              <span class="attribution-label">Bouées</span>
+              <span><a href="https://candhis.cerema.fr" target="_blank" rel="noopener">CANDHIS</a> · CEREMA (Etalab)</span>
+            </div>
+          </div>
         }
       </div>
 
@@ -559,46 +607,7 @@ function toIsoTimestamp(d: Date): string {
         }
       </div>
 
-      <!-- Attribution bar maison (cf. commit "drop OL Attribution"). Bouton (i)
-           bottom-right qui déplie un panneau avec les sources. HTML standard,
-           pas de control OL → fini les letterforms hollow/glow. -->
-      <div class="attribution-bar" [class.open]="attrOpen()">
-        @if (attrOpen()) {
-          <div class="attribution-panel">
-            <div class="attribution-title">Sources</div>
-            <div class="attribution-row">
-              <span class="attribution-label">Fond carto</span>
-              <span>©&nbsp;<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · ©&nbsp;<a href="https://carto.com/attribution" target="_blank" rel="noopener">CARTO</a></span>
-            </div>
-            <div class="attribution-row">
-              <span class="attribution-label">Modèles météo</span>
-              <span><a href="https://nomads.ncep.noaa.gov" target="_blank" rel="noopener">NOAA NOMADS</a> (GFS, WW3, OISST) · <a href="https://meteo.data.gouv.fr/datasets" target="_blank" rel="noopener">Météo-France AROME</a></span>
-            </div>
-            <div class="attribution-row">
-              <span class="attribution-label">Positions navires</span>
-              <span>©&nbsp;<a href="https://aisstream.io" target="_blank" rel="noopener">aisstream.io</a></span>
-            </div>
-            <div class="attribution-row">
-              <span class="attribution-label">Radar pluie</span>
-              <span><a href="https://www.rainviewer.com" target="_blank" rel="noopener">RainViewer</a></span>
-            </div>
-            <div class="attribution-row">
-              <span class="attribution-label">Foudre</span>
-              <span><a href="https://www.blitzortung.org" target="_blank" rel="noopener">Blitzortung</a> (community)</span>
-            </div>
-            <div class="attribution-row">
-              <span class="attribution-label">Bouées houle</span>
-              <span><a href="https://candhis.cerema.fr" target="_blank" rel="noopener">CANDHIS / CEREMA</a> (Etalab 2.0)</span>
-            </div>
-          </div>
-        }
-        <button type="button" class="attribution-trigger"
-                (click)="toggleAttr()"
-                [attr.aria-label]="attrOpen() ? 'Fermer les sources' : 'Voir les sources'"
-                title="Sources de données">
-          {{ attrOpen() ? '×' : 'i' }}
-        </button>
-      </div>
+      <!-- Attribution panel relocated into controls-dock-bottom-right -->
 
       <app-time-slider (timeChange)="onTimeChange($event)" />
     </div>
@@ -1138,15 +1147,32 @@ function toIsoTimestamp(d: Date): string {
        toujours visible ; clic → panel s'ouvre vers le HAUT-GAUCHE pour
        ne pas dépasser de la viewport. Pas de glow exotique : juste un
        border + un box-shadow soft pour la lisibilité. */
-    .attribution-bar {
+    /* ── Phase Layer UX V2.1 : controls docks organisés ──
+       Top-right (sous auth-corner) : zoom +/-.
+       Bottom-right (au-dessus de time-slider) : HDMS + scale + attribution.
+       Plus d'amas anarchique. Cohérent visuellement avec auth-corner. */
+    .controls-dock {
       position: absolute;
-      bottom: 6em;
       right: 1em;
-      z-index: 25;
+      z-index: 12;
       display: flex;
-      align-items: flex-end;
-      gap: 0.5em;
+      flex-direction: column;
+      gap: 0.4em;
       pointer-events: auto;
+    }
+    .controls-dock-top-right {
+      top: 4em;                /* sous auth-corner qui est à top:1em + ~2.5em haut */
+      align-items: flex-end;
+    }
+    .controls-dock-bottom-right {
+      bottom: 6em;             /* au-dessus de la time-slider (~5em haut) */
+      align-items: flex-end;
+    }
+    .controls-dock-info {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4em;
+      align-items: flex-end;
     }
     .attribution-trigger {
       width: 32px;
@@ -1169,23 +1195,28 @@ function toIsoTimestamp(d: Date): string {
         border-color: var(--accent-bright);
         transform: translateY(-1px);
       }
-    }
-    .attribution-bar.open .attribution-trigger {
-      font-style: normal;
-      font-family: var(--font-sans);
-      font-size: 1.1rem;
+      &.is-open {
+        font-style: normal;
+        font-family: var(--font-sans);
+        font-size: 1.1rem;
+      }
     }
     .attribution-panel {
+      /* Le panel ouvre VERS LE HAUT depuis le trigger qui est en bas
+         du dock. position absolute + bottom: 100% pour qu'il flotte
+         au-dessus du bouton sans pousser le dock. */
+      position: absolute;
+      bottom: calc(100% + 8px);
+      right: 0;
       background: rgb(15, 23, 42);
       border: 1px solid hsl(224 85% 55% / 0.5);
       border-radius: 8px;
       padding: 0.9em 1.1em;
       max-width: 420px;
+      width: max-content;
       font-size: 0.78rem;
       line-height: 1.6;
       color: var(--fg);
-      /* Box-shadow doux — pas de multi-layer glow, pas de filter, pas
-         de backdrop-filter. Lecture nette garantie. */
       box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.7);
       animation: attr-fade-in 150ms ease-out;
     }
@@ -1330,6 +1361,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly mapEl = viewChild.required<ElementRef<HTMLDivElement>>('mapEl');
   readonly popupEl = viewChild.required<ElementRef<HTMLDivElement>>('popupEl');
   readonly particlesEl = viewChild.required<ElementRef<HTMLCanvasElement>>('particlesEl');
+  /** Phase Layer UX V2.1 — controls dock organisé : zoom en top-right
+      sous auth-corner, HDMS+scale+attribution en bottom-right. Plus
+      d'amas anarchique bottom-left. */
+  readonly zoomDockEl = viewChild.required<ElementRef<HTMLDivElement>>('zoomDockEl');
+  readonly infoDockEl = viewChild.required<ElementRef<HTMLDivElement>>('infoDockEl');
 
   readonly selectedVessel = signal<VesselProperties | null>(null);
   readonly selectedLightning = signal<LightningProperties | null>(null);
@@ -2705,13 +2741,17 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       // qui rend les letterforms hollow/glow sur dark bg (cf. /case-study).
       // À la place, un <div class="attribution-bar"> Angular maison (cf. template)
       // affiche les sources en clair avec liens HTML normaux.
-      controls: defaultControls({ attribution: false }).extend([
-        new ScaleLine({ units: 'nautical' }),
+      //
+      // Phase Layer UX V2.1 : on désactive aussi le Zoom par défaut pour le
+      // recréer manuellement avec target=zoomDockEl (top-right sous auth-corner).
+      // ScaleLine + MousePosition vont dans infoDockEl (bottom-right).
+      controls: defaultControls({ attribution: false, zoom: false }).extend([
+        new Zoom({ target: this.zoomDockEl().nativeElement }),
+        new ScaleLine({ target: this.infoDockEl().nativeElement, units: 'nautical' }),
         // Affiche les coordonnées sous le curseur en HDMS (degrés / minutes /
-        // secondes lat-lon WGS84). Le control est positionné bottom-left
-        // au-dessus du zoom via styles.scss. Caché sur mobile (touch n'a
-        // pas de cursor).
+        // secondes lat-lon WGS84). Caché sur mobile (touch n'a pas de cursor).
         new MousePosition({
+          target: this.infoDockEl().nativeElement,
           projection: 'EPSG:4326',
           coordinateFormat: (coord) => coord ? toStringHDMS(coord, 1) : '',
           className: 'ol-mouse-position',
