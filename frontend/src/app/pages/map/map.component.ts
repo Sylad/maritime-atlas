@@ -1927,7 +1927,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         next: (fc) => {
           this.errorMsg.set(null);
           this.tracksCount.set(fc.features.length);
-          this.vesselsCount.set(0);
+          // NE PAS toucher vesselsCount : tracks et vessels sont 2 couches
+          // indépendantes. Le bug pré-fix réinitialisait vesselsCount à 0
+          // après chaque chargement de tracks, ce qui faisait croire que
+          // les bateaux ne refresh pas (alors qu'ils étaient bien rendus).
           if (!this.trackSource) return;
           this.trackSource.clear();
           const features = this.geoJsonFmt.readFeatures(fc);
