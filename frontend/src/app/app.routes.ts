@@ -13,6 +13,11 @@ export const routes: Routes = [
     title: 'Inscription · Maritime Atlas',
   },
   {
+    path: 'auth/verify',
+    loadComponent: () => import('./pages/auth/verify.component').then((m) => m.VerifyComponent),
+    title: 'Vérification · Maritime Atlas',
+  },
+  {
     path: 'palettes',
     canActivate: [authGuard],
     loadComponent: () => import('./pages/palettes/palettes-page.component').then((m) => m.PalettesPageComponent),

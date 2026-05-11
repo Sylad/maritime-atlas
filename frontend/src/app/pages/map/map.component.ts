@@ -91,7 +91,11 @@ function toIsoTimestamp(d: Date): string {
         <a routerLink="/about" class="auth-link" title="À propos du projet">À propos</a>
         <span class="auth-sep">·</span>
         @if (currentUser(); as u) {
-          <a routerLink="/palettes" class="auth-link">{{ u.email }}</a>
+          <a routerLink="/palettes" class="auth-link">{{ '@' + u.username }}</a>
+          @if (u.role === 'admin') {
+            <span class="auth-sep">·</span>
+            <a routerLink="/admin/users" class="auth-link auth-admin-pill" title="Espace admin">ADMIN</a>
+          }
           <span class="auth-sep">·</span>
           <button type="button" class="auth-btn" (click)="logout()">Déconnexion</button>
         } @else {
@@ -474,6 +478,15 @@ function toIsoTimestamp(d: Date): string {
       color: var(--accent-bright);
       text-decoration: none;
       &:hover { color: var(--fg); }
+    }
+    .auth-admin-pill {
+      display: inline-block;
+      padding: 1px 6px;
+      border: 1px solid var(--accent-bright);
+      border-radius: 3px;
+      font-family: var(--font-mono);
+      font-size: 0.6rem;
+      letter-spacing: 0.15em;
     }
     .auth-sep { color: var(--fg-dim); }
     .auth-btn {

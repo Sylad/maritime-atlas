@@ -54,7 +54,8 @@ describe('AuthService', () => {
     db = makeMockDb();
     jwt = new JwtService({ secret: 'test-secret', signOptions: { expiresIn: '1h' } });
     const config = { get: () => 10 } as unknown as ConfigService;
-    svc = new AuthService(db as any, jwt, config);
+    const mail = { sendVerificationEmail: jest.fn().mockResolvedValue(undefined) } as any;
+    svc = new AuthService(db as any, jwt, config, mail);
   });
 
   it('register: creates a new user with username, lowercased, returns verification token', async () => {
@@ -69,8 +70,8 @@ describe('AuthService', () => {
     expect(stored.verificationToken).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/);
     expect(stored.verificationTokenExpiresAt).toBeInstanceOf(Date);
 
-    expect(out.verificationToken).toBe(stored.verificationToken);
-    expect(out.message).toMatch(/verify/i);
+    expect(out.verificationTokenSent).toBe(true);
+    expect(out.message).toMatch(/verify|verification/i);
   });
 
   it('register: throws ConflictException on duplicate email or username', async () => {

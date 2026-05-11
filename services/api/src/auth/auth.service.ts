@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { eq, or } from 'drizzle-orm';
@@ -7,6 +7,7 @@ import { randomUUID } from 'crypto';
 import { DB_TOKEN, type Db } from '../db/db.module';
 import { users, type User, type Role } from '../db/schema';
 import type { JwtPayload, UserPublic } from './dto';
+import { MailService } from './mail.service';
 
 const BCRYPT_ROUNDS = 10;
 /** Verification token life. 24h c'est confortable (le user a le temps de
@@ -21,6 +22,7 @@ export class AuthService {
     @Inject(DB_TOKEN) private readonly db: Db,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly mail: MailService,
   ) {}
 
   /**
@@ -32,7 +34,7 @@ export class AuthService {
    * le backend peut juste loguer). NE retourne PAS de JWT — un user doit
    * d'abord vérifier son email pour se connecter (fail-closed).
    */
-  async register(email: string, username: string, password: string): Promise<{ message: string; verificationToken: string }> {
+  async register(email: string, username: string, password: string): Promise<{ message: string; verificationTokenSent: boolean }> {
     const normalizedUsername = username.toLowerCase();
     const normalizedEmail = email.toLowerCase();
 
@@ -58,10 +60,38 @@ export class AuthService {
     });
 
     this.logger.log(`Register OK : ${normalizedEmail} (@${normalizedUsername}) — verification token expires ${verificationTokenExpiresAt.toISOString()}`);
+    // Envoi du mail Resend (best-effort — n'échoue pas le register si SMTP KO).
+    // Le user pourra resend via /auth/resend-verification.
+    await this.mail.sendVerificationEmail(normalizedEmail, normalizedUsername, verificationToken);
     return {
-      message: 'Account created. Please verify your email to log in.',
-      verificationToken,
+      message: 'Account created. Check your inbox for the verification link.',
+      verificationTokenSent: true,
     };
+  }
+
+  /**
+   * Renvoie un mail de vérification au user dont l'email est fourni.
+   * Idempotent : si déjà vérifié, retourne success sans rien envoyer.
+   * Génère un nouveau token (le précédent est invalidé) avec TTL 24h.
+   */
+  async resendVerification(email: string): Promise<{ message: string }> {
+    const normalizedEmail = email.toLowerCase().trim();
+    const found = await this.db.select().from(users).where(eq(users.email, normalizedEmail)).limit(1);
+    if (found.length === 0) {
+      // Réponse identique pour ne pas leak l'existence d'un compte (énumération).
+      return { message: 'If the email exists, a verification link was sent.' };
+    }
+    const user = found[0];
+    if (user.emailVerifiedAt) {
+      return { message: 'Email already verified. Just log in.' };
+    }
+    const verificationToken = randomUUID();
+    const verificationTokenExpiresAt = new Date(Date.now() + VERIFICATION_TOKEN_TTL_MS);
+    await this.db.update(users)
+      .set({ verificationToken, verificationTokenExpiresAt })
+      .where(eq(users.id, user.id));
+    await this.mail.sendVerificationEmail(user.email, user.username, verificationToken);
+    return { message: 'If the email exists, a verification link was sent.' };
   }
 
   /**

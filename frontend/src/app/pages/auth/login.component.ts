@@ -11,12 +11,14 @@ import { PalettesService } from '../../services/palettes.service';
     <div class="auth-shell">
       <form class="auth-card" (submit)="$event.preventDefault(); submit()">
         <div class="auth-title">CONNEXION</div>
-        <div class="auth-sub">Connecte-toi pour gérer tes palettes</div>
-        <label>Email
-          <input type="email" autocomplete="email" required [(ngModel)]="email" name="email" />
+        <div class="auth-sub">Email ou nom d'utilisateur</div>
+        <label>Email ou nom d'utilisateur
+          <input type="text" autocomplete="username" required
+                 [(ngModel)]="identifier" name="identifier" />
         </label>
         <label>Mot de passe
-          <input type="password" autocomplete="current-password" minlength="6" required [(ngModel)]="password" name="password" />
+          <input type="password" autocomplete="current-password" minlength="1" required
+                 [(ngModel)]="password" name="password" />
         </label>
         @if (errorMsg()) { <div class="auth-error">{{ errorMsg() }}</div> }
         <button type="submit" class="auth-cta" [disabled]="busy()">
@@ -35,7 +37,7 @@ export class LoginComponent {
   private readonly palettes = inject(PalettesService);
   private readonly router = inject(Router);
 
-  email = '';
+  identifier = '';
   password = '';
   readonly busy = signal(false);
   readonly errorMsg = signal<string | null>(null);
@@ -44,11 +46,16 @@ export class LoginComponent {
     this.busy.set(true);
     this.errorMsg.set(null);
     try {
-      await this.auth.login(this.email.trim(), this.password);
+      await this.auth.login(this.identifier.trim().toLowerCase(), this.password);
       await this.palettes.loadMyContext();
       this.router.navigate(['/']);
     } catch (err: any) {
-      this.errorMsg.set(err?.error?.message ?? 'Identifiants invalides');
+      // Backend renvoie 403 si email pas vérifié → message dédié.
+      if (err?.status === 403) {
+        this.errorMsg.set('Email pas encore vérifié. Vérifie ta boîte de réception.');
+      } else {
+        this.errorMsg.set(err?.error?.message ?? 'Identifiants invalides');
+      }
     } finally {
       this.busy.set(false);
     }

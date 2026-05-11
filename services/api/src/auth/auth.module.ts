@@ -6,6 +6,7 @@ import { AuthController } from './auth.controller';
 import { AdminSeedService } from './admin-seed.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { RolesGuard } from './roles.guard';
+import { MailService } from './mail.service';
 
 @Global()
 @Module({
@@ -23,7 +24,7 @@ import { RolesGuard } from './roles.guard';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtAuthGuard, RolesGuard, AdminSeedService],
-  exports: [AuthService, JwtAuthGuard, RolesGuard, JwtModule],
+  providers: [AuthService, JwtAuthGuard, RolesGuard, AdminSeedService, MailService],
+  exports: [AuthService, JwtAuthGuard, RolesGuard, JwtModule, MailService],
 })
 export class AuthModule {}

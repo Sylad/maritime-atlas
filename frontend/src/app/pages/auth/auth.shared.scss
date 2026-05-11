@@ -64,8 +64,19 @@ input {
   font-weight: 600;
   cursor: pointer;
   transition: background 150ms;
-  &:hover:not(:disabled) { background: var(--accent-bright); }
+  text-align: center;
+  text-decoration: none;
+  display: block;
+  &:hover:not(:disabled) { background: var(--accent-bright); color: var(--bg); }
   &:disabled { opacity: 0.55; cursor: progress; }
+}
+.auth-info {
+  background: rgba(45, 212, 191, 0.10);
+  border: 1px solid rgba(45, 212, 191, 0.35);
+  color: var(--accent-bright);
+  padding: 0.5em 0.7em;
+  border-radius: 6px;
+  font-size: 0.78rem;
 }
 .auth-error {
   background: rgba(239, 68, 68, 0.12);
