@@ -42,6 +42,7 @@ import { PalettesService } from '../../services/palettes.service';
 import { ArrowsService, type ArrowsKind } from '../../services/arrows.service';
 import { LightningService, type LightningProperties } from '../../services/lightning.service';
 import { AlertsService, type AlertProperties, type AlertSeverity } from '../../services/alerts.service';
+import { BuoysService, type BuoyProperties, type BuoyObservationProperties } from '../../services/buoys.service';
 import { WindParticleEngine, speedDirToUv, type WindPoint as WindParticlePoint } from '../../components/wind-particles/wind-particles';
 
 // France métropole — centré sur l'hexagone, zoom large.
@@ -49,6 +50,10 @@ const INITIAL_CENTER: [number, number] = [3.0, 46.5];
 const INITIAL_ZOOM = 6;
 const REFRESH_INTERVAL_MS = 30_000;
 const LIVE_THRESHOLD_MS = 5 * 60_000; // ±5min = considéré live
+/** localStorage key pour les prefs layers (visibility + opacity). Phase A
+    fonctionne en localStorage only ; Phase C synchronise avec backend
+    pour les users connectés. */
+const LAYER_PREFS_KEY = 'maritime.layer-prefs-v1';
 
 // Couleurs par catégorie ship_type (cf v_vessels_live_categorized).
 type Category = 'fishing-leisure' | 'passenger' | 'cargo' | 'tanker' | 'other';
@@ -274,6 +279,16 @@ function toIsoTimestamp(d: Date): string {
               <span class="toggle-count">{{ windParticlesStatus() }}</span>
             </span>
           </label>
+          <label class="layer-toggle" [class.dim]="!showBuoys()">
+            <input type="checkbox" [checked]="showBuoys()" (change)="showBuoys.set($any($event.target).checked)" />
+            <span class="toggle-glyph">
+              <span class="glyph-buoy">⚓</span>
+            </span>
+            <span class="toggle-text">
+              <span class="toggle-name">Bouées CANDHIS</span>
+              <span class="toggle-count">{{ buoysStatus() }}</span>
+            </span>
+          </label>
         </div>
 
         @if (showAlerts() && alertsList().length > 0) {
@@ -388,6 +403,46 @@ function toIsoTimestamp(d: Date): string {
             <div class="popup-row"><span>Distance strike</span><strong>{{ a.detail.distanceM | number:'1.0-0' }} m</strong></div>
           }
         }
+        @if (selectedBuoy(); as b) {
+          <button class="popup-close" type="button" (click)="closePopup()">×</button>
+          <div class="popup-name">⚓ {{ b.name }}</div>
+          <div class="popup-meta">
+            <span class="badge" style="background:#1e88e5;color:#fff">CANDHIS</span>
+            <span class="popup-flag">{{ b.candhis_id }}</span>
+          </div>
+          @if (b.buoy_type) {
+            <div class="popup-row"><span>Type</span><strong>{{ b.buoy_type }}</strong></div>
+          }
+          @if (selectedBuoyObs(); as o) {
+            @if (o.ts) {
+              <div class="popup-row"><span>Mesure</span><strong class="mono">{{ o.ts | date:'dd/MM HH:mm' }}</strong></div>
+            }
+            @if (o.hm0 != null) {
+              <div class="popup-row"><span>Hm0 (Hs)</span><strong>{{ o.hm0 | number:'1.1-2' }} m</strong></div>
+            } @else if (o.h13 != null) {
+              <div class="popup-row"><span>H1/3</span><strong>{{ o.h13 | number:'1.1-2' }} m</strong></div>
+            }
+            @if (o.hmax != null) {
+              <div class="popup-row"><span>Hmax</span><strong>{{ o.hmax | number:'1.1-2' }} m</strong></div>
+            }
+            @if (o.tp != null) {
+              <div class="popup-row"><span>T au pic</span><strong>{{ o.tp | number:'1.1-1' }} s</strong></div>
+            } @else if (o.th13 != null) {
+              <div class="popup-row"><span>TH1/3</span><strong>{{ o.th13 | number:'1.1-1' }} s</strong></div>
+            }
+            @if (o.t02 != null) {
+              <div class="popup-row"><span>T02</span><strong>{{ o.t02 | number:'1.1-1' }} s</strong></div>
+            }
+            @if (o.peak_dir != null) {
+              <div class="popup-row"><span>Dir. pic</span><strong>{{ o.peak_dir | number:'1.0-0' }}°</strong></div>
+            }
+            @if (o.temp_water != null) {
+              <div class="popup-row"><span>Temp. mer</span><strong>{{ o.temp_water | number:'1.1-1' }} °C</strong></div>
+            }
+          } @else {
+            <div class="popup-row"><span>Mesure</span><strong>pas de donnée TR</strong></div>
+          }
+        }
       </div>
 
       <!-- Attribution bar maison (cf. commit "drop OL Attribution"). Bouton (i)
@@ -416,6 +471,10 @@ function toIsoTimestamp(d: Date): string {
             <div class="attribution-row">
               <span class="attribution-label">Foudre</span>
               <span><a href="https://www.blitzortung.org" target="_blank" rel="noopener">Blitzortung</a> (community)</span>
+            </div>
+            <div class="attribution-row">
+              <span class="attribution-label">Bouées houle</span>
+              <span><a href="https://candhis.cerema.fr" target="_blank" rel="noopener">CANDHIS / CEREMA</a> (Etalab 2.0)</span>
             </div>
           </div>
         }
@@ -1065,6 +1124,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private readonly arrows = inject(ArrowsService);
   private readonly lightning = inject(LightningService);
   private readonly alertsSvc = inject(AlertsService);
+  private readonly buoys = inject(BuoysService);
   private readonly auth = inject(AuthService);
   private readonly palettesSvc = inject(PalettesService);
   private readonly router = inject(Router);
@@ -1080,13 +1140,18 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly selectedVessel = signal<VesselProperties | null>(null);
   readonly selectedLightning = signal<LightningProperties | null>(null);
   readonly selectedAlert = signal<AlertProperties | null>(null);
+  readonly selectedBuoy = signal<BuoyProperties | null>(null);
+  readonly selectedBuoyObs = signal<BuoyObservationProperties | null>(null);
   readonly attrOpen = signal(false);
   /** Legend drawer state — défaut open sur desktop, closed sur mobile (≤ 760px).
       Sur desktop le bouton n'apparaît pas (CSS @media display:none) donc la
       legend reste toujours visible — l'état du signal n'a aucun effet. */
   readonly legendOpen = signal(typeof window !== 'undefined' ? window.innerWidth > 760 : true);
   readonly hasPopup = computed(() =>
-    this.selectedVessel() !== null || this.selectedLightning() !== null || this.selectedAlert() !== null,
+    this.selectedVessel() !== null
+    || this.selectedLightning() !== null
+    || this.selectedAlert() !== null
+    || this.selectedBuoy() !== null,
   );
   readonly vesselsCount = signal(0);
   readonly tracksCount = signal(0);
@@ -1119,6 +1184,150 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly alertsList = this.alertsSvc.latestAlerts;
   readonly showWindParticles = signal(false);
   readonly windParticlesStatus = signal('animation flux vent');
+  // Bouées CANDHIS (CEREMA) — référentiel statique 118 stations + obs TR
+  // si CANDHIS_API_KEY définie côté backend.
+  readonly showBuoys = signal(false);
+  readonly buoysStatus = signal('houlographes (Etalab)');
+
+  // ─── Sprint Layer UX V2 — Phase A : opacity per layer + persist ──────
+  //
+  // Clé `LayerKey` = identifiant interne unique par couche pour stocker
+  // l'opacité + (Phase C) la visibilité + (Phase D) la palette en DB user.
+  // Defaults : 1.0 pour vector layers (lisibilité), 0.7 pour rasters
+  // (SST/vent/vagues — meilleur blend visuel avec le fond carto).
+  readonly layerOpacities = signal<Record<string, number>>({
+    vessels: 1, tracks: 1, alerts: 1, buoys: 1,
+    sst: 0.7, waves: 0.7, waveArrows: 0.9,
+    wind: 0.7, windArrows: 0.9, windParticles: 0.9,
+    rain: 0.8, lightning: 0.9,
+  });
+
+  /** Defaults visibility — utilisés par resetLayerPrefs() pour restaurer. */
+  private readonly DEFAULT_VISIBILITY: Record<string, boolean> = {
+    vessels: true, tracks: true, sst: true,
+    rain: false, wind: false, waves: false,
+    windArrows: false, waveArrows: false,
+    lightning: false, alerts: false,
+    windParticles: false, buoys: false,
+  };
+  private readonly DEFAULT_OPACITIES = { ...this.layerOpacities() };
+
+  /** Read opacity for a given layer key (template helper). */
+  getOpacity(key: string): number {
+    return this.layerOpacities()[key] ?? 1;
+  }
+
+  /** Set opacity for a given layer + apply to OL layer + persist localStorage. */
+  setOpacity(key: string, value: number): void {
+    const clamped = Math.max(0, Math.min(1, value));
+    this.layerOpacities.update((m) => ({ ...m, [key]: clamped }));
+    this.applyLayerOpacity(key, clamped);
+    this.persistLayerPrefs();
+  }
+
+  /** Apply opacity to the corresponding OL layer instance. Called after
+      signal update + at boot once layers are initialized. */
+  private applyLayerOpacity(key: string, value: number): void {
+    const layer = ({
+      vessels: this.vesselLayer,
+      tracks: this.trackLayer,
+      sst: this.sstLayer,
+      rain: this.rainLayer,
+      wind: this.windLayer,
+      waves: this.wavesLayer,
+      windArrows: this.windArrowsLayer,
+      waveArrows: this.waveArrowsLayer,
+      lightning: this.lightningLayer,
+      alerts: this.alertsLayer,
+      buoys: this.buoysLayer,
+    } as Record<string, { setOpacity: (n: number) => void } | undefined>)[key];
+    layer?.setOpacity(value);
+    // Wind particles = canvas overlay, opacity réglée via CSS sur le
+    // canvas element (signal séparé pour ne pas casser le rendering loop).
+    if (key === 'windParticles') {
+      const c = this.particlesEl()?.nativeElement;
+      if (c) c.style.opacity = String(value);
+    }
+  }
+
+  /** Apply all opacities to OL layers (boot time + layer recreations). */
+  applyAllLayerOpacities(): void {
+    const m = this.layerOpacities();
+    for (const k of Object.keys(m)) this.applyLayerOpacity(k, m[k]);
+  }
+
+  /** Reset all layer prefs to app defaults (visibility + opacity + clear
+      localStorage). Triggered by the legend "Reset" button. */
+  resetLayerPrefs(): void {
+    this.showVessels.set(this.DEFAULT_VISIBILITY['vessels']);
+    this.showTracks.set(this.DEFAULT_VISIBILITY['tracks']);
+    this.showSST.set(this.DEFAULT_VISIBILITY['sst']);
+    this.showRain.set(this.DEFAULT_VISIBILITY['rain']);
+    this.showWind.set(this.DEFAULT_VISIBILITY['wind']);
+    this.showWaves.set(this.DEFAULT_VISIBILITY['waves']);
+    this.showWindArrows.set(this.DEFAULT_VISIBILITY['windArrows']);
+    this.showWaveArrows.set(this.DEFAULT_VISIBILITY['waveArrows']);
+    this.showLightning.set(this.DEFAULT_VISIBILITY['lightning']);
+    this.showAlerts.set(this.DEFAULT_VISIBILITY['alerts']);
+    this.showWindParticles.set(this.DEFAULT_VISIBILITY['windParticles']);
+    this.showBuoys.set(this.DEFAULT_VISIBILITY['buoys']);
+    this.layerOpacities.set({ ...this.DEFAULT_OPACITIES });
+    this.applyAllLayerOpacities();
+    this.applyLayerVisibility();
+    try { localStorage.removeItem(LAYER_PREFS_KEY); } catch {}
+  }
+
+  /** Persist current layer prefs to localStorage (Phase A — backend en Phase C). */
+  private persistLayerPrefs(): void {
+    try {
+      const payload = {
+        visibility: {
+          vessels: this.showVessels(),
+          tracks: this.showTracks(),
+          sst: this.showSST(),
+          rain: this.showRain(),
+          wind: this.showWind(),
+          waves: this.showWaves(),
+          windArrows: this.showWindArrows(),
+          waveArrows: this.showWaveArrows(),
+          lightning: this.showLightning(),
+          alerts: this.showAlerts(),
+          windParticles: this.showWindParticles(),
+          buoys: this.showBuoys(),
+        },
+        opacity: this.layerOpacities(),
+      };
+      localStorage.setItem(LAYER_PREFS_KEY, JSON.stringify(payload));
+    } catch {
+      // localStorage full / disabled — ignore, user reverra son default au reload
+    }
+  }
+
+  /** Restore layer prefs from localStorage. Called at component init. */
+  private restoreLayerPrefs(): void {
+    try {
+      const raw = localStorage.getItem(LAYER_PREFS_KEY);
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      const vis = data?.visibility ?? {};
+      if (typeof vis.vessels === 'boolean') this.showVessels.set(vis.vessels);
+      if (typeof vis.tracks === 'boolean') this.showTracks.set(vis.tracks);
+      if (typeof vis.sst === 'boolean') this.showSST.set(vis.sst);
+      if (typeof vis.rain === 'boolean') this.showRain.set(vis.rain);
+      if (typeof vis.wind === 'boolean') this.showWind.set(vis.wind);
+      if (typeof vis.waves === 'boolean') this.showWaves.set(vis.waves);
+      if (typeof vis.windArrows === 'boolean') this.showWindArrows.set(vis.windArrows);
+      if (typeof vis.waveArrows === 'boolean') this.showWaveArrows.set(vis.waveArrows);
+      if (typeof vis.lightning === 'boolean') this.showLightning.set(vis.lightning);
+      if (typeof vis.alerts === 'boolean') this.showAlerts.set(vis.alerts);
+      if (typeof vis.windParticles === 'boolean') this.showWindParticles.set(vis.windParticles);
+      if (typeof vis.buoys === 'boolean') this.showBuoys.set(vis.buoys);
+      const op = data?.opacity ?? {};
+      this.layerOpacities.update((m) => ({ ...m, ...op }));
+    } catch {
+      // JSON corrupt → ignore, fall back to defaults
+    }
+  }
 
   // Mode courant (signal-driven, recalculé à chaque tick du time slider).
   // Sert à colorer les badges + griser les toggles dont la layer ne peut
@@ -1185,6 +1394,16 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private alertsLayer?: VectorLayer<VectorSource>;
   private alertsSource?: VectorSource;
   private alertsTimer?: ReturnType<typeof setInterval>;
+  private buoysLayer?: VectorLayer<VectorSource>;
+  private buoysSource?: VectorSource;
+  /** Cache des dernières observations indexées par candhis_id (popup lookup).
+   * On utilise globalThis.Map car `Map` est shadowed par l'import OpenLayers. */
+  private buoyObsByCandhisId: globalThis.Map<string, BuoyObservationProperties> =
+    new (globalThis as any).Map();
+  private buoysRefTimer?: ReturnType<typeof setInterval>;
+  private buoysObsTimer?: ReturnType<typeof setInterval>;
+  private buoysRefSub?: Subscription;
+  private buoysObsSub?: Subscription;
   private particlesEngine?: WindParticleEngine;
   private particlesCanvas?: HTMLCanvasElement;
   private popupOverlay?: Overlay;
@@ -1209,6 +1428,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.showRain();    this.showWind();   this.showWaves();
       this.showWindArrows(); this.showWaveArrows();
       this.showLightning(); this.showAlerts(); this.showWindParticles();
+      this.showBuoys();
       // Defer pour s'exécuter après ngAfterViewInit (this.*Layer dispo)
       queueMicrotask(() => {
         this.applyLayerVisibility();
@@ -1325,6 +1545,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     if (this.arrowsFetchDebounce) clearTimeout(this.arrowsFetchDebounce);
     this.stopLightningLoop();
     this.stopAlertsLoop();
+    this.stopBuoysLoop();
     this.particlesEngine?.stop();
     this.map?.setTarget(undefined);
     this.map?.dispose();
@@ -1427,6 +1648,15 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.alertsLayer.setVisible(wanted);
       if (wanted) this.startAlertsLoop();
       else this.stopAlertsLoop();
+    }
+    // Bouées CANDHIS : visible en mode live (les obs TR ne s'archivent pas
+    // dans cette stack — seul le référentiel reste pertinent ailleurs, mais
+    // on garde la couche entière sur live pour la cohérence UX).
+    if (this.buoysLayer) {
+      const wanted = this.showBuoys() && this.isLive();
+      this.buoysLayer.setVisible(wanted);
+      if (wanted) this.startBuoysLoop();
+      else this.stopBuoysLoop();
     }
     // Wind particles : engine est démarré au boot, on contrôle juste la
     // visibilité du canvas + la grille. Quand OFF, on stop le rAF pour
@@ -1660,6 +1890,100 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.lightningSub?.unsubscribe();
     this.lightningSub = undefined;
     this.lightningSource?.clear();
+  }
+
+  // ─── Bouées CANDHIS (CEREMA) ───────────────────────────────────────
+  /**
+   * Icône bouée : cercle bleu marine avec liseré blanc + label en gras.
+   * On peint plus gros quand on a une obs récente (signal visuel "la bouée
+   * pousse de la donnée"), et plus pâle sinon (référentiel seulement).
+   */
+  private styleBuoy(feat: FeatureLike): Style {
+    const props = feat.getProperties() as BuoyProperties;
+    const hasObs = this.buoyObsByCandhisId.has(props.candhis_id);
+    return new Style({
+      image: new CircleStyle({
+        radius: hasObs ? 7 : 5,
+        fill: new Fill({ color: hasObs ? '#1e88e5' : 'rgba(30, 136, 229, 0.55)' }),
+        stroke: new Stroke({ color: '#ffffff', width: hasObs ? 2 : 1.2 }),
+      }),
+    });
+  }
+
+  /**
+   * Boot du fetch bouées : 1 fetch référentiel immédiat + reload toutes
+   * les 6h (la liste bouge rarement), 1 fetch obs immédiat + refresh
+   * toutes les 5min. Si le backend n'a pas de clé CANDHIS, les obs
+   * reviendront vides et c'est OK — la couche référentiel reste affichée.
+   */
+  private startBuoysLoop(): void {
+    if (this.buoysRefTimer || this.buoysObsTimer) return;
+    const fetchRef = () => {
+      this.buoysRefSub?.unsubscribe();
+      this.buoysRefSub = this.buoys.fetchReferential()
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: (fc) => {
+            if (!this.buoysSource) return;
+            this.buoysSource.clear();
+            const features = this.geoJsonFmt.readFeatures(fc);
+            this.buoysSource.addFeatures(features);
+            const hasObsCount = this.buoyObsByCandhisId.size;
+            this.buoysStatus.set(
+              hasObsCount > 0
+                ? `${fc.features.length} bouées (${hasObsCount} TR)`
+                : `${fc.features.length} bouées (réf only)`,
+            );
+          },
+          error: (err) => this.buoysStatus.set(`erreur : ${err?.message ?? err}`),
+        });
+    };
+    const fetchObs = () => {
+      this.buoysObsSub?.unsubscribe();
+      this.buoysObsSub = this.buoys.fetchRecentObservations()
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: (fc) => {
+            this.buoyObsByCandhisId.clear();
+            for (const f of fc.features) {
+              if (f.properties?.candhis_id) {
+                this.buoyObsByCandhisId.set(f.properties.candhis_id, f.properties);
+              }
+            }
+            // Repaint pour styler en plus gros les bouées qui ont une obs
+            this.buoysLayer?.changed();
+            const refCount = this.buoysSource?.getFeatures().length ?? 0;
+            if (this.buoyObsByCandhisId.size > 0) {
+              this.buoysStatus.set(`${refCount} bouées (${this.buoyObsByCandhisId.size} TR)`);
+            }
+          },
+          error: () => {
+            // 404/500 silencieux — la couche obs peut être absente
+            // (CANDHIS_API_KEY pas configurée → vue retourne 0 features).
+          },
+        });
+    };
+    fetchRef();
+    fetchObs();
+    this.buoysRefTimer = setInterval(fetchRef, 6 * 3600_000);
+    this.buoysObsTimer = setInterval(fetchObs, 5 * 60_000);
+  }
+
+  private stopBuoysLoop(): void {
+    if (this.buoysRefTimer) {
+      clearInterval(this.buoysRefTimer);
+      this.buoysRefTimer = undefined;
+    }
+    if (this.buoysObsTimer) {
+      clearInterval(this.buoysObsTimer);
+      this.buoysObsTimer = undefined;
+    }
+    this.buoysRefSub?.unsubscribe();
+    this.buoysObsSub?.unsubscribe();
+    this.buoysRefSub = undefined;
+    this.buoysObsSub = undefined;
+    this.buoysSource?.clear();
+    this.buoyObsByCandhisId.clear();
   }
 
   // ─── Alerts (sprint 10) ───────────────────────────────────────────
@@ -1947,6 +2271,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.selectedVessel.set(null);
     this.selectedLightning.set(null);
     this.selectedAlert.set(null);
+    this.selectedBuoy.set(null);
+    this.selectedBuoyObs.set(null);
     this.popupOverlay?.setPosition(undefined);
   }
 
@@ -1975,6 +2301,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     const ATTRIB_AROME = 'Vent côtier © <a href="https://meteo.data.gouv.fr" target="_blank">Météo-France AROME</a>';
     const ATTRIB_LIGHTNING = 'Foudre © <a href="https://www.blitzortung.org" target="_blank">Blitzortung community network</a>';
     const ATTRIB_RAIN = 'Radar pluie © <a href="https://www.rainviewer.com" target="_blank">RainViewer</a>';
+    const ATTRIB_CANDHIS = 'Bouées houle © <a href="https://candhis.cerema.fr" target="_blank">CANDHIS / CEREMA</a> (Licence Etalab 2.0)';
 
     this.vesselSource = new VectorSource({ attributions: ATTRIB_AIS });
     this.trackSource = new VectorSource({ attributions: ATTRIB_AIS });
@@ -2126,6 +2453,20 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       visible: true,
     });
 
+    // Bouées CANDHIS — référentiel statique des houlographes CEREMA.
+    // VectorSource alimenté au boot + reload quotidien (les positions
+    // bougent rarement). Si le backend a une CANDHIS_API_KEY, on fetch
+    // aussi les obs TR via v_buoy_observations_recent toutes les 5min
+    // pour peupler buoyObsByCandhisId (utilisé par le popup).
+    this.buoysSource = new VectorSource({ attributions: ATTRIB_CANDHIS });
+    this.buoysLayer = new VectorLayer({
+      source: this.buoysSource,
+      style: (feat: FeatureLike) => this.styleBuoy(feat),
+      zIndex: 105,           // au-dessus des navires (100), sous lightning (110)
+      visible: false,
+      declutter: true,
+    });
+
     this.trackLayer = new VectorLayer({
       source: this.trackSource,
       style: () => this.styleTrack(),
@@ -2153,6 +2494,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         this.windArrowsLayer,
         this.trackLayer,
         this.vesselLayer,
+        this.buoysLayer,
         this.lightningLayer,
         this.alertsLayer,
       ],
@@ -2186,7 +2528,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // forEachFeatureAtPixel passe le layer en 2e arg, ce qui permet de
     // distinguer vessel / lightning / alert sans inspecter les props.
     this.map.on('singleclick', (evt) => {
-      let matched: { feat: Feature<Geometry>; kind: 'vessel' | 'lightning' | 'alert' } | null = null;
+      type ClickKind = 'vessel' | 'lightning' | 'alert' | 'buoy';
+      let matched: { feat: Feature<Geometry>; kind: ClickKind } | null = null;
       this.map!.forEachFeatureAtPixel(
         evt.pixel,
         (f, layer) => {
@@ -2194,6 +2537,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
           if (layer === this.vesselLayer) matched = { feat: f as Feature<Geometry>, kind: 'vessel' };
           else if (layer === this.lightningLayer) matched = { feat: f as Feature<Geometry>, kind: 'lightning' };
           else if (layer === this.alertsLayer) matched = { feat: f as Feature<Geometry>, kind: 'alert' };
+          else if (layer === this.buoysLayer) matched = { feat: f as Feature<Geometry>, kind: 'buoy' };
         },
         { hitTolerance: 4 },
       );
@@ -2201,14 +2545,22 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         this.closePopup();
         return;
       }
-      this.closePopup();      // reset les 3 signals avant le set
-      const m = matched as { feat: Feature<Geometry>; kind: 'vessel' | 'lightning' | 'alert' };
+      this.closePopup();      // reset les signals avant le set
+      const m = matched as { feat: Feature<Geometry>; kind: ClickKind };
       const props = m.feat.getProperties() as any;
       delete props.geometry;
       switch (m.kind) {
         case 'vessel':    this.selectedVessel.set(props as VesselProperties); break;
         case 'lightning': this.selectedLightning.set(props as LightningProperties); break;
         case 'alert':     this.selectedAlert.set(props as AlertProperties); break;
+        case 'buoy': {
+          const bp = props as BuoyProperties;
+          this.selectedBuoy.set(bp);
+          // Lookup obs récente dans le cache (peuplé par fetchBuoyObs)
+          const obs = this.buoyObsByCandhisId.get(bp.candhis_id) ?? null;
+          this.selectedBuoyObs.set(obs);
+          break;
+        }
       }
       const geom = m.feat.getGeometry();
       if (geom?.getType() === 'Point') {

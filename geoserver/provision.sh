@@ -132,6 +132,9 @@ publish_feature "v_vessels_live_categorized" "Vessels live categorized by ship t
 publish_feature "vessel_tracks_daily" "Vessel tracks aggregated by day (LineStrings)"
 publish_feature "v_lightning_recent" "Lightning strikes (last 30 minutes, Blitzortung)"
 publish_feature "v_alerts_recent" "Alerts last 1h (lightning-proximity, high-wind)"
+# Sprint candhis : bouées CEREMA (référentiel statique 118 points) + obs récentes
+publish_feature "buoys" "CANDHIS wave buoys (CEREMA, ~118 stations)"
+publish_feature "v_buoy_observations_recent" "CANDHIS buoys latest observations (Hm0, Tp, peak dir)"
 
 # ─── SQL view paramétrée : vessels à un instant T ────────────────────
 # Permet le replay temporel piloté par le time slider. Le client passe
@@ -240,6 +243,11 @@ if [ -f "/styles/wind-speed-rainbow.sld" ]; then
 fi
 if [ -f "/styles/wave-hs-rainbow.sld" ]; then
   upload_style "wave-hs-rainbow" "/styles/wave-hs-rainbow.sld" "wave-hs"
+fi
+# Sprint candhis : style points + labels pour les bouées (vector, pas raster).
+# Le 404 silencieux couvre le premier boot avant candhis-fetcher seed.
+if [ -f "/styles/buoys-default.sld" ]; then
+  upload_style "buoys-default" "/styles/buoys-default.sld" "buoys"
 fi
 
 # ─── Cluster sanity check (sprint 9) ─────────────────────────────────

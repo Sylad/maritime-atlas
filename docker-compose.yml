@@ -362,6 +362,36 @@ services:
       - geoserver
     restart: unless-stopped
 
+  # ─── Worker : candhis-fetcher (sprint CANDHIS) ────────────────────
+  # Cron horaire (CANDHIS_FETCH_INTERVAL_MIN, default 60) qui pull les
+  # observations temps réel des bouées houlographes CEREMA via l'API
+  # publique https://candhis.cerema.fr/API/v1/ (Licence Etalab 2.0).
+  #
+  # Référentiel des 118 bouées seedé au boot + refresh quotidien à 04:30 UTC
+  # depuis le GeoPackage public data.gouv.fr (aucune clé requise).
+  #
+  # Observations temps réel : CANDHIS_API_KEY requis (demande email à
+  # candhis@cerema.fr — délai usuel 24-48h). Si la clé est absente, le
+  # service tourne quand même et publie le seul référentiel — la couche
+  # maritime:buoys est toujours affichable, juste sans métrique.
+  #
+  # Variables stockées : Hm0, H1/3, Hmax, Tp, T02, direction au pic,
+  # étalement au pic, température mer. Schema géré par le service lui-même
+  # (pas de migration Drizzle — table buoys / buoy_observations + vue
+  # v_buoy_observations_recent isolée du reste de la stack).
+  candhis-fetcher:
+    build: ./services/candhis-fetcher
+    container_name: maritime-candhis-fetcher
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-maritime}:${POSTGRES_PASSWORD:-maritime}@postgres:5432/${POSTGRES_DB:-maritime}
+      CANDHIS_API_KEY: ${CANDHIS_API_KEY:-}
+      CANDHIS_FETCH_INTERVAL_MIN: "60"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   # ─── Worker : sst-fetcher (sprint 3) ───────────────────────────────
   # Cron quotidien (06:00 UTC) qui télécharge NOAA OISST v2.1 (NetCDF),
   # subset bbox France métropole, exporte en GeoTIFF dans le mosaic

@@ -1,0 +1,10 @@
+[project]
+name = "candhis-fetcher"
+version = "0.1.0"
+description = "Fetch CANDHIS (CEREMA) wave buoy referential + real-time obs (Hm0, Tp, peak dir) → PostGIS"
+requires-python = ">=3.12"
+dependencies = [
+    "requests>=2.32.0",
+    "psycopg[binary]>=3.2.0",
+    "apscheduler>=3.10.4",
+]
