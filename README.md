@@ -267,7 +267,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  slider["Time slider [-30j, +5j]"] -->|onTimeChange t| logic{currentTime t}
+  slider["Time slider [-7j, +5j]"] -->|onTimeChange t| logic{currentTime t}
   logic -->|TIME=1970/t snap-to-latest| wms["WMS layers<br/>SST · Vent · Vagues"]
   logic -->|viewparams=at:ISO;window:300| sqlview["vessels_at_time WFS"]
   logic -->|findNearestFrame(t)| rain["RainViewer tile URL"]
