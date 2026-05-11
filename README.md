@@ -99,7 +99,8 @@ https://github.com/Sylad/maritime-atlas/raw/main/docs/screenshots/07-particles.m
 |---|---|---|---|
 | `postgres` | timescaledb-ha:pg16 | 15432 | PostGIS + TimescaleDB, hypertable `vessel_positions`, tables users/palettes |
 | `rabbitmq` | rabbitmq:3.13-management | 5672 / 15672 | Glue messaging `ais.raw` → `ais.positions` |
-| `geoserver-1/2/3` | osgeo/geoserver:2.27 (×3 replicas) | — | Cluster WMS/WFS/WMTS, catalog partagé via JDBCConfig (Postgres) |
+| `seaweedfs` | chrislusf/seaweedfs:3.97 | 8333 | S3-compatible object store (master+volume+filer+S3 en 1 container). Backend pour GWC tiles + COG rasters (à venir) |
+| `geoserver-1/2/3` | maritime-geoserver:2.28.2-with-gwc-s3 (×3 replicas, custom image) | — | Cluster WMS/WFS/WMTS + GWC-S3 cache. Build local depuis docker.osgeo.org/geoserver:2.28.2 + extraction du gwc-s3-plugin SourceForge |
 | `geoserver` | nginx:alpine (LB interne) | 8080 | Load balancer ip_hash devant les 3 replicas — alias DNS rétro-compat |
 | `geoserver-provisioner` | alpine/curl (one-shot) | — | Crée workspace + datastore + layers + styles via REST (idempotent) |
 | `ais-ingester` | NestJS 11 | — | WS aisstream.io → publish `ais.raw` (bbox France métropole) |
