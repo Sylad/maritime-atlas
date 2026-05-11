@@ -87,6 +87,8 @@ function toIsoTimestamp(d: Date): string {
       <canvas #particlesEl class="wind-particles-canvas" [class.active]="showWindParticles()"></canvas>
 
       <div class="auth-corner">
+        <a routerLink="/about" class="auth-link" title="À propos du projet">À propos</a>
+        <span class="auth-sep">·</span>
         @if (currentUser(); as u) {
           <a routerLink="/palettes" class="auth-link">{{ u.email }}</a>
           <span class="auth-sep">·</span>
@@ -1630,8 +1632,17 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
   // ─── Map init ───────────────────────────────────────────────────────
   private initMap(): void {
-    this.vesselSource = new VectorSource();
-    this.trackSource = new VectorSource();
+    // Attributions exposées via le contrôle Attribution OpenLayers (icône
+    // (i) bas-droite). Chaque source déclare sa propre attribution → l'icône
+    // affiche la liste complète au survol.
+    const ATTRIB_AIS = 'Positions navires © <a href="https://aisstream.io" target="_blank">aisstream.io</a>';
+    const ATTRIB_NOAA = 'Modèles météo © <a href="https://nomads.ncep.noaa.gov" target="_blank">NOAA NOMADS</a> (GFS, WW3, OISST)';
+    const ATTRIB_AROME = 'Vent côtier © <a href="https://meteo.data.gouv.fr" target="_blank">Météo-France AROME</a>';
+    const ATTRIB_LIGHTNING = 'Foudre © <a href="https://www.blitzortung.org" target="_blank">Blitzortung community network</a>';
+    const ATTRIB_RAIN = 'Radar pluie © <a href="https://www.rainviewer.com" target="_blank">RainViewer</a>';
+
+    this.vesselSource = new VectorSource({ attributions: ATTRIB_AIS });
+    this.trackSource = new VectorSource({ attributions: ATTRIB_AIS });
 
     const baseTile = new TileLayer({
       source: new XYZ({
@@ -1661,6 +1672,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         TRANSPARENT: true,
       },
       serverType: 'geoserver',
+      attributions: ATTRIB_NOAA,
     });
     this.sstLayer = new TileLayer({
       source: this.sstSource,
@@ -1680,6 +1692,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       url: '/geoserver/maritime/wms',
       params: { LAYERS: initialWindLayer, TILED: true, TRANSPARENT: true },
       serverType: 'geoserver',
+      attributions: [ATTRIB_NOAA, ATTRIB_AROME],
     });
     this.windLayer = new TileLayer({
       source: this.windWmsSource,
@@ -1693,6 +1706,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       url: '/geoserver/maritime/wms',
       params: { LAYERS: 'maritime:wave-hs', TILED: true, TRANSPARENT: true },
       serverType: 'geoserver',
+      attributions: ATTRIB_NOAA,
     });
     this.wavesLayer = new TileLayer({
       source: this.wavesSource,
@@ -1704,7 +1718,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // Sprint 10 : alertes maritimes. VectorSource peuplé toutes les 30s
     // via WFS sur v_alerts_recent. Style triangle de warning coloré selon
     // severity (warning=orange, danger=rouge).
-    this.alertsSource = new VectorSource();
+    this.alertsSource = new VectorSource({
+      attributions: 'Alertes maritime-atlas (engine RMQ croise AIS + GFS + Blitzortung)',
+    });
     this.alertsLayer = new VectorLayer({
       source: this.alertsSource,
       style: (feat: FeatureLike) => this.styleAlert(feat),
@@ -1717,7 +1733,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // toutes les 30s via WFS sur v_lightning_recent. Style "zap" pulsé selon
     // age_seconds : flash blanc-jaune pour <60s, jaune pour <5min, ambre
     // pour <30min, fade.
-    this.lightningSource = new VectorSource();
+    this.lightningSource = new VectorSource({ attributions: ATTRIB_LIGHTNING });
     this.lightningLayer = new VectorLayer({
       source: this.lightningSource,
       style: (feat: FeatureLike) => this.styleLightning(feat),
@@ -1727,7 +1743,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
     // Sprint 6 : flèches vent + flèches vagues. VectorSource alimenté à
     // chaque tick du time slider via fetch GeoJSON (manifest + nearest ts).
-    this.windArrowsSource = new VectorSource();
+    this.windArrowsSource = new VectorSource({
+      attributions: [ATTRIB_NOAA, ATTRIB_AROME],
+    });
     this.windArrowsLayer = new VectorLayer({
       source: this.windArrowsSource,
       // Le `kind` passé au style suit le signal `windSource()` — comme ça
@@ -1741,7 +1759,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       visible: false,
       declutter: true,
     });
-    this.waveArrowsSource = new VectorSource();
+    this.waveArrowsSource = new VectorSource({ attributions: ATTRIB_NOAA });
     this.waveArrowsLayer = new VectorLayer({
       source: this.waveArrowsSource,
       style: (feat: FeatureLike) => this.styleArrow('wave', feat),

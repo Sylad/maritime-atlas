@@ -19,6 +19,11 @@ export const routes: Routes = [
     title: 'Mes palettes · Maritime Atlas',
   },
   {
+    path: 'about',
+    loadComponent: () => import('./pages/about/about.component').then((m) => m.AboutComponent),
+    title: 'À propos · Maritime Atlas',
+  },
+  {
     path: '',
     loadComponent: () => import('./pages/map/map.component').then((m) => m.MapComponent),
     title: 'Maritime Atlas',
