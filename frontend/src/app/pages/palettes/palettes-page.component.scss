@@ -5,7 +5,7 @@
   color: var(--fg);
   min-height: 100vh;
 }
-.page-shell { max-width: 1200px; margin: 0 auto; padding: 1.5em 1.5em 4em; }
+.page-shell { max-width: 1440px; margin: 0 auto; padding: 1.5em 1.5em 4em; }
 .page-header {
   display: flex;
   align-items: center;
@@ -40,9 +40,12 @@
 }
 .page-main {
   display: grid;
-  grid-template-columns: 1fr 420px;
+  // editor-pane élargi 420 → 560 pour absorber le tableau des stops
+  // (col stops = 56+90+110+1fr+32 + 4×gap = ~330 fixed + label flex,
+  // 420 forçait le label à ~30px illisible + débord visuel des inputs).
+  grid-template-columns: 1fr 560px;
   gap: 2em;
-  @media (max-width: 900px) { grid-template-columns: 1fr; }
+  @media (max-width: 1100px) { grid-template-columns: 1fr; }
 }
 .palettes-meta {
   font-size: 0.85rem; color: var(--fg-muted);
