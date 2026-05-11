@@ -26,7 +26,8 @@ import GeoJSON from 'ol/format/GeoJSON';
 import Overlay from 'ol/Overlay';
 import { fromLonLat } from 'ol/proj';
 import { Style, Circle as CircleStyle, Fill, Stroke, Icon } from 'ol/style';
-import { defaults as defaultControls, ScaleLine } from 'ol/control';
+import { defaults as defaultControls, ScaleLine, MousePosition } from 'ol/control';
+import { toStringHDMS } from 'ol/coordinate';
 import type { Feature } from 'ol';
 import type { FeatureLike } from 'ol/Feature';
 import type { Geometry, Point } from 'ol/geom';
@@ -2146,6 +2147,16 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       // affiche les sources en clair avec liens HTML normaux.
       controls: defaultControls({ attribution: false }).extend([
         new ScaleLine({ units: 'nautical' }),
+        // Affiche les coordonnées sous le curseur en HDMS (degrés / minutes /
+        // secondes lat-lon WGS84). Le control est positionné bottom-left
+        // au-dessus du zoom via styles.scss. Caché sur mobile (touch n'a
+        // pas de cursor).
+        new MousePosition({
+          projection: 'EPSG:4326',
+          coordinateFormat: (coord) => coord ? toStringHDMS(coord, 1) : '',
+          className: 'ol-mouse-position',
+          placeholder: '—',
+        }),
       ]),
       view: new View({
         center: fromLonLat(INITIAL_CENTER),

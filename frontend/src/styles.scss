@@ -63,6 +63,35 @@ app-root {
   font-size: 0.7rem;
 }
 
+/* MousePosition (HDMS lat/lon sous le curseur) : bottom-left au-dessus
+   du zoom. Caché sur mobile (touch n'a pas de hover / cursor).
+   Format : "48° 51' 24.3" N 2° 21' 03.1" E" — ~280px de large. */
+.ol-mouse-position {
+  position: absolute;
+  /* `em` se résout sur la font-size de l'élément (0.7rem) → 12em devient
+     trop petit. On utilise `rem` pour rester aligné sur le root et au-dessus
+     du zoom (qui est à 9em × 14px ≈ 126px). 12rem = 168px depuis le bas. */
+  bottom: 12rem !important;
+  left: 1em !important;
+  top: auto !important;
+  right: auto !important;
+  background: rgba(19, 24, 38, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--fg-muted);
+  letter-spacing: 0.02em;
+  pointer-events: none;     /* le label ne doit pas intercepter les clics */
+  user-select: none;
+  min-width: 0;
+  white-space: nowrap;
+  @media (max-width: 760px) {
+    display: none;          /* touch = pas de cursor */
+  }
+}
+
 /* Zoom : bottom-left, au-dessus du scale */
 .ol-zoom {
   top: auto !important;
