@@ -59,13 +59,40 @@ if [ -d "/opt/jdbc-scripts/jdbcconfig" ]; then
   cp -n /opt/jdbc-scripts/jdbcconfig/*.sql "${GEOSERVER_DATA_DIR}/jdbcconfig/scripts/" 2>/dev/null || true
 fi
 
+# Détection idempotence : si la table `object` (JDBCConfig) existe déjà
+# en DB, le premier replica a déjà initialisé. Les replicas suivants
+# doivent démarrer avec `initdb=false` / `import=false` pour ne pas
+# tenter de recréer les tables (CREATE TABLE sans IF NOT EXISTS → fail).
+# C'est LE fix de la race condition multi-replica détectée 2026-05-11.
+JDBC_INIT_FLAGS="initdb=true"
+JDBC_IMPORT_FLAGS="import=true"
+JDBCSTORE_INIT_FLAGS="initdb=true"
+if command -v psql >/dev/null 2>&1; then
+  TABLE_EXISTS=$(PGPASSWORD="${POSTGRES_PASSWORD}" psql \
+    -h "${POSTGRES_HOST}" -p "${POSTGRES_PORT}" \
+    -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" \
+    -tAc "SELECT to_regclass('geoserver.object') IS NOT NULL AND to_regclass('geoserver.resources') IS NOT NULL" 2>/dev/null || echo "f")
+  if [ "$TABLE_EXISTS" = "t" ]; then
+    echo "[cluster-bootstrap] JDBC tables already initialized — using initdb=false"
+    JDBC_INIT_FLAGS="initdb=false"
+    JDBC_IMPORT_FLAGS="import=false"
+    JDBCSTORE_INIT_FLAGS="initdb=false"
+  else
+    echo "[cluster-bootstrap] JDBC tables NOT yet initialized — using initdb=true (first replica)"
+  fi
+fi
+
 # Templating : on lit le template depuis /cluster-config (read-only, monté
 # via compose), envsubst injecte POSTGRES_HOST/PORT/DB/USER/PASSWORD,
-# on écrit le résultat dans le data_dir partagé.
+# on écrit le résultat dans le data_dir partagé. Le sed après envsubst
+# bascule initdb/import à false si les tables existent déjà.
 envsubst < /cluster-config/jdbcconfig.properties \
+  | sed -E "s/^initdb=true/${JDBC_INIT_FLAGS}/" \
+  | sed -E "s/^import=true/${JDBC_IMPORT_FLAGS}/" \
   > "${GEOSERVER_DATA_DIR}/jdbcconfig/jdbcconfig.properties"
 
 envsubst < /cluster-config/jdbcstore.properties \
+  | sed -E "s/^initdb=true/${JDBCSTORE_INIT_FLAGS}/" \
   > "${GEOSERVER_DATA_DIR}/jdbcstore/jdbcstore.properties"
 
 # Marqueur d'identité pour debug — visible dans les logs Docker via

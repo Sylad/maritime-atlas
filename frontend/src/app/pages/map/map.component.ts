@@ -129,166 +129,280 @@ function toIsoTimestamp(d: Date): string {
         <div class="legend-subtitle">France métropole</div>
 
         <div class="layer-toggles">
-          <label class="layer-toggle" [class.dim]="!vesselsActive()">
-            <input type="checkbox" [checked]="showVessels()" (change)="showVessels.set($any($event.target).checked)" />
-            <span class="toggle-glyph">
-              <span class="glyph-dot" style="background:#34d399;border-color:#6ee7b7"></span>
-              <span class="glyph-dot" style="background:#60a5fa;border-color:#93c5fd"></span>
-              <span class="glyph-dot" style="background:#f87171;border-color:#fca5a5"></span>
-            </span>
-            <span class="toggle-text">
-              <span class="toggle-name">Navires</span>
-              <span class="toggle-count">{{ vesselsCount() }} positions</span>
-            </span>
-          </label>
-          <label class="layer-toggle" [class.dim]="!tracksActive()">
-            <input type="checkbox" [checked]="showTracks()" (change)="showTracks.set($any($event.target).checked)" />
-            <span class="toggle-glyph">
-              <svg viewBox="0 0 24 12" width="24" height="12" aria-hidden="true">
-                <path d="M0,8 C5,2 10,11 14,5 S22,3 24,7" fill="none" stroke="rgba(45, 212, 191, 0.7)" stroke-width="1.5" />
-              </svg>
-            </span>
-            <span class="toggle-text">
-              <span class="toggle-name">Trajets</span>
-              <span class="toggle-count">{{ tracksCount() }} agrégés/jour</span>
-            </span>
-          </label>
-          <label class="layer-toggle" [class.dim]="!sstActive()">
-            <input type="checkbox" [checked]="showSST()" (change)="showSST.set($any($event.target).checked)" />
-            <span class="toggle-glyph">
-              <span class="glyph-gradient"></span>
-            </span>
-            <span class="toggle-text">
-              <span class="toggle-name">SST</span>
-              <span class="toggle-count">température mer (NOAA)</span>
-            </span>
-            @if (isAuthenticated() && palettesFor('sst').length > 0) {
-              <select class="palette-select" [value]="prefFor('sst')" (change)="setPalettePref('sst', $any($event.target).value)" (click)="$event.stopPropagation()">
-                <option value="">Style par défaut</option>
-                @for (p of palettesFor('sst'); track p.id) { <option [value]="p.id">{{ p.name }}</option> }
-              </select>
-            }
-          </label>
-          <label class="layer-toggle" [class.dim]="!rainActive()">
-            <input type="checkbox" [checked]="showRain()" (change)="showRain.set($any($event.target).checked)" />
-            <span class="toggle-glyph">
-              <span class="glyph-rain"></span>
-            </span>
-            <span class="toggle-text">
-              <span class="toggle-name">Radar pluie</span>
-              <span class="toggle-count">{{ rainStatus() }}</span>
-            </span>
-          </label>
-          <label class="layer-toggle" [class.dim]="!windActive()">
-            <input type="checkbox" [checked]="showWind()" (change)="showWind.set($any($event.target).checked)" />
-            <span class="toggle-glyph">
-              <span class="glyph-wind"></span>
-            </span>
-            <span class="toggle-text">
-              <span class="toggle-name">Vent</span>
-              <span class="toggle-count">{{ windSource() === 'arome' ? 'forecast 10m (AROME 2.5km)' : 'forecast 10m (GFS 25km)' }}</span>
-            </span>
-            <!-- Sprint 11 : sélecteur de modèle (GFS NOAA vs AROME Météo-France).
-                 Pilote à la fois le layer WMS (maritime:wind-speed-{arome|}) et les
-                 arrows GeoJSON (arome_wind_arrows_ vs wind_arrows_). Affiché en
-                 inline-radio pour gagner de la place dans la légende. -->
-            <span class="wind-source-radios" (click)="$event.stopPropagation()">
-              <label class="radio-mini">
-                <input type="radio" name="windSrc" value="gfs"
-                       [checked]="windSource() === 'gfs'"
-                       (change)="windSource.set('gfs')" />
-                GFS
+          <!-- Groupe Info maritimes : Navires, Trajets, Alertes, Bouées -->
+          <div class="layer-group">
+            <div class="layer-group-title">Info maritimes</div>
+            <div class="layer-row">
+              <label class="layer-toggle" [class.dim]="!vesselsActive()">
+                <input type="checkbox" [checked]="showVessels()" (change)="showVessels.set($any($event.target).checked)" />
+                <span class="toggle-glyph">
+                  <span class="glyph-dot" style="background:#34d399;border-color:#6ee7b7"></span>
+                  <span class="glyph-dot" style="background:#60a5fa;border-color:#93c5fd"></span>
+                  <span class="glyph-dot" style="background:#f87171;border-color:#fca5a5"></span>
+                </span>
+                <span class="toggle-text">
+                  <span class="toggle-name">Navires</span>
+                  <span class="toggle-count">{{ vesselsCount() }} positions</span>
+                </span>
               </label>
-              <label class="radio-mini">
-                <input type="radio" name="windSrc" value="arome"
-                       [checked]="windSource() === 'arome'"
-                       (change)="windSource.set('arome')" />
-                AROME
+              @if (showVessels()) {
+                <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                       [value]="getOpacity('vessels')"
+                       (input)="setOpacity('vessels', +$any($event.target).value)" />
+              }
+            </div>
+            <div class="layer-row">
+              <label class="layer-toggle" [class.dim]="!tracksActive()">
+                <input type="checkbox" [checked]="showTracks()" (change)="showTracks.set($any($event.target).checked)" />
+                <span class="toggle-glyph">
+                  <svg viewBox="0 0 24 12" width="24" height="12" aria-hidden="true">
+                    <path d="M0,8 C5,2 10,11 14,5 S22,3 24,7" fill="none" stroke="rgba(45, 212, 191, 0.7)" stroke-width="1.5" />
+                  </svg>
+                </span>
+                <span class="toggle-text">
+                  <span class="toggle-name">Trajets</span>
+                  <span class="toggle-count">{{ tracksCount() }} agrégés/jour</span>
+                </span>
               </label>
-            </span>
-            @if (isAuthenticated() && palettesFor('wind').length > 0) {
-              <select class="palette-select" [value]="prefFor('wind')" (change)="setPalettePref('wind', $any($event.target).value)" (click)="$event.stopPropagation()">
-                <option value="">Style par défaut</option>
-                @for (p of palettesFor('wind'); track p.id) { <option [value]="p.id">{{ p.name }}</option> }
-              </select>
-            }
-          </label>
-          <label class="layer-toggle" [class.dim]="!wavesActive()">
-            <input type="checkbox" [checked]="showWaves()" (change)="showWaves.set($any($event.target).checked)" />
-            <span class="toggle-glyph">
-              <span class="glyph-waves"></span>
-            </span>
-            <span class="toggle-text">
-              <span class="toggle-name">Vagues</span>
-              <span class="toggle-count">hauteur sig. (WW3)</span>
-            </span>
-            @if (isAuthenticated() && palettesFor('waves').length > 0) {
-              <select class="palette-select" [value]="prefFor('waves')" (change)="setPalettePref('waves', $any($event.target).value)" (click)="$event.stopPropagation()">
-                <option value="">Style par défaut</option>
-                @for (p of palettesFor('waves'); track p.id) { <option [value]="p.id">{{ p.name }}</option> }
-              </select>
-            }
-          </label>
-          <label class="layer-toggle" [class.dim]="!showWindArrows()">
-            <input type="checkbox" [checked]="showWindArrows()" (change)="showWindArrows.set($any($event.target).checked)" />
-            <span class="toggle-glyph">
-              <span class="glyph-arrow glyph-arrow-wind">↑</span>
-            </span>
-            <span class="toggle-text">
-              <span class="toggle-name">Vent flèches</span>
-              <span class="toggle-count">{{ windSource() === 'arome' ? 'AROME · ' : 'GFS · ' }}{{ windArrowsStatus() }}</span>
-            </span>
-          </label>
-          <label class="layer-toggle" [class.dim]="!showWaveArrows()">
-            <input type="checkbox" [checked]="showWaveArrows()" (change)="showWaveArrows.set($any($event.target).checked)" />
-            <span class="toggle-glyph">
-              <span class="glyph-arrow glyph-arrow-wave">↑</span>
-            </span>
-            <span class="toggle-text">
-              <span class="toggle-name">Vagues flèches</span>
-              <span class="toggle-count">{{ waveArrowsStatus() }}</span>
-            </span>
-          </label>
-          <label class="layer-toggle" [class.dim]="!showLightning()">
-            <input type="checkbox" [checked]="showLightning()" (change)="showLightning.set($any($event.target).checked)" />
-            <span class="toggle-glyph">
-              <span class="glyph-zap">⚡</span>
-            </span>
-            <span class="toggle-text">
-              <span class="toggle-name">Foudre</span>
-              <span class="toggle-count">{{ lightningStatus() }}</span>
-            </span>
-          </label>
-          <label class="layer-toggle" [class.dim]="!showAlerts()">
-            <input type="checkbox" [checked]="showAlerts()" (change)="showAlerts.set($any($event.target).checked)" />
-            <span class="toggle-glyph">
-              <span class="glyph-alert">⚠</span>
-            </span>
-            <span class="toggle-text">
-              <span class="toggle-name">Alertes</span>
-              <span class="toggle-count">{{ alertsStatus() }}</span>
-            </span>
-          </label>
-          <label class="layer-toggle" [class.dim]="!showWindParticles()">
-            <input type="checkbox" [checked]="showWindParticles()" (change)="showWindParticles.set($any($event.target).checked)" />
-            <span class="toggle-glyph">
-              <span class="glyph-particles">∿∿∿</span>
-            </span>
-            <span class="toggle-text">
-              <span class="toggle-name">Vent particules</span>
-              <span class="toggle-count">{{ windParticlesStatus() }}</span>
-            </span>
-          </label>
-          <label class="layer-toggle" [class.dim]="!showBuoys()">
-            <input type="checkbox" [checked]="showBuoys()" (change)="showBuoys.set($any($event.target).checked)" />
-            <span class="toggle-glyph">
-              <span class="glyph-buoy">⚓</span>
-            </span>
-            <span class="toggle-text">
-              <span class="toggle-name">Bouées CANDHIS</span>
-              <span class="toggle-count">{{ buoysStatus() }}</span>
-            </span>
-          </label>
+              @if (showTracks()) {
+                <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                       [value]="getOpacity('tracks')"
+                       (input)="setOpacity('tracks', +$any($event.target).value)" />
+              }
+            </div>
+            <div class="layer-row">
+              <label class="layer-toggle" [class.dim]="!showAlerts()">
+                <input type="checkbox" [checked]="showAlerts()" (change)="showAlerts.set($any($event.target).checked)" />
+                <span class="toggle-glyph">
+                  <span class="glyph-alert">⚠</span>
+                </span>
+                <span class="toggle-text">
+                  <span class="toggle-name">Alertes</span>
+                  <span class="toggle-count">{{ alertsStatus() }}</span>
+                </span>
+              </label>
+              @if (showAlerts()) {
+                <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                       [value]="getOpacity('alerts')"
+                       (input)="setOpacity('alerts', +$any($event.target).value)" />
+              }
+            </div>
+            <div class="layer-row">
+              <label class="layer-toggle" [class.dim]="!showBuoys()">
+                <input type="checkbox" [checked]="showBuoys()" (change)="showBuoys.set($any($event.target).checked)" />
+                <span class="toggle-glyph">
+                  <span class="glyph-buoy">⚓</span>
+                </span>
+                <span class="toggle-text">
+                  <span class="toggle-name">Bouées CANDHIS</span>
+                  <span class="toggle-count">{{ buoysStatus() }}</span>
+                </span>
+              </label>
+              @if (showBuoys()) {
+                <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                       [value]="getOpacity('buoys')"
+                       (input)="setOpacity('buoys', +$any($event.target).value)" />
+              }
+            </div>
+          </div>
+
+          <!-- Groupe Modèles océano : SST, Vagues, Vagues flèches -->
+          <div class="layer-group">
+            <div class="layer-group-title">Modèles océano</div>
+            <div class="layer-row">
+              <label class="layer-toggle" [class.dim]="!sstActive()">
+                <input type="checkbox" [checked]="showSST()" (change)="showSST.set($any($event.target).checked)" />
+                <span class="toggle-glyph">
+                  <span class="glyph-gradient"></span>
+                </span>
+                <span class="toggle-text">
+                  <span class="toggle-name">SST</span>
+                  <span class="toggle-count">température mer (NOAA)</span>
+                </span>
+                @if (isAuthenticated() && palettesFor('sst').length > 0) {
+                  <select class="palette-select" [value]="prefFor('sst')" (change)="setPalettePref('sst', $any($event.target).value)" (click)="$event.stopPropagation()">
+                    <option value="">Style par défaut</option>
+                    @for (p of palettesFor('sst'); track p.id) { <option [value]="p.id">{{ p.name }}</option> }
+                  </select>
+                }
+              </label>
+              @if (showSST()) {
+                <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                       [value]="getOpacity('sst')"
+                       (input)="setOpacity('sst', +$any($event.target).value)" />
+              }
+            </div>
+            <div class="layer-row">
+              <label class="layer-toggle" [class.dim]="!wavesActive()">
+                <input type="checkbox" [checked]="showWaves()" (change)="showWaves.set($any($event.target).checked)" />
+                <span class="toggle-glyph">
+                  <span class="glyph-waves"></span>
+                </span>
+                <span class="toggle-text">
+                  <span class="toggle-name">Vagues</span>
+                  <span class="toggle-count">hauteur sig. (WW3)</span>
+                </span>
+                @if (isAuthenticated() && palettesFor('waves').length > 0) {
+                  <select class="palette-select" [value]="prefFor('waves')" (change)="setPalettePref('waves', $any($event.target).value)" (click)="$event.stopPropagation()">
+                    <option value="">Style par défaut</option>
+                    @for (p of palettesFor('waves'); track p.id) { <option [value]="p.id">{{ p.name }}</option> }
+                  </select>
+                }
+              </label>
+              @if (showWaves()) {
+                <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                       [value]="getOpacity('waves')"
+                       (input)="setOpacity('waves', +$any($event.target).value)" />
+              }
+            </div>
+            <div class="layer-row">
+              <label class="layer-toggle" [class.dim]="!showWaveArrows()">
+                <input type="checkbox" [checked]="showWaveArrows()" (change)="showWaveArrows.set($any($event.target).checked)" />
+                <span class="toggle-glyph">
+                  <span class="glyph-arrow glyph-arrow-wave">↑</span>
+                </span>
+                <span class="toggle-text">
+                  <span class="toggle-name">Vagues flèches</span>
+                  <span class="toggle-count">{{ waveArrowsStatus() }}</span>
+                </span>
+              </label>
+              @if (showWaveArrows()) {
+                <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                       [value]="getOpacity('waveArrows')"
+                       (input)="setOpacity('waveArrows', +$any($event.target).value)" />
+              }
+            </div>
+          </div>
+
+          <!-- Groupe Modèles atmo : Vent, Vent flèches, Vent particules -->
+          <div class="layer-group">
+            <div class="layer-group-title">Modèles atmo</div>
+            <div class="layer-row">
+              <label class="layer-toggle" [class.dim]="!windActive()">
+                <input type="checkbox" [checked]="showWind()" (change)="showWind.set($any($event.target).checked)" />
+                <span class="toggle-glyph">
+                  <span class="glyph-wind"></span>
+                </span>
+                <span class="toggle-text">
+                  <span class="toggle-name">Vent</span>
+                  <span class="toggle-count">{{ windSource() === 'arome' ? 'forecast 10m (AROME 2.5km)' : 'forecast 10m (GFS 25km)' }}</span>
+                </span>
+                <span class="wind-source-radios" (click)="$event.stopPropagation()">
+                  <label class="radio-mini">
+                    <input type="radio" name="windSrc" value="gfs"
+                           [checked]="windSource() === 'gfs'"
+                           (change)="windSource.set('gfs')" />
+                    GFS
+                  </label>
+                  <label class="radio-mini">
+                    <input type="radio" name="windSrc" value="arome"
+                           [checked]="windSource() === 'arome'"
+                           (change)="windSource.set('arome')" />
+                    AROME
+                  </label>
+                </span>
+                @if (isAuthenticated() && palettesFor('wind').length > 0) {
+                  <select class="palette-select" [value]="prefFor('wind')" (change)="setPalettePref('wind', $any($event.target).value)" (click)="$event.stopPropagation()">
+                    <option value="">Style par défaut</option>
+                    @for (p of palettesFor('wind'); track p.id) { <option [value]="p.id">{{ p.name }}</option> }
+                  </select>
+                }
+              </label>
+              @if (showWind()) {
+                <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                       [value]="getOpacity('wind')"
+                       (input)="setOpacity('wind', +$any($event.target).value)" />
+              }
+            </div>
+            <div class="layer-row">
+              <label class="layer-toggle" [class.dim]="!showWindArrows()">
+                <input type="checkbox" [checked]="showWindArrows()" (change)="showWindArrows.set($any($event.target).checked)" />
+                <span class="toggle-glyph">
+                  <span class="glyph-arrow glyph-arrow-wind">↑</span>
+                </span>
+                <span class="toggle-text">
+                  <span class="toggle-name">Vent flèches</span>
+                  <span class="toggle-count">{{ windSource() === 'arome' ? 'AROME · ' : 'GFS · ' }}{{ windArrowsStatus() }}</span>
+                </span>
+              </label>
+              @if (showWindArrows()) {
+                <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                       [value]="getOpacity('windArrows')"
+                       (input)="setOpacity('windArrows', +$any($event.target).value)" />
+              }
+            </div>
+            <div class="layer-row">
+              <label class="layer-toggle" [class.dim]="!showWindParticles()">
+                <input type="checkbox" [checked]="showWindParticles()" (change)="showWindParticles.set($any($event.target).checked)" />
+                <span class="toggle-glyph">
+                  <span class="glyph-particles">∿∿∿</span>
+                </span>
+                <span class="toggle-text">
+                  <span class="toggle-name">Vent particules</span>
+                  <span class="toggle-count">{{ windParticlesStatus() }}</span>
+                </span>
+              </label>
+              @if (showWindParticles()) {
+                <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                       [value]="getOpacity('windParticles')"
+                       (input)="setOpacity('windParticles', +$any($event.target).value)" />
+              }
+            </div>
+          </div>
+
+          <!-- Groupe Radar -->
+          <div class="layer-group">
+            <div class="layer-group-title">Radar</div>
+            <div class="layer-row">
+              <label class="layer-toggle" [class.dim]="!rainActive()">
+                <input type="checkbox" [checked]="showRain()" (change)="showRain.set($any($event.target).checked)" />
+                <span class="toggle-glyph">
+                  <span class="glyph-rain"></span>
+                </span>
+                <span class="toggle-text">
+                  <span class="toggle-name">Radar pluie</span>
+                  <span class="toggle-count">{{ rainStatus() }}</span>
+                </span>
+              </label>
+              @if (showRain()) {
+                <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                       [value]="getOpacity('rain')"
+                       (input)="setOpacity('rain', +$any($event.target).value)" />
+              }
+            </div>
+          </div>
+
+          <!-- Groupe Foudre -->
+          <div class="layer-group">
+            <div class="layer-group-title">Foudre</div>
+            <div class="layer-row">
+              <label class="layer-toggle" [class.dim]="!showLightning()">
+                <input type="checkbox" [checked]="showLightning()" (change)="showLightning.set($any($event.target).checked)" />
+                <span class="toggle-glyph">
+                  <span class="glyph-zap">⚡</span>
+                </span>
+                <span class="toggle-text">
+                  <span class="toggle-name">Foudre</span>
+                  <span class="toggle-count">{{ lightningStatus() }}</span>
+                </span>
+              </label>
+              @if (showLightning()) {
+                <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                       [value]="getOpacity('lightning')"
+                       (input)="setOpacity('lightning', +$any($event.target).value)" />
+              }
+            </div>
+          </div>
+
+          <!-- Groupe Satellite (placeholder — à venir) -->
+          <div class="layer-group layer-group-soon">
+            <div class="layer-group-title">Satellite <span class="soon-tag">à venir</span></div>
+          </div>
+
+          <!-- Reset button : restaure les défauts visibility + opacity -->
+          <button type="button" class="layer-reset" (click)="resetLayerPrefs()" title="Restaure l'affichage par défaut">
+            ↺ Réinitialiser l'affichage
+          </button>
         </div>
 
         @if (showAlerts() && alertsList().length > 0) {
@@ -630,10 +744,90 @@ function toIsoTimestamp(d: Date): string {
     .layer-toggles {
       display: flex;
       flex-direction: column;
-      gap: 0.5em;
+      gap: 0.7em;
       margin: 0.4em 0 1em;
       padding-bottom: 0.8em;
       border-bottom: 1px solid var(--border);
+    }
+    /* Sprint Layer UX V2 — Phase A : groupes par catégorie de data */
+    .layer-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35em;
+    }
+    .layer-group-title {
+      font-family: var(--font-mono);
+      font-size: 0.6rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--fg-dim);
+      padding: 0.2em 0 0.05em;
+      border-top: 1px dashed rgba(255,255,255,0.06);
+      &:first-child { border-top: 0; padding-top: 0; }
+    }
+    .layer-group:first-of-type .layer-group-title {
+      border-top: 0;
+      padding-top: 0;
+    }
+    .layer-group-soon {
+      opacity: 0.4;
+      .soon-tag {
+        font-size: 0.55rem;
+        letter-spacing: 0.15em;
+        margin-left: 0.6em;
+        color: var(--fg-dim);
+      }
+    }
+    /* Row qui wrap le toggle + son slider d'opacité (visible si layer actif) */
+    .layer-row {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15em;
+    }
+    .layer-opacity {
+      width: 100%;
+      height: 4px;
+      appearance: none;
+      background: var(--bg-3);
+      border-radius: 2px;
+      cursor: pointer;
+      margin-left: 1.6em;   /* aligné sur le toggle text (skip checkbox+glyph) */
+      width: calc(100% - 1.6em);
+      accent-color: var(--accent);
+      &::-webkit-slider-thumb {
+        appearance: none;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--accent-bright);
+        cursor: ew-resize;
+        border: 0;
+      }
+      &::-moz-range-thumb {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--accent-bright);
+        cursor: ew-resize;
+        border: 0;
+      }
+    }
+    .layer-reset {
+      margin-top: 0.6em;
+      padding: 0.4em 0.7em;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--fg-muted);
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 0.7rem;
+      font-family: var(--font-mono);
+      letter-spacing: 0.05em;
+      transition: color 150ms, border-color 150ms;
+      &:hover {
+        color: var(--accent-bright);
+        border-color: var(--accent);
+      }
     }
     .layer-toggle {
       display: flex;
@@ -1436,6 +1630,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         if (this.showWindArrows() || this.showWaveArrows()) {
           this.refreshArrowsForTime(this.currentTime);
         }
+        // Phase A : persiste les toggles à chaque changement (debounce
+        // implicite via microtask). Au boot, ngAfterViewInit appelle
+        // restoreLayerPrefs() AVANT cet effect, donc pas de race.
+        this.persistLayerPrefs();
       });
     });
 
@@ -1520,6 +1718,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   ngAfterViewInit(): void {
     this.initMap();
     this.initParticlesEngine();
+    // Phase A : restore layer prefs (visibility + opacity) depuis localStorage
+    // AVANT applyLayerVisibility pour éviter un flash defaults → restored.
+    this.restoreLayerPrefs();
+    this.applyAllLayerOpacities();
     // Démarre en mode live
     this.applyLayerVisibility();
     this.refreshForTime(new Date());
