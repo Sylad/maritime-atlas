@@ -57,7 +57,7 @@ services:
   # replica override juste container_name + GEOSERVER_NODE_ID. Tout le
   # reste (image, env, volumes, healthcheck) est identique.
   geoserver-1: &geoserver-base
-    image: docker.osgeo.org/geoserver:2.27.0
+    image: docker.osgeo.org/geoserver:2.28.2
     container_name: maritime-geoserver-1
     environment: &geoserver-env
       GEOSERVER_NODE_ID: geoserver-1
