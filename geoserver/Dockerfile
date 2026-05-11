@@ -1,35 +1,51 @@
-# Custom GeoServer image avec extension gwc-s3 pré-installée.
+# Custom GeoServer image avec 3 extensions pré-installées :
+#  - gwc-s3 (stable extension promoted) depuis SourceForge
+#  - jdbcconfig (community) depuis OSGeo Nexus
+#  - jdbcstore (community) depuis OSGeo Nexus
 #
-# Pourquoi pas l'INSTALL_EXTENSIONS runtime ? La community-latest URL
-# 404 pour gwc-s3 (cf. agent research). On bake les JARs au build via
-# SourceForge release artifacts pour garantir reproductibilité.
+# La tentative 2026-05-11 avec snapshot `2.28-SNAPSHOT` depuis
+# build.geoserver.org échouait sur `NoClassDefFoundError
+# org/geoserver/util/SortedProperties` — le snapshot était en avance
+# sur le runtime stable. La fix : utiliser les JARs Maven release
+# tagués (2.28.3) depuis Nexus, alignés au runtime exact.
 #
-# Note JDBCConfig/JDBCStore : tentative d'install via snapshot
-# build.geoserver.org abandonnée — incompat avec runtime stable 2.28.2
-# (NoClassDefFoundError org/geoserver/util/SortedProperties, classe
-# présente dans le master dev mais pas dans 2.28.2). Cluster continue
-# en file-share via volume Docker. Reprendre quand jdbcconfig/store
-# sera promoted stable + zip 2.28.x.x.
+# Refs :
+#  - gwc-s3 : sf.net/projects/geoserver/files/GeoServer/<ver>/extensions/
+#  - JDBC : repo.osgeo.org/repository/release/org/geoserver/community/
 
-FROM docker.osgeo.org/geoserver:2.28.2
+FROM docker.osgeo.org/geoserver:2.28.3
 
-ARG GWC_S3_VERSION=2.28.2
-ARG GWC_S3_URL=https://downloads.sourceforge.net/project/geoserver/GeoServer/${GWC_S3_VERSION}/extensions/geoserver-${GWC_S3_VERSION}-gwc-s3-plugin.zip
+ARG GS_VERSION=2.28.3
+ARG GWC_S3_URL=https://downloads.sourceforge.net/project/geoserver/GeoServer/${GS_VERSION}/extensions/geoserver-${GS_VERSION}-gwc-s3-plugin.zip
+ARG NEXUS_BASE=https://repo.osgeo.org/repository/release/org/geoserver/community
+ARG JDBCCONFIG_JAR_URL=${NEXUS_BASE}/gs-jdbcconfig/${GS_VERSION}/gs-jdbcconfig-${GS_VERSION}.jar
+ARG JDBCSTORE_JAR_URL=${NEXUS_BASE}/gs-jdbcstore/${GS_VERSION}/gs-jdbcstore-${GS_VERSION}.jar
 
 USER root
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends unzip curl ca-certificates && \
+    apt-get install -y --no-install-recommends unzip curl ca-certificates postgresql-client && \
     rm -rf /var/lib/apt/lists/* && \
-    mkdir -p /tmp/gwc && cd /tmp/gwc && \
+    mkdir -p /tmp/plugins && cd /tmp/plugins && \
+    # gwc-s3 : zip avec ses JARs deps (aws-sdk, jackson, etc.)
     curl -fL -o gwc-s3.zip "$GWC_S3_URL" && \
-    unzip -o gwc-s3.zip && \
-    cp *.jar /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/ && \
-    cd / && rm -rf /tmp/gwc && \
+    unzip -o gwc-s3.zip "*.jar" -d gwc-s3-jars/ && \
+    cp gwc-s3-jars/*.jar /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/ && \
+    # JDBCConfig + JDBCStore : JARs direct depuis Nexus (déjà compilés
+    # par l'upstream GeoServer release pipeline, alignés au runtime).
+    curl -fL -o /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-jdbcconfig-${GS_VERSION}.jar "$JDBCCONFIG_JAR_URL" && \
+    curl -fL -o /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-jdbcstore-${GS_VERSION}.jar "$JDBCSTORE_JAR_URL" && \
+    # Extract JDBCStore + JDBCConfig SQL init scripts depuis les JARs.
+    # JDBCStore les cherche dans ${data_dir}/jdbcstore/scripts/ — le
+    # cluster-bootstrap.sh copiera depuis /opt/jdbc-scripts/ au boot.
+    mkdir -p /opt/jdbc-scripts/jdbcstore /opt/jdbc-scripts/jdbcconfig && \
+    unzip -o -j /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-jdbcstore-${GS_VERSION}.jar \
+      "org/geoserver/jdbcstore/internal/*.sql" -d /opt/jdbc-scripts/jdbcstore/ && \
+    unzip -o -j /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-jdbcconfig-${GS_VERSION}.jar \
+      "org/geoserver/jdbcconfig/internal/*.sql" -d /opt/jdbc-scripts/jdbcconfig/ && \
+    ls -la /opt/jdbc-scripts/jdbcstore/ /opt/jdbc-scripts/jdbcconfig/ && \
+    cd / && rm -rf /tmp/plugins && \
     apt-get remove --purge -y unzip && apt-get autoremove --purge -y && \
-    echo "GWC-S3 plugin v${GWC_S3_VERSION} installed in WEB-INF/lib"
-# curl gardé (healthcheck compose l'utilise). unzip vire après extraction.
-
-# Restore the default user from the base image (probably geoserver:geoserver
-# or root depending on the official image). Le entrypoint du cluster
-# bootstrap est déjà bind-mounted en root via compose, donc pas de souci.
+    echo "Plugins installed in WEB-INF/lib : gwc-s3 + jdbcconfig + jdbcstore ${GS_VERSION}"
+# curl et postgresql-client gardés (healthcheck compose + bootstrap CREATE SCHEMA).
+# unzip vire après extraction.

@@ -85,7 +85,7 @@ services:
     build:
       context: ./geoserver
       dockerfile: Dockerfile
-    image: maritime-geoserver:2.28.2-with-gwc-s3
+    image: maritime-geoserver:2.28.3-full
     container_name: maritime-geoserver-1
     environment: &geoserver-env
       GEOSERVER_NODE_ID: geoserver-1
@@ -93,10 +93,9 @@ services:
       GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}
       INSTALL_EXTENSIONS: "true"
       STABLE_EXTENSIONS: "wps,csw,inspire"
-      # GWC-S3 baké dans l'image custom (cf. geoserver/Dockerfile) via
-      # SourceForge release artifacts (stable extension).
-      # JDBCConfig/Store : abandonnés — snapshot incompat runtime stable
-      # (cf. memory/geoserver_gotchas.md). Cluster en file-share volume.
+      # 3 plugins bakés dans l'image custom (cf. geoserver/Dockerfile) :
+      #   - gwc-s3 (SourceForge stable extension)
+      #   - jdbcconfig + jdbcstore (OSGeo Nexus 2.28.3 release JARs)
       # → plus de COMMUNITY_EXTENSIONS env var qui 404 silencieusement.
       # JVM flags : endpoint AWS S3 override + path-style obligatoire pour
       # SeaweedFS / MinIO (non-AWS endpoints). Sans ces 2 flags, l'AWS SDK
