@@ -4,8 +4,12 @@
 # 404 pour gwc-s3 (cf. agent research). On bake les JARs au build via
 # SourceForge release artifacts pour garantir reproductibilité.
 #
-# Stable extension promoted en 2.28 — pattern URL :
-#   geoserver-X.Y.Z-gwc-s3-plugin.zip sur sf.net/projects/geoserver
+# Note JDBCConfig/JDBCStore : tentative d'install via snapshot
+# build.geoserver.org abandonnée — incompat avec runtime stable 2.28.2
+# (NoClassDefFoundError org/geoserver/util/SortedProperties, classe
+# présente dans le master dev mais pas dans 2.28.2). Cluster continue
+# en file-share via volume Docker. Reprendre quand jdbcconfig/store
+# sera promoted stable + zip 2.28.x.x.
 
 FROM docker.osgeo.org/geoserver:2.28.2
 

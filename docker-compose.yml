@@ -93,10 +93,11 @@ services:
       GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}
       INSTALL_EXTENSIONS: "true"
       STABLE_EXTENSIONS: "wps,csw,inspire"
-      # JDBCConfig + JDBCStore = catalog clusterisé en Postgres.
-      # Ces deux extensions sont en `community` car non-stable upstream,
-      # mais c'est le mécanisme officiel recommandé pour le multi-node.
-      COMMUNITY_EXTENSIONS: "jdbcconfig,jdbcstore"
+      # GWC-S3 baké dans l'image custom (cf. geoserver/Dockerfile) via
+      # SourceForge release artifacts (stable extension).
+      # JDBCConfig/Store : abandonnés — snapshot incompat runtime stable
+      # (cf. memory/geoserver_gotchas.md). Cluster en file-share volume.
+      # → plus de COMMUNITY_EXTENSIONS env var qui 404 silencieusement.
       # JVM flags : endpoint AWS S3 override + path-style obligatoire pour
       # SeaweedFS / MinIO (non-AWS endpoints). Sans ces 2 flags, l'AWS SDK
       # contacte le vrai api.amazonaws.com et fail.
