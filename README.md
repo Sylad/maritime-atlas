@@ -27,6 +27,32 @@ multi-source, RabbitMQ comme glue, GeoServer pour servir les layers raster/WFS,
 Angular + OpenLayers pour la viz, NestJS + Drizzle pour l'auth et les palettes
 utilisateur.
 
+## Aperçu
+
+> Tous les layers se synchronisent sur le **time slider unique** en bas — un
+> signal Angular écouté par 7 sous-systèmes (WMS, WFS, RainViewer, GeoJSON arrows,
+> particules, alertes, lightning).
+
+| Layer | Source | Aperçu |
+|---|---|---|
+| **Navires AIS** (silhouettes colorées par catégorie : pêche, passagers, cargo, tanker, autres) | aisstream.io WSS, ~2700 positions live | ![Navires AIS](docs/screenshots/01-vessels.jpg) |
+| **SST** — température de surface de la mer | NOAA OISST quotidien, GeoTIFF time-tagged | ![SST](docs/screenshots/02-sst.jpg) |
+| **Vent** raster + flèches direction | NOAA GFS 25km / Météo-France AROME 2.5km (sprint 11), forecasts +72h | ![Vent](docs/screenshots/03-wind.jpg) |
+| **Vagues** raster + flèches direction | NOAA WaveWatch III, Hs + DIRPW | ![Vagues](docs/screenshots/04-waves.jpg) |
+| **Radar pluie** + **foudre** | RainViewer XYZ tiles + Blitzortung WSS (LZW JSON) | ![Pluie + foudre](docs/screenshots/05-rain-lightning.jpg) |
+| **Alertes maritimes** (panel + cercles colorisés) | alerts-engine croise AIS × foudre × vent fort via RMQ | ![Alertes](docs/screenshots/06-alerts.jpg) |
+
+### Particules de vent — flux animé
+
+Sprint 8 : layer custom OpenLayers + canvas, ~2500 particules advectées par
+interpolation IDW sur 4 plus-proches voisins du grid GFS/AROME, trails alpha pour
+créer l'illusion de courants.
+
+https://github.com/Sylad/maritime-atlas/raw/main/docs/screenshots/07-particles.mp4
+
+> Le MP4 est dans [`docs/screenshots/07-particles.mp4`](docs/screenshots/07-particles.mp4).
+> GitHub n'autoplay pas les MP4 inline dans les README ; cliquer ouvre le player.
+
 ## Architecture
 
 ```
