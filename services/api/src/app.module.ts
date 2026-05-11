@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module';
 import { PalettesModule } from './palettes/palettes.module';
 import { PreferencesModule } from './preferences/preferences.module';
 import { GeoServerModule } from './geoserver/geoserver.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { GeoServerModule } from './geoserver/geoserver.module';
     AuthModule,
     PalettesModule,
     PreferencesModule,
+    AdminModule,
   ],
 })
 export class AppModule {}

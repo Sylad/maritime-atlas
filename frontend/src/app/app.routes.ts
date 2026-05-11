@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 import { authGuard } from './auth/auth.guard';
+import { adminGuard } from './auth/admin.guard';
 
 export const routes: Routes = [
   {
@@ -22,6 +23,12 @@ export const routes: Routes = [
     canActivate: [authGuard],
     loadComponent: () => import('./pages/palettes/palettes-page.component').then((m) => m.PalettesPageComponent),
     title: 'Mes palettes · Maritime Atlas',
+  },
+  {
+    path: 'admin/users',
+    canActivate: [adminGuard],
+    loadComponent: () => import('./pages/admin/admin-users.component').then((m) => m.AdminUsersComponent),
+    title: 'Admin · Utilisateurs · Maritime Atlas',
   },
   {
     path: 'about',
