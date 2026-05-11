@@ -42,6 +42,31 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # ─── S3-compatible storage : SeaweedFS (sprint stockage objet) ─────
+  # 1 container `server` mode bundle = master + volume + filer + S3
+  # gateway. Le S3 expose port 8333. Cibles d'usage :
+  #   - GWC-S3 BlobStore (cache de tuiles GeoServer)
+  #   - COG rasters time-aware (à venir, déféré)
+  # Auth : credentials dans seaweedfs/s3.json (homelab — pour expo
+  # publique, durcir via env-based templating).
+  # Refs : https://github.com/seaweedfs/seaweedfs/wiki/S3-Configuration
+  seaweedfs:
+    image: chrislusf/seaweedfs:3.97
+    container_name: maritime-seaweedfs
+    command: server -dir=/data -filer -s3 -s3.config=/etc/sw/s3.json -s3.port=8333
+    ports:
+      - "${SEAWEEDFS_S3_PORT:-8333}:8333"   # S3 API
+    volumes:
+      - seaweedfs-data:/data
+      - ./seaweedfs/s3.json:/etc/sw/s3.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:8333/status > /dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
   # ─── Tile/WFS server : GeoServer cluster (3 replicas, sprint 9) ────
   # Pattern cluster officiel :
   #   * catalog (workspaces/layers/styles) partagé via JDBCConfig +
@@ -429,3 +454,5 @@ volumes:
   # Sprint 6 : volume GeoJSON arrows (vent + vagues) écrits par
   # weather-fetcher et servis read-only par nginx (frontend) via /wind-arrows/.
   wind-arrows-data:
+  # Sprint stockage objet : SeaweedFS data dir (master + volume + filer + S3).
+  seaweedfs-data:
