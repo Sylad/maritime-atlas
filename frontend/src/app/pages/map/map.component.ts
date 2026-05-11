@@ -26,7 +26,7 @@ import GeoJSON from 'ol/format/GeoJSON';
 import Overlay from 'ol/Overlay';
 import { fromLonLat } from 'ol/proj';
 import { Style, Circle as CircleStyle, Fill, Stroke, Icon } from 'ol/style';
-import { defaults as defaultControls, ScaleLine, Attribution } from 'ol/control';
+import { defaults as defaultControls, ScaleLine } from 'ol/control';
 import type { Feature } from 'ol';
 import type { FeatureLike } from 'ol/Feature';
 import type { Geometry, Point } from 'ol/geom';
@@ -371,6 +371,43 @@ function toIsoTimestamp(d: Date): string {
         }
       </div>
 
+      <!-- Attribution bar maison (cf. commit "drop OL Attribution"). Bouton (i)
+           bottom-right qui déplie un panneau avec les sources. HTML standard,
+           pas de control OL → fini les letterforms hollow/glow. -->
+      <div class="attribution-bar" [class.open]="attrOpen()">
+        @if (attrOpen()) {
+          <div class="attribution-panel">
+            <div class="attribution-title">Sources</div>
+            <div class="attribution-row">
+              <span class="attribution-label">Fond carto</span>
+              <span>©&nbsp;<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · ©&nbsp;<a href="https://carto.com/attribution" target="_blank" rel="noopener">CARTO</a></span>
+            </div>
+            <div class="attribution-row">
+              <span class="attribution-label">Modèles météo</span>
+              <span><a href="https://nomads.ncep.noaa.gov" target="_blank" rel="noopener">NOAA NOMADS</a> (GFS, WW3, OISST) · <a href="https://meteo.data.gouv.fr/datasets" target="_blank" rel="noopener">Météo-France AROME</a></span>
+            </div>
+            <div class="attribution-row">
+              <span class="attribution-label">Positions navires</span>
+              <span>©&nbsp;<a href="https://aisstream.io" target="_blank" rel="noopener">aisstream.io</a></span>
+            </div>
+            <div class="attribution-row">
+              <span class="attribution-label">Radar pluie</span>
+              <span><a href="https://www.rainviewer.com" target="_blank" rel="noopener">RainViewer</a></span>
+            </div>
+            <div class="attribution-row">
+              <span class="attribution-label">Foudre</span>
+              <span><a href="https://www.blitzortung.org" target="_blank" rel="noopener">Blitzortung</a> (community)</span>
+            </div>
+          </div>
+        }
+        <button type="button" class="attribution-trigger"
+                (click)="toggleAttr()"
+                [attr.aria-label]="attrOpen() ? 'Fermer les sources' : 'Voir les sources'"
+                title="Sources de données">
+          {{ attrOpen() ? '×' : 'i' }}
+        </button>
+      </div>
+
       <app-time-slider (timeChange)="onTimeChange($event)" />
     </div>
   `,
@@ -408,15 +445,15 @@ function toIsoTimestamp(d: Date): string {
       z-index: 10;
       display: flex; align-items: center; gap: 0.5em;
       background: rgb(15, 23, 42);
-      border: 1px solid hsl(195 80% 45% / 0.4);
+      border: 1px solid hsl(224 85% 55% / 0.5);
       border-radius: 8px;
       padding: 0.5em 0.9em;
       font-size: 0.78rem;
       color: var(--fg-muted);
       box-shadow:
-        0 0 0 1px hsl(195 80% 50% / 0.15),
-        0 0 16px 1px hsl(195 95% 55% / 0.15),
-        0 0 36px 4px hsl(195 90% 50% / 0.06);
+        0 0 0 1px hsl(224 95% 60% / 0.2),
+        0 0 16px 1px hsl(224 95% 60% / 0.22),
+        0 0 36px 4px hsl(224 90% 55% / 0.1);
     }
     .auth-link {
       color: var(--accent-bright);
@@ -479,16 +516,16 @@ function toIsoTimestamp(d: Date): string {
       top: 1em;
       left: 1em;
       background: rgb(15, 23, 42);
-      border: 1px solid hsl(195 80% 45% / 0.4);
+      border: 1px solid hsl(224 85% 55% / 0.5);
       border-radius: 8px;
       padding: 1em 1.2em;
       z-index: 10;
       min-width: 200px;
       /* Glow neon cyan, inspiré OL Companion sidebar */
       box-shadow:
-        0 0 0 1px hsl(195 80% 50% / 0.15),
-        0 0 16px 1px hsl(195 95% 55% / 0.18),
-        0 0 40px 4px hsl(195 90% 50% / 0.08),
+        0 0 0 1px hsl(224 95% 60% / 0.2),
+        0 0 16px 1px hsl(224 95% 60% / 0.26),
+        0 0 40px 4px hsl(224 90% 55% / 0.13),
         0 10px 30px -6px rgba(0, 0, 0, 0.7);
     }
     .legend-title {
@@ -637,7 +674,7 @@ function toIsoTimestamp(d: Date): string {
       line-height: 1;
       border: 1px solid rgba(34,197,94,0.4);
       background: linear-gradient(to right, rgba(56,189,248,0.2), rgba(34,197,94,0.3), rgba(253,224,71,0.3));
-      color: #5eead4;
+      color: var(--accent-bright);
       text-shadow: 0 0 3px rgba(94,234,212,0.6);
     }
     .alerts-panel {
@@ -744,16 +781,16 @@ function toIsoTimestamp(d: Date): string {
       position: absolute;
       pointer-events: auto;
       background: rgb(15, 23, 42);
-      border: 1px solid hsl(195 80% 45% / 0.4);
+      border: 1px solid hsl(224 85% 55% / 0.5);
       border-radius: 8px;
       padding: 0.85em 1.05em;
       min-width: 260px;
       transform: translate(-50%, calc(-100% - 12px));
       visibility: hidden;
       box-shadow:
-        0 0 0 1px hsl(195 80% 50% / 0.15),
-        0 0 18px 1px hsl(195 95% 55% / 0.2),
-        0 0 40px 4px hsl(195 90% 50% / 0.08),
+        0 0 0 1px hsl(224 95% 60% / 0.2),
+        0 0 18px 1px hsl(224 95% 60% / 0.3),
+        0 0 40px 4px hsl(224 90% 55% / 0.13),
         0 12px 32px -6px rgba(0, 0, 0, 0.8);
       &.visible { visibility: visible; }
 
@@ -765,8 +802,8 @@ function toIsoTimestamp(d: Date): string {
         transform: translateX(-50%) rotate(45deg);
         width: 12px; height: 12px;
         background: rgb(15, 23, 42);
-        border-right: 1px solid hsl(195 80% 45% / 0.4);
-        border-bottom: 1px solid hsl(195 80% 45% / 0.4);
+        border-right: 1px solid hsl(224 85% 55% / 0.5);
+        border-bottom: 1px solid hsl(224 85% 55% / 0.5);
       }
     }
     .popup-close {
@@ -814,6 +851,95 @@ function toIsoTimestamp(d: Date): string {
       strong { color: var(--fg); }
     }
     .mono { font-family: var(--font-mono); font-size: 0.72rem; }
+
+    /* ── Attribution bar maison (drop OL Attribution control) ──
+       Bottom-right, au-dessus de la time-slider. Bouton (i) circulaire
+       toujours visible ; clic → panel s'ouvre vers le HAUT-GAUCHE pour
+       ne pas dépasser de la viewport. Pas de glow exotique : juste un
+       border + un box-shadow soft pour la lisibilité. */
+    .attribution-bar {
+      position: absolute;
+      bottom: 6em;
+      right: 1em;
+      z-index: 25;
+      display: flex;
+      align-items: flex-end;
+      gap: 0.5em;
+      pointer-events: auto;
+    }
+    .attribution-trigger {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: rgb(15, 23, 42);
+      border: 1px solid hsl(224 85% 55% / 0.5);
+      color: var(--accent-bright);
+      font-family: 'Times New Roman', Georgia, serif;
+      font-style: italic;
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: color 150ms, border-color 150ms, transform 150ms;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      &:hover {
+        color: var(--fg);
+        border-color: var(--accent-bright);
+        transform: translateY(-1px);
+      }
+    }
+    .attribution-bar.open .attribution-trigger {
+      font-style: normal;
+      font-family: var(--font-sans);
+      font-size: 1.1rem;
+    }
+    .attribution-panel {
+      background: rgb(15, 23, 42);
+      border: 1px solid hsl(224 85% 55% / 0.5);
+      border-radius: 8px;
+      padding: 0.9em 1.1em;
+      max-width: 420px;
+      font-size: 0.78rem;
+      line-height: 1.6;
+      color: var(--fg);
+      /* Box-shadow doux — pas de multi-layer glow, pas de filter, pas
+         de backdrop-filter. Lecture nette garantie. */
+      box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.7);
+      animation: attr-fade-in 150ms ease-out;
+    }
+    @keyframes attr-fade-in {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .attribution-title {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.18em;
+      color: var(--accent-bright);
+      margin-bottom: 0.5em;
+      text-transform: uppercase;
+    }
+    .attribution-row {
+      display: grid;
+      grid-template-columns: 90px 1fr;
+      gap: 0.5em;
+      padding: 0.18em 0;
+    }
+    .attribution-label {
+      color: var(--fg-muted);
+      font-size: 0.72rem;
+      font-family: var(--font-mono);
+    }
+    .attribution-panel a {
+      color: var(--accent-bright);
+      text-decoration: none;
+      font-weight: 500;
+      &:hover {
+        text-decoration: underline;
+        color: var(--fg);
+      }
+    }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -838,6 +964,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly selectedVessel = signal<VesselProperties | null>(null);
   readonly selectedLightning = signal<LightningProperties | null>(null);
   readonly selectedAlert = signal<AlertProperties | null>(null);
+  readonly attrOpen = signal(false);
   readonly hasPopup = computed(() =>
     this.selectedVessel() !== null || this.selectedLightning() !== null || this.selectedAlert() !== null,
   );
@@ -1700,6 +1827,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.popupOverlay?.setPosition(undefined);
   }
 
+  toggleAttr(): void {
+    this.attrOpen.set(!this.attrOpen());
+  }
+
   categoryLabel(shipType: number | null): string {
     return CATEGORY_COLOR[categoryOf(shipType)].label;
   }
@@ -1899,11 +2030,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         this.alertsLayer,
       ],
       overlays: [this.popupOverlay],
-      // attribution: false dans defaultControls() pour exclure celui par défaut
-      // qui s'affiche inline si le map est large. On le remplace par un Attribution
-      // configuré avec `collapsible: true` qui force le mode bouton (i) + popup.
+      // L'Attribution OL natif est désactivé — son CSS injecte un text-shadow
+      // qui rend les letterforms hollow/glow sur dark bg (cf. /case-study).
+      // À la place, un <div class="attribution-bar"> Angular maison (cf. template)
+      // affiche les sources en clair avec liens HTML normaux.
       controls: defaultControls({ attribution: false }).extend([
-        new Attribution({ collapsible: true, collapsed: true }),
         new ScaleLine({ units: 'nautical' }),
       ]),
       view: new View({

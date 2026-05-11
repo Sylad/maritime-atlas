@@ -1,5 +1,7 @@
 /* Maritime Atlas — global styles
-   Mood : nuit océanique. Fond sombre, accent ambre/cyan. */
+   Mood : nuit océanique + bleu électrique (palette OL companion).
+   Le brand a glissé du cyan/teal vers le bleu HSL 224 — accents plus
+   "ciel d'orage", moins "lagon". */
 
 :root {
   --bg: #0a0e1a;
@@ -8,9 +10,9 @@
   --fg: #e6ecf3;
   --fg-muted: #8a96a8;
   --fg-dim: #5a6478;
-  --accent: #2dd4bf;          /* cyan océan */
-  --accent-bright: #5eead4;
-  --warning: #fbbf24;          /* ambre */
+  --accent: hsl(224 80% 58%);          /* bleu électrique principal */
+  --accent-bright: hsl(226 92% 72%);    /* bleu clair pour highlights */
+  --warning: #fbbf24;                   /* ambre */
   --negative: #ef4444;
   --border: rgba(255, 255, 255, 0.08);
   --shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.6);
@@ -40,92 +42,10 @@ app-root {
   height: 100%;
 }
 
-/* ── OL controls overrides — theme sombre + popup attribution propre ──
-   Doivent vivre en global (pas dans le scope component) car les controls
-   OL sont injectés dans le DOM imperativement et l'encapsulation Angular
-   ::ng-deep ne les atteint pas de manière fiable. */
-
-/* Attribution : bouton (i) compact + popup vers le HAUT au clic */
-.ol-attribution {
-  /* Positionné AU-DESSUS de la time-slider toolbar (qui prend ~5em en bas
-     avec padding). Le popup ouvert vers le haut a donc tout l'espace. */
-  bottom: 6em !important;
-  right: 1em !important;
-  top: auto !important;
-  left: auto !important;
-  background: transparent !important;
-  border: 0 !important;
-  padding: 0 !important;
-  max-width: none !important;
-  z-index: 25;                              /* > time-slider (20) */
-}
-.ol-attribution button {
-  background: rgba(19, 24, 38, 0.96) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: 50% !important;
-  color: var(--accent) !important;
-  width: 32px !important;
-  height: 32px !important;
-  font-size: 0.95rem !important;
-  font-weight: 700 !important;
-  font-style: italic;
-  font-family: 'Times New Roman', Georgia, serif !important;
-  cursor: pointer;
-  transition: color 150ms, border-color 150ms;
-  &:hover {
-    color: var(--accent-bright) !important;
-    border-color: var(--accent) !important;
-    background: rgba(19, 24, 38, 0.96) !important;
-  }
-}
-.ol-attribution.ol-collapsed ul { display: none; }
-.ol-attribution ul {
-  position: absolute;
-  bottom: calc(100% + 10px);
-  right: 0;
-  background: rgb(15, 23, 42);              /* opaque navy, pas de blur */
-  border: 1px solid hsl(195 80% 45% / 0.4);
-  border-radius: 8px;
-  padding: 0.85em 1.1em;
-  margin: 0;
-  list-style: none;
-  width: max-content;
-  max-width: 380px;
-  font-size: 0.78rem;
-  line-height: 1.55;
-  color: var(--fg);
-  /* Texte net : pas de filter, anti-aliasing forcé en geometric */
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-rendering: geometricPrecision;
-  filter: none;
-  backdrop-filter: none;
-  /* Glow neon cyan style OL companion (mais centré, pas de gradient haut/bas) */
-  box-shadow:
-    0 0 0 1px hsl(195 80% 50% / 0.15),
-    0 0 12px 1px hsl(195 95% 55% / 0.18),
-    0 0 36px 4px hsl(195 90% 50% / 0.08),
-    0 8px 24px -4px rgba(0, 0, 0, 0.85);
-  &::after {
-    content: '';
-    position: absolute;
-    bottom: -6px;
-    right: 12px;
-    width: 10px;
-    height: 10px;
-    background: rgb(15, 23, 42);
-    border-right: 1px solid hsl(195 80% 45% / 0.4);
-    border-bottom: 1px solid hsl(195 80% 45% / 0.4);
-    transform: rotate(45deg);
-  }
-  li { padding: 0.2em 0; }
-  a {
-    color: hsl(195 95% 65%);
-    text-decoration: none;
-    font-weight: 500;
-    &:hover { text-decoration: underline; color: hsl(195 95% 75%); }
-  }
-}
+/* ── OL controls overrides (ScaleLine + Zoom uniquement) ──
+   L'Attribution OL natif est désactivé côté map.component (controls)
+   et remplacé par un <div> Angular maison — fini les batailles avec
+   l'encapsulation et le text-shadow par défaut d'OL. */
 
 /* ScaleLine : bottom-left au-dessus de la slider */
 .ol-scale-line {
@@ -143,7 +63,7 @@ app-root {
   font-size: 0.7rem;
 }
 
-/* Zoom : bottom-left, au-dessus du scale (qui est au-dessus de slider) */
+/* Zoom : bottom-left, au-dessus du scale */
 .ol-zoom {
   top: auto !important;
   bottom: 9em !important;
@@ -158,6 +78,6 @@ app-root {
   border: 0 !important;
   &:hover {
     color: var(--accent-bright) !important;
-    background: rgba(45, 212, 191, 0.1) !important;
+    background: hsl(224 90% 55% / 0.12) !important;
   }
 }

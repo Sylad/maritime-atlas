@@ -311,14 +311,14 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  slider["Time slider [-7j, +5j]"] -->|onTimeChange t| logic{currentTime t}
-  logic -->|TIME=1970/t snap-to-latest| wms["WMS layers<br/>SST · Vent · Vagues"]
-  logic -->|viewparams=at:ISO;window:300| sqlview["vessels_at_time WFS"]
-  logic -->|findNearestFrame(t)| rain["RainViewer tile URL"]
-  logic -->|findNearestTs(t, manifest)| arrows["/wind-arrows/ GeoJSON fetch"]
-  logic -->|filter ts ≤ now() - 30min| lightning["Lightning WFS"]
-  logic -->|recalc IDW from grid t| particles["Wind particles canvas"]
-  logic -->|live mode only| alerts["Alerts panel"]
+  slider["Time slider -7j à +5j"] -->|"onTimeChange t"| logic{"currentTime t"}
+  logic -->|"TIME=1970/t snap-to-latest"| wms["WMS layers<br/>SST · Vent · Vagues"]
+  logic -->|"viewparams at:ISO;window:300"| sqlview["vessels_at_time WFS"]
+  logic -->|"findNearestFrame de t"| rain["RainViewer tile URL"]
+  logic -->|"findNearestTs t,manifest"| arrows["wind-arrows GeoJSON fetch"]
+  logic -->|"filter ts ≤ now - 30min"| lightning["Lightning WFS"]
+  logic -->|"recalc IDW from grid t"| particles["Wind particles canvas"]
+  logic -->|"live mode only"| alerts["Alerts panel"]
 ```
 
 Le slider est l'unique source de vérité côté frontend : un signal Angular qui

@@ -83,15 +83,15 @@ import { DatePipe } from '@angular/common';
       width: calc(100% - 260px);
       max-width: 1320px;
       background: rgb(15, 23, 42);
-      border: 1px solid hsl(195 80% 45% / 0.4);
+      border: 1px solid hsl(224 85% 55% / 0.5);
       border-radius: 10px;
       padding: 0.55em 1em;
       z-index: 20;
       /* Glow neon cyan, cohérent avec legend + popup attribution */
       box-shadow:
-        0 0 0 1px hsl(195 80% 50% / 0.15),
-        0 0 16px 1px hsl(195 95% 55% / 0.18),
-        0 0 40px 4px hsl(195 90% 50% / 0.08),
+        0 0 0 1px hsl(224 95% 60% / 0.2),
+        0 0 16px 1px hsl(224 95% 60% / 0.26),
+        0 0 40px 4px hsl(224 90% 55% / 0.13),
         0 10px 30px -6px rgba(0, 0, 0, 0.7);
       @media (max-width: 760px) {
         width: calc(100% - 24px);
