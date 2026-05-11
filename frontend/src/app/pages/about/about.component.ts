@@ -86,10 +86,11 @@ import { RouterLink } from '@angular/router';
           <div class="stack-card">
             <div class="stack-eyebrow">Backend & ingestion</div>
             <ul>
-              <li>NestJS 11 (api auth + palettes, ais-decoder, track-builder)</li>
+              <li>NestJS 11 (api auth JWT + Google OAuth + RBAC, palettes, ais-decoder, track-builder)</li>
               <li>Python 3.12 + xarray + rioxarray + cfgrib (3 fetchers météo)</li>
               <li>Node 22 + ws (ais-ingester, lightning-fetcher, alerts-engine)</li>
               <li>Drizzle ORM (Postgres, schémas isolés)</li>
+              <li>Resend SDK (vérification email) · passport-google-oauth20</li>
             </ul>
           </div>
           <div class="stack-card">

@@ -109,7 +109,7 @@ https://github.com/Sylad/maritime-atlas/raw/main/docs/screenshots/07-particles.m
 | `sst-fetcher` | Python (xarray + rioxarray) | — | Cron quotidien 06:00 UTC, NOAA OISST → GeoTIFF mosaic store |
 | `weather-fetcher` | Python (cfgrib + xarray) | — | Cron 4×/jour, GFS (vent 10m) + WW3 (HTSGW + DIRPW), forecasts +72h, GeoTIFF + GeoJSON arrows |
 | `weather-fetcher-arome` | Python (cfgrib + xarray) | — | **Sprint 11.** Cron 4×/jour, Météo-France AROME 0.025° (~2.5km) en parallèle du GFS 25km, forecasts +24h, layer `wind-speed-arome` |
-| `api` | NestJS 11 + Drizzle | — | Auth JWT 24h + CRUD palettes (max 5/user, miroir GeoServer styles) |
+| `api` | NestJS 11 + Drizzle | — | Auth JWT 24h · CRUD palettes (max 5/user) · vérif email Resend · Google OAuth (`/auth/google`) · RBAC admin (`/admin/users` list/promote/delete) · cron dormants 03:00 Europe/Paris |
 | `frontend` | Angular 19 + nginx | 4204 | UI map, nginx proxy `/api/` et `/geoserver/` (CORS-free) |
 
 ## Stack technique
@@ -123,7 +123,7 @@ https://github.com/Sylad/maritime-atlas/raw/main/docs/screenshots/07-particles.m
 | Raster pipeline | Python 3 + xarray + rioxarray + cfgrib + gdal natif |
 | Frontend | Angular 19 + OpenLayers 10 + nginx alpine |
 | Sources externes | aisstream.io · NOAA OISST · NOAA GFS · NOAA WaveWatch III · Météo-France AROME (data.gouv.fr) · RainViewer |
-| Auth | JWT (`@nestjs/jwt`), bcrypt, 24h, scoped au workspace `maritime` |
+| Auth | JWT (`@nestjs/jwt`) 24h · bcrypt · vérification email via **Resend SDK** · Google OAuth 2.0 (`passport-google-oauth20`) · RBAC 2 rôles (`user` / `admin`) · cron dormants 90j (`DormantCleanupService`) |
 | Build | Docker multi-stage par service |
 
 ## Sprints livrés
@@ -138,6 +138,7 @@ https://github.com/Sylad/maritime-atlas/raw/main/docs/screenshots/07-particles.m
 | **4b** | Radar pluie via RainViewer (XYZ tiles time-aware, **sans backend**, direct browser) |
 | **5** | API NestJS + Drizzle + JWT, palettes utilisateur (max 5/user), miroir GeoServer styles |
 | **6** | Flèches vent (GFS) + flèches vagues (WW3) — VectorLayer GeoJSON via volume partagé |
+| **Auth refonte** | Schema users `username` + `email_verified_at` + `role` + cron dormants · Google OAuth (`passport-google-oauth20`) · vérif email Resend SDK · `AdminUsersController` `/admin/users` list/promote/delete · RBAC 2 rôles strict |
 
 ## Bbox
 
