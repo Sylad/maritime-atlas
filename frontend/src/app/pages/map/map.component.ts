@@ -100,7 +100,21 @@ function toIsoTimestamp(d: Date): string {
         }
       </div>
 
-      <div class="legend">
+      <!-- Bouton hamburger pour toggle legend sur mobile. Sur desktop
+           il est caché via @media. Sur mobile le legend défaut closed. -->
+      <button type="button" class="legend-toggle"
+              [class.is-open]="legendOpen()"
+              (click)="toggleLegend()"
+              [attr.aria-expanded]="legendOpen()"
+              aria-label="Toggle légende">
+        @if (legendOpen()) {
+          <span aria-hidden="true">×</span>
+        } @else {
+          <span aria-hidden="true">☰</span>
+        }
+      </button>
+
+      <div class="legend" [class.legend--closed]="!legendOpen()">
         <div class="legend-title">MARITIME ATLAS</div>
         <div class="legend-subtitle">France métropole</div>
 
@@ -940,6 +954,94 @@ function toIsoTimestamp(d: Date): string {
         color: var(--fg);
       }
     }
+
+    /* ── Legend toggle (hamburger) — affiché uniquement sur mobile ──
+       Sur desktop : display:none → la legend reste toujours visible.
+       Sur mobile : pille fixe top-left, taille touch-friendly (44x44). */
+    .legend-toggle {
+      display: none;
+      position: absolute;
+      top: 1em;
+      left: 1em;
+      z-index: 11;            /* > legend (10), pour rester cliquable même
+                                  quand la legend déployée recouvre la zone */
+      width: 44px;
+      height: 44px;
+      border-radius: 8px;
+      background: rgb(15, 23, 42);
+      border: 1px solid hsl(224 85% 55% / 0.5);
+      color: var(--accent-bright);
+      font-size: 1.4rem;
+      line-height: 1;
+      cursor: pointer;
+      align-items: center;
+      justify-content: center;
+      transition: color 150ms, border-color 150ms;
+      box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.6);
+      &:hover, &:focus-visible {
+        color: var(--fg);
+        border-color: var(--accent-bright);
+      }
+    }
+
+    /* ── Responsive mobile (≤ 760px) ──
+       Legend = drawer collapsé par défaut (signal legendOpen false).
+       Au open : occupe presque toute la zone visible (90vw × 80vh max).
+       Auth-corner = pill compact top-right.
+       Time slider et attribution-bar repositionnés au-dessus.
+       Popups feature : max-width = 90vw pour ne pas déborder. */
+    @media (max-width: 760px) {
+      .legend-toggle {
+        display: flex;
+      }
+      .legend {
+        top: 0.7em;
+        left: 0.7em;
+        right: 0.7em;
+        max-width: none;
+        max-height: 78vh;
+        overflow-y: auto;
+        /* Padding plus serré pour laisser passer le bouton hamburger
+           qui se superpose au coin haut-gauche de la legend. */
+        padding: 1em 1em 1em 3.6em;
+        z-index: 10;
+        &.legend--closed {
+          display: none;
+        }
+      }
+      .auth-corner {
+        top: 0.7em;
+        right: 0.7em;
+        padding: 0.4em 0.7em;
+        font-size: 0.7rem;
+        max-width: calc(100vw - 70px);  /* clear le hamburger */
+        flex-wrap: wrap;
+        gap: 0.35em;
+        z-index: 11;
+      }
+      .palette-select {
+        max-width: 90px;
+        font-size: 0.65rem;
+      }
+      .attribution-bar {
+        bottom: 8.5em;          /* clear la time-slider stacked (~7em haut) */
+        right: 0.7em;
+      }
+      .attribution-panel {
+        max-width: calc(100vw - 1.4em);
+      }
+      .popup {
+        max-width: calc(100vw - 1.4em);
+        min-width: 0;
+      }
+      .wind-source-radios {
+        font-size: 0.6rem;
+        gap: 0.25em;
+      }
+      /* Particles canvas et controls OL — pas de fix nécessaire
+         (les controls OL ScaleLine et Zoom sont déjà dans styles.scss
+         global et positionnés bottom-left, hors collision slider). */
+    }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -965,6 +1067,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly selectedLightning = signal<LightningProperties | null>(null);
   readonly selectedAlert = signal<AlertProperties | null>(null);
   readonly attrOpen = signal(false);
+  /** Legend drawer state — défaut open sur desktop, closed sur mobile (≤ 760px).
+      Sur desktop le bouton n'apparaît pas (CSS @media display:none) donc la
+      legend reste toujours visible — l'état du signal n'a aucun effet. */
+  readonly legendOpen = signal(typeof window !== 'undefined' ? window.innerWidth > 760 : true);
   readonly hasPopup = computed(() =>
     this.selectedVessel() !== null || this.selectedLightning() !== null || this.selectedAlert() !== null,
   );
@@ -1829,6 +1935,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
   toggleAttr(): void {
     this.attrOpen.set(!this.attrOpen());
+  }
+
+  toggleLegend(): void {
+    this.legendOpen.set(!this.legendOpen());
   }
 
   categoryLabel(shipType: number | null): string {

@@ -94,8 +94,9 @@ import { DatePipe } from '@angular/common';
         0 0 40px 4px hsl(224 90% 55% / 0.13),
         0 10px 30px -6px rgba(0, 0, 0, 0.7);
       @media (max-width: 760px) {
-        width: calc(100% - 24px);
-        bottom: 0.4em;
+        width: calc(100% - 1.4em);
+        bottom: 0.5em;
+        padding: 0.5em 0.65em;
       }
     }
     .time-slider {
@@ -104,11 +105,19 @@ import { DatePipe } from '@angular/common';
       gap: 1.5em;
       align-items: center;
       margin: 0 auto;
+      @media (max-width: 760px) {
+        grid-template-columns: 1fr;     /* stack vertical : label puis controls+track */
+        gap: 0.5em;
+      }
     }
     .ts-controls {
       display: flex;
       gap: 0.3em;
       align-items: center;
+      @media (max-width: 760px) {
+        justify-content: space-between;
+        gap: 0.2em;
+      }
     }
     .ts-btn {
       background: var(--bg-3);
@@ -121,6 +130,11 @@ import { DatePipe } from '@angular/common';
       font-size: 0.9rem;
       transition: all 150ms;
       &:hover { color: var(--fg); border-color: var(--accent); }
+      @media (max-width: 760px) {
+        width: 32px;
+        height: 30px;
+        font-size: 0.8rem;
+      }
     }
     .ts-btn-play {
       width: 44px;
@@ -141,6 +155,10 @@ import { DatePipe } from '@angular/common';
         color: var(--accent-bright);
         border-color: var(--accent);
       }
+      @media (max-width: 760px) {
+        padding: 0 0.5em;
+        font-size: 0.6rem;
+      }
     }
 
     .ts-track-wrap {
@@ -156,11 +174,19 @@ import { DatePipe } from '@angular/common';
       display: flex;
       align-items: center;
       gap: 0.5em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
       &.live {
         color: var(--accent-bright);
       }
       &.future {
         color: var(--warning);
+      }
+      @media (max-width: 760px) {
+        font-size: 0.72rem;
+        gap: 0.4em;
+        justify-content: center;
       }
     }
     .ts-live-dot {
