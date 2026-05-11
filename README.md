@@ -150,9 +150,148 @@ docker compose exec postgres psql -U maritime -d maritime -c \
 | Positions AIS | aisstream.io | JSON WS | seconde | 1 |
 | Détails navires | aisstream `ShipStaticData` | JSON WS | event | 1 |
 | SST | NOAA OISST v2.1 (AWS) | NetCDF → GeoTIFF | quotidien | 3 |
-| Vent 10m | NOAA GFS (NOMADS subsetter) | GRIB → GeoTIFF + GeoJSON | 4×/jour | 4a / 6 |
+| Vent 10m (global) | NOAA GFS (NOMADS subsetter) | GRIB → GeoTIFF + GeoJSON | 4×/jour | 4a / 6 |
+| Vent 10m (côtier) | Météo-France AROME (bucket PNT) | GRIB → GeoTIFF + GeoJSON | 4×/jour | 11 |
 | Vagues (Hs + dir) | NOAA WaveWatch III | GRIB → GeoTIFF + GeoJSON | 4×/jour | 4a / 6 |
 | Radar pluie | RainViewer | XYZ tiles | 10 min | 4b |
+| Foudre | Blitzortung WSS (LZW JSON) | event WS → PostGIS | continu | 7 |
+
+### Pipelines d'ingestion détaillés
+
+Le frontend ne tape qu'**un seul backend public** : le LB GeoServer (alias DNS
+`geoserver:8080`). Toute la complexité d'ingestion vit en aval — 6 services
+indépendants, plus le moteur d'alertes qui croise plusieurs flux via RabbitMQ.
+
+```mermaid
+flowchart TB
+  subgraph SOURCES["Sources externes"]
+    ais["aisstream.io WSS"]
+    noaa["NOAA NOMADS<br/>GFS · WW3 · OISST"]
+    mf["Météo-France PNT<br/>bucket public AROME 2.5km"]
+    rv["RainViewer API"]
+    blitz["Blitzortung WSS"]
+  end
+
+  subgraph INGESTERS["Ingesters"]
+    aing["ais-ingester"]
+    adec["ais-decoder"]
+    sst["sst-fetcher (Py)"]
+    wf["weather-fetcher (Py)"]
+    wfa["weather-fetcher-arome (Py)"]
+    lf["lightning-fetcher"]
+  end
+
+  subgraph BUS["RabbitMQ topic exchanges"]
+    raw["ais.raw"]
+    pos["ais.positions"]
+    rr["raster.ready (fanout)"]
+    ls["lightning.strike"]
+    al["alerts.maritime"]
+  end
+
+  subgraph STATE["Stockage"]
+    pg["PostgreSQL + PostGIS + TimescaleDB<br/>hypertables vessel_positions / lightning_strikes / alerts"]
+    cov["/coverage/ volume<br/>(GeoTIFF SST + GFS + AROME)"]
+    arr["/wind-arrows/ volume<br/>(GeoJSON arrows + manifest)"]
+  end
+
+  subgraph SERVE["Servir la carte"]
+    gs["GeoServer cluster 3 replicas<br/>+ LB nginx (alias geoserver:8080)"]
+    api["api NestJS (auth + palettes)"]
+    fe["frontend Angular 19 + OL 10"]
+  end
+
+  subgraph ENGINE["Moteur d'alertes"]
+    ae["alerts-engine"]
+  end
+
+  ais --> aing --> raw --> adec --> pg
+  adec --> pos
+  noaa --> sst & wf
+  mf --> wfa
+  sst & wf & wfa --> cov
+  wf & wfa --> arr
+  blitz --> lf --> pg
+  lf --> ls
+  pos & ls --> ae --> al
+  ae --> pg
+  cov --> gs
+  pg --> gs
+  gs --> fe
+  api --> fe
+  arr -->|nginx alias /wind-arrows/| fe
+  rv -.->|fetch direct browser| fe
+```
+
+### Détail par pipeline
+
+```mermaid
+flowchart LR
+  subgraph A["AIS navires (live + replay)"]
+    a1["aisstream.io WSS"] --> a2["ais-ingester"]
+    a2 -->|RMQ ais.raw| a3["ais-decoder"]
+    a3 -->|INSERT| a4["vessel_positions<br/>(hypertable, retention 30j)"]
+    a3 -->|UPSERT| a5["vessels (referentiel)"]
+    a4 --> a6["GeoServer SQL view<br/>vessels_at_time(at, window)"]
+  end
+
+  subgraph B["Météo modèles (forecast)"]
+    b1["NOAA GFS · WW3<br/>(NOMADS subsetter GRIB)"] --> b2["weather-fetcher"]
+    b3["Météo-France AROME<br/>(bucket PNT public, GRIB)"] --> b4["weather-fetcher-arome"]
+    b2 & b4 -->|GeoTIFF time-tagged| b5["/coverage/<br/>wind-speed · wave-hs · wave-dir"]
+    b2 & b4 -->|GeoJSON arrows sampled| b6["/wind-arrows/"]
+    b5 --> b7["GeoServer ImageMosaic<br/>(time dim MAXIMUM)"]
+    b6 --> b8["nginx /wind-arrows/<br/>(VectorLayer frontend)"]
+  end
+
+  subgraph C["SST raster (NOAA OISST quotidien)"]
+    c1["NOAA NCEI NetCDF"] --> c2["sst-fetcher"]
+    c2 -->|xarray subset + sortby lat desc<br/>+ astype float32| c3["GeoTIFF /coverage/sst-daily/"]
+    c3 --> c4["GeoServer ImageMosaic time-enabled"]
+  end
+
+  subgraph D["Radar pluie (RainViewer)"]
+    d1["api.rainviewer.com<br/>weather-maps.json"] -.->|JSON manifest<br/>past 2h + nowcast 30min| d2["browser fetch direct (CORS open)"]
+    d2 --> d3["XYZ TileLayer<br/>findNearestFrame(cursor)"]
+  end
+
+  subgraph E["Foudre (Blitzortung community)"]
+    e1["wss://ws1.blitzortung.org<br/>(LZW-compressed JSON)"] --> e2["lightning-fetcher<br/>(decode LZW + filter bbox)"]
+    e2 -->|INSERT| e3["lightning_strikes<br/>(hypertable, retention 7j)"]
+    e2 -->|RMQ lightning.strike topic<br/>routing key = geohash3| e4["alerts-engine subscriber"]
+    e3 --> e5["GeoServer v_lightning_recent<br/>(last 30 min)"]
+  end
+```
+
+### Time slider — comment tout se synchronise
+
+```mermaid
+flowchart LR
+  slider["Time slider [-30j, +5j]"] -->|onTimeChange t| logic{currentTime t}
+  logic -->|TIME=1970/t snap-to-latest| wms["WMS layers<br/>SST · Vent · Vagues"]
+  logic -->|viewparams=at:ISO;window:300| sqlview["vessels_at_time WFS"]
+  logic -->|findNearestFrame(t)| rain["RainViewer tile URL"]
+  logic -->|findNearestTs(t, manifest)| arrows["/wind-arrows/ GeoJSON fetch"]
+  logic -->|filter ts ≤ now() - 30min| lightning["Lightning WFS"]
+  logic -->|recalc IDW from grid t| particles["Wind particles canvas"]
+  logic -->|live mode only| alerts["Alerts panel"]
+```
+
+Le slider est l'unique source de vérité côté frontend : un signal Angular qui
+émet à chaque déplacement du cursor, écouté par 7 sous-systèmes qui se
+rafraichissent indépendamment. Pas de polling synchrone — chaque source a son
+propre cache de timestamp et debounce.
+
+### TTL différentiels (sprint 10b)
+
+| Donnée | TTL | Mécanisme |
+|---|---|---|
+| `vessel_positions` | 30 j | TimescaleDB `add_retention_policy` |
+| SST GeoTIFF | 30 j | `cleanup_old_files()` cron Python |
+| Weather GeoTIFF + GeoJSON | 7 j | idem (forecasts deviennent obsolètes vite) |
+| `lightning_strikes` | 7 j | TimescaleDB retention |
+| `alerts` | 14 j | TimescaleDB retention (analyse rétroactive incident) |
+| RainViewer | -2h / +30min | géré côté RainViewer, on consomme juste |
 
 ## Cluster GeoServer (sprint 9)
 
