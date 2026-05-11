@@ -74,19 +74,31 @@ import { DatePipe } from '@angular/common';
     :host {
       display: block;
       position: fixed;
-      bottom: 0; left: 0; right: 0;
+      bottom: 0.7em;
+      /* Centré avec marges latérales pour laisser visibles les controls
+         OpenLayers (Attribution (i) + ScaleLine) en bas-droite et le
+         bouton zoom OL en bas-gauche. */
+      left: 50%;
+      transform: translateX(-50%);
+      width: calc(100% - 260px);
+      max-width: 1320px;
       background: rgba(19, 24, 38, 0.95);
       backdrop-filter: blur(8px);
-      border-top: 1px solid var(--border);
-      padding: 0.6em 1em;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.55em 1em;
       z-index: 20;
+      box-shadow: 0 4px 24px -4px rgba(0,0,0,0.6);
+      @media (max-width: 760px) {
+        width: calc(100% - 24px);
+        bottom: 0.4em;
+      }
     }
     .time-slider {
       display: grid;
       grid-template-columns: auto 1fr;
       gap: 1.5em;
       align-items: center;
-      max-width: 1400px;
       margin: 0 auto;
     }
     .ts-controls {

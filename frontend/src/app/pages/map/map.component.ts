@@ -348,6 +348,70 @@ function toIsoTimestamp(d: Date): string {
       width: 100%;
       background: var(--bg-2);
     }
+    /* ── OpenLayers controls overrides — visibles sur fond sombre ── */
+    :host ::ng-deep .ol-attribution {
+      bottom: 1em !important;
+      right: 1em !important;
+      background: rgba(19, 24, 38, 0.92);
+      border: 1px solid var(--border);
+      backdrop-filter: blur(8px);
+      border-radius: 6px;
+      padding: 0;
+      max-width: min(60%, 700px);
+      font-size: 0.7rem;
+      color: var(--fg-muted);
+    }
+    :host ::ng-deep .ol-attribution button {
+      background: transparent;
+      color: var(--accent);
+      width: 28px;
+      height: 28px;
+      font-size: 0.9rem;
+      font-weight: 700;
+      border: 0;
+      cursor: pointer;
+      &:hover { color: var(--accent-bright); }
+    }
+    :host ::ng-deep .ol-attribution.ol-collapsed ul { display: none; }
+    :host ::ng-deep .ol-attribution ul {
+      padding: 0.4em 0.8em;
+      margin: 0;
+      list-style: none;
+      max-width: 100%;
+      li { padding: 0.15em 0; }
+      a { color: var(--accent-bright); text-decoration: none;
+        &:hover { text-decoration: underline; }
+      }
+    }
+    :host ::ng-deep .ol-scale-line {
+      bottom: 1em !important;
+      left: 1em !important;
+      background: rgba(19, 24, 38, 0.85);
+      border: 1px solid var(--border);
+      backdrop-filter: blur(8px);
+      border-radius: 4px;
+      padding: 2px 6px;
+    }
+    :host ::ng-deep .ol-scale-line-inner {
+      color: var(--fg-muted);
+      border-color: var(--fg-muted);
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+    }
+    :host ::ng-deep .ol-zoom {
+      top: auto;
+      bottom: 4em !important;
+      left: 1em !important;
+      background: rgba(19, 24, 38, 0.85);
+      border: 1px solid var(--border);
+      backdrop-filter: blur(8px);
+      border-radius: 6px;
+    }
+    :host ::ng-deep .ol-zoom button {
+      background: transparent;
+      color: var(--fg-muted);
+      &:hover { color: var(--accent-bright); background: transparent; }
+    }
     .wind-particles-canvas {
       position: absolute;
       top: 0; left: 0; right: 0; bottom: 0;
