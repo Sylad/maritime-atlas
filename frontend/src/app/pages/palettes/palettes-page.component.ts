@@ -162,6 +162,9 @@ export class PalettesPageComponent {
     this.zoneSaveError.set(false);
     try {
       await this.palettesSvc.setDefaultZone(id);
+      // Phase C.3 fix : push la valeur dans le signal + localStorage USER_KEY
+      // pour que buildInitialView() de la map la lise au prochain boot.
+      this.auth.patchCurrentUser({ defaultZone: id });
       const z = findZone(id);
       this.zoneSaveMsg.set(`Zone enregistrée : ${z.label}`);
       setTimeout(() => this.zoneSaveMsg.set(null), 3000);
@@ -177,6 +180,12 @@ export class PalettesPageComponent {
     this.projectionSaveError.set(false);
     try {
       await this.palettesSvc.setPreferredProjection(code);
+      // Phase C.4 fix : push la valeur dans le signal + localStorage USER_KEY.
+      // buildInitialView() lit currentUser.preferredProjection au boot map ;
+      // sans ce patch, l'ancienne valeur du JWT login restait dans le signal
+      // → projection jamais appliquée + radio reset sur l'ancienne valeur
+      // au retour sur la page palettes.
+      this.auth.patchCurrentUser({ preferredProjection: code });
       this.projectionSaveMsg.set('Projection enregistrée. Recharge la carte pour l\'appliquer.');
       setTimeout(() => this.projectionSaveMsg.set(null), 5000);
     } catch (err: any) {

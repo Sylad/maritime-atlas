@@ -21,7 +21,13 @@ export interface AuthUser {
 
 interface LoginResponse {
   token: string;
-  user: AuthUser & { emailVerifiedAt: string | null; lastLoginAt: string | null; createdAt: string };
+  user: AuthUser & {
+    emailVerifiedAt: string | null;
+    lastLoginAt: string | null;
+    createdAt: string;
+    defaultZone?: string | null;
+    preferredProjection?: string | null;
+  };
 }
 
 interface RegisterResponse {
@@ -96,9 +102,23 @@ export class AuthService {
       email: res.user.email,
       username: res.user.username,
       role: res.user.role,
+      defaultZone: res.user.defaultZone ?? null,
+      preferredProjection: res.user.preferredProjection ?? null,
     };
     localStorage.setItem(USER_KEY, JSON.stringify(user));
     this.currentUser.set(user);
+  }
+
+  /** Phase C.3+C.4 (2026-05-12) : update partiel du user signal +
+   *  localStorage USER_KEY, utilisé après les PUT /api/me/default-zone
+   *  ou /preferred-projection pour que le signal currentUser reflète
+   *  immédiatement la nouvelle pref sans nécessiter un re-login. */
+  patchCurrentUser(patch: Partial<AuthUser>): void {
+    const cur = this.currentUser();
+    if (!cur) return;
+    const next: AuthUser = { ...cur, ...patch };
+    localStorage.setItem(USER_KEY, JSON.stringify(next));
+    this.currentUser.set(next);
   }
 
   private loadUser(): AuthUser | null {

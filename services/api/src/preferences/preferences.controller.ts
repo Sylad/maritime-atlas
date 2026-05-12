@@ -7,10 +7,17 @@ import { PreferencesService } from './preferences.service';
 import { users, VALID_LAYER_KINDS } from '../db/schema';
 import { DB_TOKEN, type Db } from '../db/db.module';
 
-/** Phase C.3 : zones d'arrivée prédéfinies (cf frontend map-zones.ts). */
+/** Phase C.3 : zones d'arrivée prédéfinies (cf frontend map-zones.ts).
+ *  À garder synchronisée avec MAP_ZONES côté frontend (sinon 400 sur les
+ *  zones nouvelles non-whitelistées ici). */
 const VALID_ZONE_IDS = [
-  'france', 'europe', 'europe-west', 'europe-east', 'mediterranee',
-  'manche', 'atlantique', 'baltique', 'suisse', 'bulgarie',
+  // Régions
+  'europe', 'europe-west', 'europe-east', 'mediterranee', 'manche',
+  'atlantique', 'baltique', 'adriatique',
+  // Pays
+  'france', 'royaume-uni', 'irlande', 'allemagne', 'espagne', 'portugal',
+  'italie', 'pays-bas', 'norvege', 'grece', 'pologne', 'turquie',
+  'islande', 'suisse', 'bulgarie',
 ] as const;
 
 class SetDefaultZoneDto {

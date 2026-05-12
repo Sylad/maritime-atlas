@@ -302,8 +302,16 @@ interface HourBucket {
     </div>
   `,
   styles: `
+    /* :host n'a pas overflow par défaut → le shell dépasse la viewport
+       sans scroll possible. On force scrollbar verticale sur tout le host. */
+    :host {
+      display: block;
+      height: 100vh;
+      overflow-y: auto;
+      background: var(--bg, #0a0e1a);
+    }
     .orch-shell {
-      padding: 24px;
+      padding: 24px 24px 48px;
       max-width: 1400px;
       margin: 0 auto;
       color: #e5e7eb;
