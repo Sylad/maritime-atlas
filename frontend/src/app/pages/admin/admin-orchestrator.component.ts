@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { RouterLink, RouterLinkActive } from '@angular/router';
 import { OrchestratorService, type DataJob, type DataSource } from '../../services/orchestrator.service';
 
 /**
@@ -25,11 +25,15 @@ interface HourBucket {
 
 @Component({
   selector: 'app-admin-orchestrator',
-  imports: [DatePipe, DecimalPipe, RouterLink],
+  imports: [DatePipe, DecimalPipe, RouterLink, RouterLinkActive],
   template: `
     <div class="orch-shell">
       <header class="orch-header">
-        <h1>Data Orchestrator</h1>
+        <h1>Admin</h1>
+        <nav class="orch-nav">
+          <a routerLink="/admin/users" routerLinkActive="active" class="orch-tab">Utilisateurs</a>
+          <a routerLink="/admin/orchestrator" routerLinkActive="active" class="orch-tab">Data Orchestrator</a>
+        </nav>
         <a routerLink="/" class="orch-back">← Carte</a>
       </header>
 
@@ -212,9 +216,24 @@ interface HourBucket {
       display: flex;
       justify-content: space-between;
       align-items: center;
+      gap: 1.5em;
       margin-bottom: 24px;
+      flex-wrap: wrap;
     }
-    .orch-header h1 { margin: 0; font-size: 1.6em; font-weight: 600; }
+    .orch-header h1 { margin: 0; font-size: 1.4em; font-weight: 600; color: #fbbf24; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.05em; }
+    .orch-nav { display: flex; gap: 0.4em; flex: 1; }
+    .orch-tab {
+      padding: 0.4em 0.9em;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 4px;
+      color: #94a3b8;
+      text-decoration: none;
+      font-size: 0.82rem;
+      font-family: 'JetBrains Mono', monospace;
+      transition: all 150ms;
+    }
+    .orch-tab:hover { color: #e5e7eb; border-color: #60a5fa; }
+    .orch-tab.active { background: #fbbf24; color: #0f172a; border-color: #fbbf24; font-weight: 600; }
     .orch-back {
       color: #93c5fd;
       text-decoration: none;

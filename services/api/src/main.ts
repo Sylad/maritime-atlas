@@ -9,6 +9,11 @@ async function bootstrap() {
   const log = new Logger('main');
 
   const app = await NestFactory.create(AppModule, { bufferLogs: false });
+  // Trust nginx front-proxy : sans ça req.protocol retourne 'http' (lien
+  // interne nas→api) et le callback Google fait du `http://...` alors que
+  // le user vient en HTTPS via maritime.sladoire.dev. Avec trust proxy,
+  // req.protocol respecte X-Forwarded-Proto et req.hostname respecte Host.
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
   const config = app.get(ConfigService);
 
   // Fail-closed en prod sur les secrets critiques.

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { RouterLink, RouterLinkActive } from '@angular/router';
 import { AdminUsersService, type AdminUser } from '../../services/admin-users.service';
 import { AuthService } from '../../services/auth.service';
 
@@ -14,11 +14,15 @@ import { AuthService } from '../../services/auth.service';
  */
 @Component({
   selector: 'app-admin-users',
-  imports: [DatePipe, RouterLink],
+  imports: [DatePipe, RouterLink, RouterLinkActive],
   template: `
     <div class="admin-shell">
       <header class="admin-header">
-        <h1>Gestion utilisateurs</h1>
+        <h1>Admin</h1>
+        <nav class="admin-nav">
+          <a routerLink="/admin/users" routerLinkActive="active" class="admin-tab">Utilisateurs</a>
+          <a routerLink="/admin/orchestrator" routerLinkActive="active" class="admin-tab">Data Orchestrator</a>
+        </nav>
         <a routerLink="/" class="admin-back">← Carte</a>
       </header>
 
@@ -89,9 +93,13 @@ import { AuthService } from '../../services/auth.service';
   `,
   styles: `
     :host { display: block; min-height: 100vh; background: var(--bg); color: var(--fg); padding: 1.5em; font-family: var(--font-sans); }
-    .admin-header { display: flex; align-items: baseline; gap: 1em; justify-content: space-between; margin-bottom: 1em; }
+    .admin-header { display: flex; align-items: center; gap: 1.5em; justify-content: space-between; margin-bottom: 1em; flex-wrap: wrap; }
     .admin-header h1 { margin: 0; font-size: 1.4rem; font-weight: 600; color: var(--accent-bright); font-family: var(--font-mono); letter-spacing: 0.05em; }
     .admin-back { color: var(--fg-muted); text-decoration: none; font-size: 0.85rem; &:hover { color: var(--accent-bright); } }
+    .admin-nav { display: flex; gap: 0.4em; flex: 1; }
+    .admin-tab { padding: 0.4em 0.9em; border: 1px solid var(--border); border-radius: 4px; color: var(--fg-muted); text-decoration: none; font-size: 0.82rem; font-family: var(--font-mono); transition: all 150ms; }
+    .admin-tab:hover { color: var(--fg); border-color: var(--accent); }
+    .admin-tab.active { background: var(--accent-bright); color: var(--bg); border-color: var(--accent-bright); font-weight: 600; }
     .admin-stats { display: flex; gap: 0.6em; font-size: 0.8rem; color: var(--fg-muted); font-family: var(--font-mono); margin-bottom: 1em; }
     .admin-loading, .admin-error { padding: 1em; color: var(--fg-muted); }
     .admin-error { color: var(--negative); border: 1px solid rgba(239,68,68,0.4); border-radius: 6px; background: rgba(239,68,68,0.08); }

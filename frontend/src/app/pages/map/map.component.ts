@@ -36,6 +36,7 @@ import type { Geometry, Point } from 'ol/geom';
 import { Router, RouterLink } from '@angular/router';
 import type { LayerKind, Palette } from '../../services/palettes.service';
 import { TimeSliderComponent } from '../../components/time-slider/time-slider.component';
+import { IngestionMiniChartComponent } from '../../components/ingestion-mini-chart/ingestion-mini-chart.component';
 import { VesselsService, type VesselProperties } from '../../services/vessels.service';
 import { RainviewerService, type RainViewerSnapshot } from '../../services/rainviewer.service';
 import { AuthService } from '../../services/auth.service';
@@ -86,7 +87,7 @@ function toIsoTimestamp(d: Date): string {
 
 @Component({
   selector: 'app-map',
-  imports: [DatePipe, DecimalPipe, TimeSliderComponent, RouterLink],
+  imports: [DatePipe, DecimalPipe, TimeSliderComponent, IngestionMiniChartComponent, RouterLink],
   template: `
     <div class="map-container">
       <div class="map" #mapEl></div>
@@ -176,7 +177,9 @@ function toIsoTimestamp(d: Date): string {
 
       <div class="legend" [class.legend--closed]="!legendOpen()">
         <div class="legend-title">MARITIME ATLAS</div>
-        <div class="legend-subtitle">France métropole</div>
+        <div class="legend-subtitle">Europe étroite</div>
+        <app-ingestion-mini-chart />
+
 
         <div class="layer-toggles">
           <!-- Groupe Info maritimes : Navires, Trajets, Alertes, Bouées -->

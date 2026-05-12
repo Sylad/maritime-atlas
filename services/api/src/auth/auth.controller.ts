@@ -105,7 +105,16 @@ export class AuthController {
   ): Promise<void> {
     const profile = req.user as GoogleProfilePublic;
     const { token, user, created } = await this.auth.loginOrCreateGoogleUser(profile);
-    const base = this.config.get<string>('publicBaseUrl')?.replace(/\/$/, '') || '';
+    // Reconstruit la base depuis les headers de la requête entrante
+    // (Google a renvoyé sur GOOGLE_CALLBACK_URL = host public). Avec
+    // trust proxy activé côté main.ts, req.protocol respecte
+    // X-Forwarded-Proto donc on aura https en prod via nginx → api.
+    // Fallback PUBLIC_BASE_URL si jamais req.hostname est vide
+    // (ex: appel direct au container hors-proxy).
+    const proto = req.protocol;
+    const host = req.headers.host || req.hostname;
+    const dynBase = host ? `${proto}://${host}` : '';
+    const base = (dynBase || this.config.get<string>('publicBaseUrl') || '').replace(/\/$/, '');
     const redirectUrl = `${base}/auth/google-success#token=${encodeURIComponent(token)}&created=${created ? '1' : '0'}`;
     res.redirect(redirectUrl);
   }
