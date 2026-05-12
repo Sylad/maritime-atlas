@@ -3,25 +3,26 @@ import { Injectable, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 /**
- * Manifest publié par weather-fetcher (GFS) + weather-fetcher-arome (AROME).
- * Chaque source liste les timestamps GeoJSON dispos. `arome` ajouté en
- * sprint 11 (modèle haute-résolution Météo-France 0.025°).
+ * Manifest publié par weather-fetcher (GFS) + weather-fetcher-arpege (ARPEGE).
+ * Chaque source liste les timestamps GeoJSON dispos. `arpege` ajouté en
+ * sprint Europe Chantier #2 (modèle Météo-France 0.1° couvrant Europe,
+ * remplace l'ancien AROME FR-only 0.025°).
  */
 export interface ArrowsManifest {
   wind: string[];      // GFS 10m wind — 'YYYYMMDDTHHMMSSZ' compact
   wave: string[];      // WW3 primary wave dir
-  arome?: string[];    // AROME 10m wind (Météo-France) — optionnel (peut être
-                       // absent au boot si weather-fetcher-arome n'a pas
+  arpege?: string[];   // ARPEGE 10m wind (Météo-France) — optionnel (peut être
+                       // absent au boot si weather-fetcher-arpege n'a pas
                        // encore tourné, ou si volume séparé). Le frontend
                        // dégrade gracieusement (fallback GFS).
-  patterns: { wind: string; wave: string; arome?: string };
+  patterns: { wind: string; wave: string; arpege?: string };
   updated_at: string;
 }
 
 // 'wind' = GFS (NOAA, fichiers wind_arrows_*.geojson)
-// 'arome' = AROME (Météo-France, fichiers arome_wind_arrows_*.geojson)
+// 'arpege' = ARPEGE (Météo-France, fichiers arpege_wind_arrows_*.geojson)
 // 'wave' = WW3 (NOAA, wave_arrows_*.geojson)
-export type ArrowsKind = 'wind' | 'wave' | 'arome';
+export type ArrowsKind = 'wind' | 'wave' | 'arpege';
 
 export interface WindArrowFeature {
   speed: number;       // m/s
@@ -87,12 +88,12 @@ export class ArrowsService {
     return bestDelta <= 12 * 3600_000 ? best : null;
   }
 
-  /** GeoJSON pour un kind (wind|wave|arome) à un ts donné. AROME utilise un
-   *  préfixe arome_wind_arrows_ (volume partagé avec GFS, on évite la collision
+  /** GeoJSON pour un kind (wind|wave|arpege) à un ts donné. ARPEGE utilise un
+   *  préfixe arpege_wind_arrows_ (volume partagé avec GFS, on évite la collision
    *  en disambiguisant côté nom de fichier). */
   fetchArrows(kind: ArrowsKind, ts: string): Promise<ArrowsFeatureCollection> {
-    const url = kind === 'arome'
-      ? `/wind-arrows/arome_wind_arrows_${ts}.geojson`
+    const url = kind === 'arpege'
+      ? `/wind-arrows/arpege_wind_arrows_${ts}.geojson`
       : `/wind-arrows/${kind}_arrows_${ts}.geojson`;
     return firstValueFrom(this.http.get<ArrowsFeatureCollection>(url));
   }

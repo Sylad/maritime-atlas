@@ -1,7 +1,7 @@
 [project]
-name = "weather-fetcher-arome"
+name = "weather-fetcher-arpege"
 version = "0.1.0"
-description = "Fetch Météo-France AROME (0.025°, France métropole) wind forecasts from public PNT S3 bucket → GeoTIFF for GeoServer ImageMosaic"
+description = "Fetch Météo-France ARPEGE (0.1°, Europe étroite) wind forecasts from public PNT S3 bucket → GeoTIFF for GeoServer ImageMosaic"
 requires-python = ">=3.12"
 dependencies = [
     "xarray>=2024.10.0",

@@ -56,7 +56,7 @@ import { RouterLink } from '@angular/router';
             tester jusqu'où une session intensive de pair-programming avec
             un agent IA pouvait aller. Le périmètre s'est élargi rapidement :
             j'ai commencé par "AIS sur la Bretagne", j'ai fini avec un atlas
-            multi-source (AIS, météo NOAA, AROME Météo-France, radar pluie,
+            multi-source (AIS, météo NOAA, ARPEGE Météo-France, radar pluie,
             foudre Blitzortung), un moteur d'alertes RabbitMQ, un cluster
             GeoServer 3 replicas avec catalog partagé en Postgres, et des
             particules de vent style windy.com.
@@ -158,14 +158,15 @@ import { RouterLink } from '@angular/router';
             </div>
           </div>
           <div class="source-card">
-            <div class="source-name">Vent (haute-résolution côtière)</div>
+            <div class="source-name">Vent (modèle Europe)</div>
             <div class="source-detail">
               <a href="https://meteo.data.gouv.fr/" target="_blank" rel="noopener">
-                Météo-France AROME via bucket PNT public <span class="ext">⤤</span>
+                Météo-France ARPEGE via bucket PNT public <span class="ext">⤤</span>
               </a>
-              — modèle régional 0.025° (~2.5km), 10× plus fin que GFS sur la
-              côte. Open data sans clé API (bucket S3 public meteofrance-pnt
-              sur object.data.gouv.fr).
+              — modèle régional 0.1° (~11km) couvrant l'Europe étroite,
+              2.5× plus fin que GFS et alimenté 4 runs/jour. Open data
+              sans clé API (bucket S3 public meteofrance-pnt sur
+              object.data.gouv.fr).
             </div>
           </div>
           <div class="source-card">

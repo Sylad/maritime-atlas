@@ -1,5 +1,6 @@
 # Image GDAL avec outils scientifiques pré-installés. Identique à
-# weather-fetcher (factorisable plus tard si on multiplie les services).
+# weather-fetcher / ex-weather-fetcher-arome (factorisable plus tard si on
+# multiplie les services).
 FROM ghcr.io/osgeo/gdal:ubuntu-small-3.10.1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -11,7 +12,7 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/b
 WORKDIR /app
 
 COPY pyproject.toml ./
-# cfgrib + eccodes : nécessaires pour décoder les GRIB2 AROME (Météo-France).
+# cfgrib + eccodes : décodage GRIB2 ARPEGE 0.1° Météo-France.
 # numpy pour calcul wind_speed = sqrt(u² + v²).
 RUN uv pip install --system --break-system-packages \
     "xarray>=2024.10.0" "rioxarray>=0.18.0" "cfgrib>=0.9.14" "eccodes>=2.38.0" \

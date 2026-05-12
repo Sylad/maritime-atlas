@@ -37,7 +37,7 @@ utilisateur.
 |---|---|---|
 | **Navires AIS** (silhouettes colorées par catégorie : pêche, passagers, cargo, tanker, autres) | aisstream.io WSS, ~2700 positions live | ![Navires AIS](docs/screenshots/01-vessels.jpg) |
 | **SST** — température de surface de la mer | NOAA OISST quotidien, GeoTIFF time-tagged | ![SST](docs/screenshots/02-sst.jpg) |
-| **Vent** raster + flèches direction | NOAA GFS 25km / Météo-France AROME 2.5km (sprint 11), forecasts +72h | ![Vent](docs/screenshots/03-wind.jpg) |
+| **Vent** raster + flèches direction | NOAA GFS 25km / Météo-France ARPEGE 11km (sprint Europe), forecasts +72h | ![Vent](docs/screenshots/03-wind.jpg) |
 | **Vagues** raster + flèches direction | NOAA WaveWatch III, Hs + DIRPW | ![Vagues](docs/screenshots/04-waves.jpg) |
 | **Radar pluie** + **foudre** | RainViewer XYZ tiles + Blitzortung WSS (LZW JSON) | ![Pluie + foudre](docs/screenshots/05-rain-lightning.jpg) |
 | **Alertes maritimes** (panel + cercles colorisés) | alerts-engine croise AIS × foudre × vent fort via RMQ | ![Alertes](docs/screenshots/06-alerts.jpg) |
@@ -45,7 +45,7 @@ utilisateur.
 ### Particules de vent — flux animé
 
 Sprint 8 : layer custom OpenLayers + canvas, ~2500 particules advectées par
-interpolation IDW sur 4 plus-proches voisins du grid GFS/AROME, trails alpha pour
+interpolation IDW sur 4 plus-proches voisins du grid GFS/ARPEGE, trails alpha pour
 créer l'illusion de courants.
 
 https://github.com/Sylad/maritime-atlas/raw/main/docs/screenshots/07-particles.mp4
@@ -108,7 +108,7 @@ https://github.com/Sylad/maritime-atlas/raw/main/docs/screenshots/07-particles.m
 | `track-builder` | NestJS 11 | — | Cron horaire (xx:35) `vessel_positions` → `vessel_tracks_daily` (LineStrings) |
 | `sst-fetcher` | Python (xarray + rioxarray) | — | Cron quotidien 06:00 UTC, NOAA OISST → GeoTIFF mosaic store |
 | `weather-fetcher` | Python (cfgrib + xarray) | — | Cron 4×/jour, GFS (vent 10m) + WW3 (HTSGW + DIRPW), forecasts +72h, GeoTIFF + GeoJSON arrows |
-| `weather-fetcher-arome` | Python (cfgrib + xarray) | — | **Sprint 11.** Cron 4×/jour, Météo-France AROME 0.025° (~2.5km) en parallèle du GFS 25km, forecasts +24h, layer `wind-speed-arome` |
+| `weather-fetcher-arpege` | Python (cfgrib + xarray) | — | **Sprint Europe Chantier #2** (remplace l'ex-`weather-fetcher-arome` FR-only). Cron 4×/jour, Météo-France ARPEGE 0.1° (~11km) sur Europe étroite en parallèle du GFS 25km, forecasts +48h, layer `wind-speed-arpege` |
 | `api` | NestJS 11 + Drizzle | — | Auth JWT 24h · CRUD palettes (max 5/user) · vérif email Resend · Google OAuth (`/auth/google`) · RBAC admin (`/admin/users` list/promote/delete) · cron dormants 03:00 Europe/Paris |
 | `frontend` | Angular 19 + nginx | 4204 | UI map, nginx proxy `/api/` et `/geoserver/` (CORS-free) |
 
@@ -122,7 +122,7 @@ https://github.com/Sylad/maritime-atlas/raw/main/docs/screenshots/07-particles.m
 | Backend | NestJS 11 + TypeScript 5, Drizzle ORM (api), amqplib (ais), node-cron (track-builder) |
 | Raster pipeline | Python 3 + xarray + rioxarray + cfgrib + gdal natif |
 | Frontend | Angular 19 + OpenLayers 10 + nginx alpine |
-| Sources externes | aisstream.io · NOAA OISST · NOAA GFS · NOAA WaveWatch III · Météo-France AROME (data.gouv.fr) · RainViewer |
+| Sources externes | aisstream.io · NOAA OISST · NOAA GFS · NOAA WaveWatch III · Météo-France ARPEGE (data.gouv.fr) · RainViewer |
 | Auth | JWT (`@nestjs/jwt`) 24h · bcrypt · vérification email via **Resend SDK** · Google OAuth 2.0 (`passport-google-oauth20`) · RBAC 2 rôles (`user` / `admin`) · cron dormants 90j (`DormantCleanupService`) |
 | Build | Docker multi-stage par service |
 
@@ -197,7 +197,7 @@ docker compose exec postgres psql -U maritime -d maritime -c \
 | Détails navires | aisstream `ShipStaticData` | JSON WS | event | 1 |
 | SST | NOAA OISST v2.1 (AWS) | NetCDF → GeoTIFF | quotidien | 3 |
 | Vent 10m (global) | NOAA GFS (NOMADS subsetter) | GRIB → GeoTIFF + GeoJSON | 4×/jour | 4a / 6 |
-| Vent 10m (côtier) | Météo-France AROME (bucket PNT) | GRIB → GeoTIFF + GeoJSON | 4×/jour | 11 |
+| Vent 10m (Europe) | Météo-France ARPEGE 0.1° (bucket PNT) | GRIB → GeoTIFF + GeoJSON | 4×/jour | Europe #2 |
 | Vagues (Hs + dir) | NOAA WaveWatch III | GRIB → GeoTIFF + GeoJSON | 4×/jour | 4a / 6 |
 | Radar pluie | RainViewer | XYZ tiles | 10 min | 4b |
 | Foudre | Blitzortung WSS (LZW JSON) | event WS → PostGIS | continu | 7 |
@@ -213,7 +213,7 @@ flowchart TB
   subgraph SOURCES["Sources externes"]
     ais["aisstream.io WSS"]
     noaa["NOAA NOMADS<br/>GFS · WW3 · OISST"]
-    mf["Météo-France PNT<br/>bucket public AROME 2.5km"]
+    mf["Météo-France PNT<br/>bucket public ARPEGE 0.1°"]
     rv["RainViewer API"]
     blitz["Blitzortung WSS"]
   end
@@ -223,7 +223,7 @@ flowchart TB
     adec["ais-decoder"]
     sst["sst-fetcher (Py)"]
     wf["weather-fetcher (Py)"]
-    wfa["weather-fetcher-arome (Py)"]
+    wfa["weather-fetcher-arpege (Py)"]
     lf["lightning-fetcher"]
   end
 
@@ -237,7 +237,7 @@ flowchart TB
 
   subgraph STATE["Stockage"]
     pg["PostgreSQL + PostGIS + TimescaleDB<br/>hypertables vessel_positions / lightning_strikes / alerts"]
-    cov["/coverage/ volume<br/>(GeoTIFF SST + GFS + AROME)"]
+    cov["/coverage/ volume<br/>(GeoTIFF SST + GFS + ARPEGE)"]
     arr["/wind-arrows/ volume<br/>(GeoJSON arrows + manifest)"]
   end
 
@@ -283,7 +283,7 @@ flowchart LR
 
   subgraph B["Météo modèles (forecast)"]
     b1["NOAA GFS · WW3<br/>(NOMADS subsetter GRIB)"] --> b2["weather-fetcher"]
-    b3["Météo-France AROME<br/>(bucket PNT public, GRIB)"] --> b4["weather-fetcher-arome"]
+    b3["Météo-France ARPEGE<br/>(bucket PNT public, GRIB)"] --> b4["weather-fetcher-arpege"]
     b2 & b4 -->|GeoTIFF time-tagged| b5["/coverage/<br/>wind-speed · wave-hs · wave-dir"]
     b2 & b4 -->|GeoJSON arrows sampled| b6["/wind-arrows/"]
     b5 --> b7["GeoServer ImageMosaic<br/>(time dim MAXIMUM)"]

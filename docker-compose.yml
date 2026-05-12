@@ -332,30 +332,34 @@ services:
       - geoserver
     restart: unless-stopped
 
-  # ─── Worker : weather-fetcher-arome (sprint 11) ───────────────────
-  # Cron 4×/jour (02:30 / 08:30 / 14:30 / 20:30 UTC, alignés sur les runs
-  # AROME +2h de latence) qui télécharge les bundles SP1 0025 de Météo-France
-  # depuis le bucket public PNT (object.data.gouv.fr/meteofrance-pnt) — AUCUNE
-  # clé API requise (open data, sans inscription). Résolution 0.025° (~2.5km)
-  # = 10× plus fin que le GFS 0.25° (25km) côté finesse côtière. Extrait
-  # u10/v10 → speed, écrit GeoTIFF dans /coverage/wind-speed-arome/ + GeoJSON
-  # arrows dans /wind-arrows/arome_wind_arrows_*.geojson. Layer GeoServer
-  # publié au premier cycle = maritime:wind-speed-arome (style SLD partagé
-  # avec GFS via provision.sh sprint 11).
-  weather-fetcher-arome:
-    build: ./services/weather-fetcher-arome
-    container_name: maritime-weather-fetcher-arome
+  # ─── Worker : weather-fetcher-arpege (sprint Europe Chantier #2) ───
+  # Migration AROME → ARPEGE 2026-05-12 : ARPEGE 0.1° (Europe étroite,
+  # 11 km) remplace AROME 0.025° (FR uniquement, 2.5 km). Couverture
+  # ×8 en surface, résolution toujours 2.5× meilleure que GFS 0.25°.
+  #
+  # Cron 4×/jour (03:30 / 09:30 / 15:30 / 21:30 UTC, alignés sur les runs
+  # ARPEGE 00/06/12/18 +3h de latence) qui télécharge les bundles SP1 01
+  # de Météo-France depuis le bucket public PNT
+  # (object.data.gouv.fr/meteofrance-pnt) — AUCUNE clé API requise (open
+  # data sans inscription). Extrait u10/v10 → speed, écrit GeoTIFF dans
+  # /coverage/wind-speed-arpege/ + GeoJSON arrows dans
+  # /wind-arrows/arpege_wind_arrows_*.geojson. Layer GeoServer publié au
+  # premier cycle = maritime:wind-speed-arpege (style SLD partagé avec
+  # GFS via provision.sh).
+  weather-fetcher-arpege:
+    build: ./services/weather-fetcher-arpege
+    container_name: maritime-weather-fetcher-arpege
     env_file: .env
     environment:
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-maritime}:${RABBITMQ_PASSWORD:-maritime}@rabbitmq:5672
       GEOSERVER_URL: http://geoserver:8080/geoserver
       GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
       GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}
-      WIND_DIR: /coverage/wind-speed-arome
+      WIND_DIR: /coverage/wind-speed-arpege
       WIND_ARROWS_DIR: /wind-arrows
-      # AROME couvre jusqu'à +51h ; on prend 24h pour limiter la charge
-      # (4 bundles × 55MB ≈ 220MB / run × 4 runs/jour ≈ 880MB / jour).
-      FORECAST_HOURS: "24"
+      # ARPEGE couvre jusqu'à +102h ; on prend 48h par défaut
+      # (4 bundles × 30MB ≈ 120MB / run × 4 runs/jour ≈ 480MB / jour).
+      FORECAST_HOURS: "48"
       # Bundles GRIB2 contiennent du pas horaire ; 3h aligne avec le slider GFS.
       SAMPLE_STEP_HOURS: "3"
     volumes:

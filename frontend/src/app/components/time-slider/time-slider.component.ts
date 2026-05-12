@@ -260,7 +260,7 @@ import { DatePipe } from '@angular/common';
 })
 export class TimeSliderComponent {
   // Inputs : range [min, max]. Defaults [now-7d, now+5d] — fenêtre 12 jours
-  // alignée sur la rétention météo (GFS/AROME/WW3 forecasts = 7j de passé).
+  // alignée sur la rétention météo (GFS/ARPEGE/WW3 forecasts = 7j de passé).
   // Choix volontaire : slider plus précis (chaque pixel = ~25min vs ~110min
   // pour un slider 30j), et garantit qu'il existe toujours des données
   // météo pour chaque position du cursor (au lieu du dégradé "rien").
