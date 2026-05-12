@@ -565,9 +565,15 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
         /** Suffixe ON CONFLICT optionnel — ex: "(ts, icao) DO NOTHING".
          *  Whitelisté caractère par caractère pour éviter SQL injection. */
         onConflict?: string;
+        /** V2 (2026-05-12) : srcKeys des champs qui DOIVENT être numériques.
+         *  Si la valeur entrante n'est pas un number, on la convertit en
+         *  null (au lieu de laisser PG rejeter avec "invalid input syntax").
+         *  Typique : METAR wdir = "VRB" quand le vent est variable. */
+        nullifyNonNumeric?: string[];
       };
       if (!cfg.table) throw new Error('sinkConfig.table required for pg_insert');
       const cols = cfg.columns ?? {};
+      const nullifyNumeric = new Set(cfg.nullifyNonNumeric ?? []);
       const rec = (record ?? {}) as Record<string, unknown>;
       const dbColumns: string[] = [];
       const values: unknown[] = [];
@@ -575,7 +581,11 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
       let i = 1;
       for (const [srcKey, dbCol] of Object.entries(cols)) {
         dbColumns.push(this.safeIdent(dbCol));
-        values.push(rec[srcKey] ?? null);
+        let v: unknown = rec[srcKey];
+        if (nullifyNumeric.has(srcKey) && v != null && typeof v !== 'number') {
+          v = null;
+        }
+        values.push(v ?? null);
         placeholders.push(`$${i++}`);
       }
       if (dbColumns.length === 0) throw new Error('No columns mapping in sinkConfig');

@@ -711,13 +711,13 @@ function toIsoTimestamp(d: Date): string {
                          (input)="setOpacity('piezo', +$any($event.target).value)" />
                 }
               </div>
-              <div class="layer-row">
-                <label class="layer-toggle" [class.dim]="!showEfas()">
-                  <input type="checkbox" [checked]="showEfas()" (change)="showEfas.set($any($event.target).checked)" />
+              <div class="layer-row layer-soon">
+                <label class="layer-toggle dim">
+                  <input type="checkbox" disabled />
                   <span class="toggle-glyph"><span class="glyph-icon">⚠</span></span>
                   <span class="toggle-text">
-                    <span class="toggle-name">Prévisions crues</span>
-                    <span class="toggle-count">EFAS Copernicus 10j</span>
+                    <span class="toggle-name">Prévisions crues <span class="soon-tag">accès limité</span></span>
+                    <span class="toggle-count">EFAS Copernicus (compte EMS requis)</span>
                   </span>
                 </label>
               </div>
@@ -2308,7 +2308,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       return { active: flags.filter(Boolean).length, total: flags.length };
     }
     if (key === 'hydrology') {
-      const flags = [this.showHubeau(), this.showPiezo(), this.showEfas()];
+      const flags = [this.showHubeau(), this.showPiezo()];
       return { active: flags.filter(Boolean).length, total: flags.length };
     }
     if (key === 'sources') {
@@ -4069,12 +4069,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // V2 Sources #2 : Bathymétrie EMODnet WMS (TileLayer raster).
     // mean_atlas_land = bathymétrie nuancée bleu (lecture facile).
     // zIndex 4 = juste au-dessus du baseTile, sous les rasters thématiques.
+    // URL passe par nginx proxy /wms-emodnet (cache 14j) pour éviter de
+    // spammer ows.emodnet-bathymetry.eu à chaque client.
     this.bathyLayer = new TileLayer({
       source: new TileWMS({
-        url: 'https://ows.emodnet-bathymetry.eu/wms',
+        url: '/wms-emodnet',
         params: { LAYERS: 'mean_atlas_land', TILED: true, TRANSPARENT: true, FORMAT: 'image/png' },
         attributions: '© <a href="https://emodnet.ec.europa.eu/en/bathymetry">EMODnet Bathymetry</a>',
-        crossOrigin: 'anonymous',
       }),
       zIndex: 4,
       visible: false,
@@ -4084,12 +4085,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // Layer `efas_forecast_flood_probability` = probabilité dépassement
     // seuil de crue sur 10 jours forecast. zIndex 95 = au-dessus du wind
     // mais sous les vector layers (vessels, alerts...).
+    // URL passe par nginx proxy /wms-efas (cache 4h) pour éviter le spam.
     this.efasLayer = new TileLayer({
       source: new TileWMS({
-        url: 'https://gisco-services.ec.europa.eu/maps/wms/efas',
+        url: '/wms-efas',
         params: { LAYERS: 'efas_forecast_flood_probability', TILED: true, TRANSPARENT: true, FORMAT: 'image/png' },
         attributions: '© <a href="https://www.efas.eu/">EFAS — Copernicus Emergency Management Service</a>',
-        crossOrigin: 'anonymous',
       }),
       zIndex: 95,
       visible: false,

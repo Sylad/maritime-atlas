@@ -21,8 +21,9 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 # `carto_cache`) — le préfixe `0-` garantit l'ordre alphabétique.
 COPY nginx-cache.conf /etc/nginx/conf.d/0-cache.conf
 
-# Cache dir pour les tiles (LRU, capé à 2 GB).
-RUN mkdir -p /var/cache/nginx/carto && chown -R nginx:nginx /var/cache/nginx/carto
+# Cache dir pour les tiles (LRU, capé à 2 GB) + cache WMS externes (4 GB).
+RUN mkdir -p /var/cache/nginx/carto /var/cache/nginx/wms && \
+    chown -R nginx:nginx /var/cache/nginx/carto /var/cache/nginx/wms
 
 EXPOSE 80
 

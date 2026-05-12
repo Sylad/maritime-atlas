@@ -293,7 +293,7 @@ INSERT INTO data_sources (
   'identity',
   NULL,
   'pg_insert',
-  '{"table": "metar_observations", "onConflict": "(ts, icao) DO NOTHING", "columns": {"reportTime": "ts", "icaoId": "icao", "name": "station_name", "lat": "lat", "lon": "lon", "elev": "elevation_m", "temp": "temp_c", "dewp": "dewp_c", "wdir": "wind_dir_deg", "wspd": "wind_speed_kt", "wgst": "wind_gust_kt", "altim": "altimeter_hpa", "wxString": "weather_str", "rawOb": "raw"}}',
+  '{"table": "metar_observations", "onConflict": "(ts, icao) DO NOTHING", "nullifyNonNumeric": ["wdir", "wspd", "wgst", "temp", "dewp", "altim"], "columns": {"reportTime": "ts", "icaoId": "icao", "name": "station_name", "lat": "lat", "lon": "lon", "elev": "elevation_m", "temp": "temp_c", "dewp": "dewp_c", "wdir": "wind_dir_deg", "wspd": "wind_speed_kt", "wgst": "wind_gust_kt", "altim": "altimeter_hpa", "wxString": "weather_str", "rawOb": "raw"}}',
   'PostGIS metar_observations (~35 aéroports EU)',
   '[-25,30,40,70]',
   true
@@ -360,7 +360,7 @@ INSERT INTO data_sources (
   'json_path',
   '{"extractPath": "$.data[*]"}',
   'pg_insert',
-  '{"table": "hubeau_observations", "onConflict": "(ts, code_station) DO NOTHING", "columns": {"date_obs": "ts", "code_station": "code_station", "latitude": "lat", "longitude": "lon", "resultat_obs": "debit_l_s", "libelle_qualification_obs": "qualif"}}',
+  '{"table": "hubeau_observations", "onConflict": "(ts, code_station) DO NOTHING", "nullifyNonNumeric": ["latitude", "longitude", "resultat_obs"], "columns": {"date_obs": "ts", "code_station": "code_station", "latitude": "lat", "longitude": "lon", "resultat_obs": "debit_l_s", "libelle_qualification_obs": "qualif"}}',
   'PostGIS hubeau_observations (~500 stations FR par cycle)',
   '[-5,41,10,51.5]',
   true
