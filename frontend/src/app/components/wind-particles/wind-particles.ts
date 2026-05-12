@@ -82,13 +82,14 @@ export class WindParticleEngine {
       advectScale: opts.advectScale ?? 0.0035,  // ↓ ~4× plus lent, plus lisible (sprint 8b)
       // Iteration trails (2026-05-12) :
       //   0.97 → ~0.37s à 60fps : trop long, "salit" pan/zoom
-      //   0.92 → 50% en 0.13s mais 10% en 0.45s : encore perçu comme
-      //          "des limaces qui passent" (Sylvain feedback)
-      //   0.85 (actuel) → 10% en 0.23s, 2% (invisible) en 0.4s. Effet
-      //          de mouvement bien visible mais sillage court.
+      //   0.92 → 50% en 0.13s mais 10% en 0.45s : encore "limaces"
+      //   0.85 → 10% en 0.23s, 2% en 0.4s : encore visible Sylvain
+      //   0.50 (actuel) → 12.5% en 3 frames (50ms), invisible en 5 frames
+      //          (~80ms). Dash net qui suit la particule, pas de
+      //          traînées persistantes.
       // Override possible via WindParticlesOptions.fadeAlpha si besoin
       // d'un mode démo avec trails plus longs pour screenshots.
-      fadeAlpha: opts.fadeAlpha ?? 0.85,
+      fadeAlpha: opts.fadeAlpha ?? 0.5,
       lineWidth: opts.lineWidth ?? 1.2,
     };
   }

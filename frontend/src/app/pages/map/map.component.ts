@@ -775,15 +775,35 @@ function toIsoTimestamp(d: Date): string {
                   </span>
                 </label>
               </div>
-              <div class="layer-row layer-soon">
-                <label class="layer-toggle dim">
-                  <input type="checkbox" disabled />
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showEez()">
+                  <input type="checkbox" [checked]="showEez()" (change)="showEez.set($any($event.target).checked)" />
                   <span class="toggle-glyph"><span class="glyph-icon">⛓</span></span>
                   <span class="toggle-text">
-                    <span class="toggle-name">EEZ / MPA <span class="soon-tag">à venir</span></span>
-                    <span class="toggle-count">zones économiques + protégées</span>
+                    <span class="toggle-name">EEZ (zones éco. excl.)</span>
+                    <span class="toggle-count">Marine Regions VLIZ</span>
                   </span>
                 </label>
+                @if (showEez()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getOpacity('eez')"
+                         (input)="setOpacity('eez', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showMpa()">
+                  <input type="checkbox" [checked]="showMpa()" (change)="showMpa.set($any($event.target).checked)" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🦑</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">MPA (aires marines)</span>
+                    <span class="toggle-count">EMODnet Human Activities</span>
+                  </span>
+                </label>
+                @if (showMpa()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getOpacity('mpa')"
+                         (input)="setOpacity('mpa', +$any($event.target).value)" />
+                }
               </div>
               <div class="layer-row layer-soon">
                 <label class="layer-toggle dim">
@@ -2193,6 +2213,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   });
   // ─── V2 Sources #2 — Bathymétrie EMODnet WMS ────────────────────
   readonly showBathy = signal(false);
+  // ─── V2 Sources #3 — EEZ Marine Regions ─────────────────────────
+  readonly showEez = signal(false);
+  // ─── V2 Sources #4 — MPA EMODnet Human Activities ───────────────
+  readonly showMpa = signal(false);
   // ─── V2 Hydrologie #3 — Prévisions crues EFAS Copernicus ────────
   readonly showEfas = signal(false);
 
@@ -2203,7 +2227,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // Defaults : 1.0 pour vector layers (lisibilité), 0.7 pour rasters
   // (SST/vent/vagues — meilleur blend visuel avec le fond carto).
   readonly layerOpacities = signal<Record<string, number>>({
-    vessels: 1, tracks: 1, alerts: 1, buoys: 1, metar: 1, hubeau: 1, quakes: 1, piezo: 1, firms: 1,
+    vessels: 1, tracks: 1, alerts: 1, buoys: 1, metar: 1, hubeau: 1, quakes: 1, piezo: 1, firms: 1, eez: 0.6, mpa: 0.6,
     sst: 0.7, waves: 0.7, waveArrows: 0.9,
     wind: 0.7, windArrows: 0.9, windParticles: 0.9,
     rain: 0.8, lightning: 0.9,
@@ -2216,7 +2240,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     windArrows: false, waveArrows: false,
     lightning: false, alerts: false,
     windParticles: false, buoys: false, metar: false, hubeau: false, quakes: false, piezo: false, firms: false,
-    bathy: false, efas: false,
+    bathy: false, eez: false, mpa: false, efas: false,
   };
   private readonly DEFAULT_OPACITIES = { ...this.layerOpacities() };
 
@@ -2253,6 +2277,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       quakes: this.quakesLayer,
       piezo: this.piezoLayer,
       firms: this.firmsLayer,
+      eez: this.eezLayer,
+      mpa: this.mpaLayer,
     } as Record<string, { setOpacity: (n: number) => void } | undefined>)[key];
     layer?.setOpacity(value);
     // Wind particles = canvas overlay, opacity réglée via CSS sur le
@@ -2319,7 +2345,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     if (key === 'sources') {
       // Le basemap est tjs "actif" (toujours un fond), donc on compte 1 fixe
       // + les WMS sources optionnels.
-      const flags = [this.showBathy()];
+      const flags = [this.showBathy(), this.showEez(), this.showMpa()];
       return { active: 1 + flags.filter(Boolean).length, total: 1 + flags.length };
     }
     return { active: 0, total: 0 };
@@ -2393,6 +2419,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.showPiezo.set(this.DEFAULT_VISIBILITY['piezo']);
     this.showFirms.set(this.DEFAULT_VISIBILITY['firms']);
     this.showBathy.set(this.DEFAULT_VISIBILITY['bathy']);
+    this.showEez.set(this.DEFAULT_VISIBILITY['eez']);
+    this.showMpa.set(this.DEFAULT_VISIBILITY['mpa']);
     this.showEfas.set(this.DEFAULT_VISIBILITY['efas']);
     this.layerOpacities.set({ ...this.DEFAULT_OPACITIES });
     this.applyAllLayerOpacities();
@@ -2423,6 +2451,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       piezo: this.showPiezo(),
       firms: this.showFirms(),
       bathy: this.showBathy(),
+      eez: this.showEez(),
+      mpa: this.showMpa(),
       efas: this.showEfas(),
     };
     const opacity = this.layerOpacities();
@@ -2497,6 +2527,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       piezo: (v) => this.showPiezo.set(v),
       firms: (v) => this.showFirms.set(v),
       bathy: (v) => this.showBathy.set(v),
+      eez: (v) => this.showEez.set(v),
       efas: (v) => this.showEfas.set(v),
     };
     return map[key] ?? null;
@@ -2527,6 +2558,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       if (typeof vis.piezo === 'boolean') this.showPiezo.set(vis.piezo);
       if (typeof vis.firms === 'boolean') this.showFirms.set(vis.firms);
       if (typeof vis.bathy === 'boolean') this.showBathy.set(vis.bathy);
+      if (typeof vis.eez === 'boolean') this.showEez.set(vis.eez);
       if (typeof vis.efas === 'boolean') this.showEfas.set(vis.efas);
       const op = data?.opacity ?? {};
       this.layerOpacities.update((m) => ({ ...m, ...op }));
@@ -2640,6 +2672,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private baseTile?: TileLayer<XYZ>;
   private labelsTile?: TileLayer<XYZ>;
   private bathyLayer?: TileLayer<TileWMS>;
+  private eezLayer?: TileLayer<TileWMS>;
+  private mpaLayer?: TileLayer<TileWMS>;
   private efasLayer?: TileLayer<TileWMS>;
   private buoysRefTimer?: ReturnType<typeof setInterval>;
   private buoysObsTimer?: ReturnType<typeof setInterval>;
@@ -2670,7 +2704,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.showWindArrows(); this.showWaveArrows();
       this.showLightning(); this.showAlerts(); this.showWindParticles();
       this.showBuoys(); this.showMetar(); this.showHubeau(); this.showQuakes(); this.showPiezo(); this.showFirms();
-      this.showBathy(); this.showEfas();
+      this.showBathy(); this.showEez(); this.showMpa(); this.showEfas();
       // Defer pour s'exécuter après ngAfterViewInit (this.*Layer dispo)
       queueMicrotask(() => {
         this.applyLayerVisibility();
@@ -2983,9 +3017,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       if (wanted) this.startFirmsLoop();
       else this.stopFirmsLoop();
     }
-    // V2 Sources : Bathy + EFAS WMS — pas de mode live nécessaire
+    // V2 Sources : Bathy + EEZ + EFAS WMS — pas de mode live nécessaire
     // (raster server-side, le toggle suffit).
     if (this.bathyLayer) this.bathyLayer.setVisible(this.showBathy());
+    if (this.eezLayer)   this.eezLayer.setVisible(this.showEez());
+    if (this.mpaLayer)   this.mpaLayer.setVisible(this.showMpa());
     if (this.efasLayer)  this.efasLayer.setVisible(this.showEfas());
     // Wind particles : engine est démarré au boot, on contrôle juste la
     // visibilité du canvas + la grille. Quand OFF, on stop le rAF pour
@@ -4086,6 +4122,32 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       visible: false,
       opacity: 0.7,
     });
+    // V2 Sources #3 : EEZ (Zones Économiques Exclusives) Marine Regions WMS.
+    // Layer eez = polygones EEZ monde stylés par défaut (bordures + fill
+    // léger). zIndex 6 = au-dessus de Bathy (4), sous tout le reste.
+    // Proxy /wms-marineregions cache 30 jours (data stable).
+    this.eezLayer = new TileLayer({
+      source: new TileWMS({
+        url: '/wms-marineregions',
+        params: { LAYERS: 'MarineRegions:eez', TILED: true, TRANSPARENT: true, FORMAT: 'image/png' },
+        attributions: '© <a href="https://www.marineregions.org/">Marine Regions</a> (VLIZ, CC BY-NC-SA 4.0)',
+      }),
+      zIndex: 6,
+      visible: false,
+      opacity: 0.6,
+    });
+    // V2 Sources #4 : MPA (Aires Marines Protégées) EMODnet Human Activities.
+    // Proxy /wms-emodnet-human cache 30j (data statique).
+    this.mpaLayer = new TileLayer({
+      source: new TileWMS({
+        url: '/wms-emodnet-human',
+        params: { LAYERS: 'marineprotectedareas', TILED: true, TRANSPARENT: true, FORMAT: 'image/png' },
+        attributions: '© <a href="https://emodnet.ec.europa.eu/en/human-activities">EMODnet Human Activities</a>',
+      }),
+      zIndex: 7,  // au-dessus EEZ (6)
+      visible: false,
+      opacity: 0.6,
+    });
     // V2 Hydrologie #3 : EFAS forecast crues Copernicus WMS.
     // Layer `efas_forecast_flood_probability` = probabilité dépassement
     // seuil de crue sur 10 jours forecast. zIndex 95 = au-dessus du wind
@@ -4348,6 +4410,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       layers: [
         baseTile,
         this.bathyLayer,
+        this.eezLayer,
+        this.mpaLayer,
         this.sstLayer,
         this.windLayer,
         this.wavesLayer,
