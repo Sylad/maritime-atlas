@@ -2480,12 +2480,21 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     if (!ctx) return;
     this.resizeParticlesCanvas();
 
-    // Project lon/lat → canvas pixels via the OL view. Note: OL renvoie
-    // les coordinates dans la projection courante (EPSG:3857 par défaut)
-    // donc on doit projeter d'abord lon/lat → 3857 puis demander à OL.
+    // Project lon/lat → canvas pixels via la View OL. Le 2e arg de
+    // fromLonLat() doit matcher la projection courante de la View
+    // (Phase C.4 : la View peut être en EPSG:3857 / 4326 / 3035, donc
+    // on ne hardcode pas 3857). Sans ça :
+    //   - EPSG:4326 : fromLonLat() renvoie des coords en mètres Mercator,
+    //                 alors que la View attend des degrés → particules
+    //                 dessinées hors-canvas → invisibles
+    //   - EPSG:3035 : fromLonLat() renvoie aussi des coords Mercator
+    //                 mètres globaux, mais la View les interprète comme
+    //                 LAEA Europe (origine décalée ~4M, 3M) → offset énorme
+    //                 et particules placées hors Europe
     const project = (lon: number, lat: number): [number, number] | null => {
       if (!this.map) return null;
-      const px = this.map.getPixelFromCoordinate(fromLonLat([lon, lat]));
+      const proj = this.map.getView().getProjection();
+      const px = this.map.getPixelFromCoordinate(fromLonLat([lon, lat], proj));
       if (!px || isNaN(px[0])) return null;
       return [px[0], px[1]];
     };

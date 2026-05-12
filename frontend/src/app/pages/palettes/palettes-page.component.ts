@@ -70,10 +70,9 @@ import { MAP_PROJECTIONS, DEFAULT_PROJECTION } from '../../services/map-projecti
             }
           </div>
           <div class="projection-warning">
-            ⚠ Les particules de vent et les flèches sont calculées en lon/lat puis projetées par OL.
-            Le rendu reste correct quelle que soit la projection, mais l'orientation visuelle des vents
-            peut paraître différente selon la projection choisie (les méridiens sont parallèles en Mercator,
-            convergents en Lambert).
+            ⚠ L'orientation visuelle des vents change selon la projection (méridiens parallèles
+            en Mercator, convergents en Lambert). Les rasters WMS (vent / vagues / SST) sont
+            reprojetés à la volée par GeoServer — léger surcoût CPU côté serveur en EPSG:3035.
           </div>
           @if (projectionSaveMsg()) {
             <div class="projection-save-msg" [class.error]="projectionSaveError()">{{ projectionSaveMsg() }}</div>
