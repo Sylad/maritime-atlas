@@ -608,10 +608,17 @@ function toIsoTimestamp(d: Date): string {
             <div class="popup-row"><span>Pays</span><strong>{{ b.country }}</strong></div>
           }
           @if (b.last_obs_at) {
-            <div class="popup-row"><span>Dernière obs</span><strong class="mono">{{ b.last_obs_at | date:'dd/MM/yy HH:mm' }}</strong></div>
+            <div class="popup-row">
+              <span>Dernière obs</span>
+              <strong class="mono">
+                {{ b.last_obs_at | date:'dd/MM/yy HH:mm' }}
+                <span class="freshness-badge" [class]="'fresh-' + freshnessFor(b.last_obs_at)"
+                      [title]="freshnessLabel(b.last_obs_at)">●</span>
+              </strong>
+            </div>
           }
           @if (b.parameters_group) {
-            <div class="popup-row"><span>Params</span><strong>{{ b.parameters_group }}</strong></div>
+            <div class="popup-row"><span>Params</span><strong class="params-tight">{{ b.parameters_group }}</strong></div>
           }
           @if (selectedBuoyObs(); as o) {
             @if (o.ts) {
@@ -640,6 +647,14 @@ function toIsoTimestamp(d: Date): string {
               <a class="mono" [href]="b.data_link" target="_blank" rel="noopener">NetCDF ⤤</a>
             </div>
           }
+          <div class="popup-row popup-row-link">
+            <a class="emodnet-link mono"
+               [href]="'https://emodnet.ec.europa.eu/geoviewer/?platforms=' + b.candhis_id"
+               target="_blank" rel="noopener"
+               title="Fiche plateforme + données détaillées EMODnet">
+              📊 Fiche EMODnet ⤤
+            </a>
+          </div>
         }
       </div>
 
@@ -1181,10 +1196,45 @@ function toIsoTimestamp(d: Date): string {
       justify-content: space-between;
       padding: 0.2em 0;
       font-size: 0.78rem;
+      gap: 0.6em;
       span { color: var(--fg-muted); }
       strong { color: var(--fg); }
     }
+    .popup-row-link {
+      justify-content: center;
+      padding: 0.5em 0 0.2em;
+      border-top: 1px dashed rgba(255,255,255,0.08);
+      margin-top: 0.4em;
+    }
     .mono { font-family: var(--font-mono); font-size: 0.72rem; }
+    .params-tight { font-size: 0.72rem; max-width: 200px; text-align: right; }
+    /* Badge de fraîcheur (Phase obs EMODnet pivot 2026-05-12) :
+       pastille colorée à droite de last_obs_at, donne en un coup d'œil
+       l'utilité de la plateforme. */
+    .freshness-badge {
+      display: inline-block;
+      margin-left: 0.4em;
+      font-size: 0.7rem;
+      line-height: 1;
+      cursor: help;
+    }
+    .freshness-badge.fresh-fresh  { color: #22c55e; }   /* <6h vert */
+    .freshness-badge.fresh-recent { color: #f59e0b; }   /* <24h orange */
+    .freshness-badge.fresh-stale  { color: #94a3b8; }   /* <7j gris */
+    .freshness-badge.fresh-cold   { color: #64748b; opacity: 0.6; }  /* >7j cold */
+    .emodnet-link {
+      color: var(--accent-bright);
+      text-decoration: none;
+      font-size: 0.78rem;
+      padding: 0.25em 0.7em;
+      border: 1px solid var(--accent);
+      border-radius: 3px;
+      transition: all 150ms;
+      &:hover {
+        background: var(--accent-bright);
+        color: var(--bg);
+      }
+    }
 
     /* ── Attribution bar maison (drop OL Attribution control) ──
        Bottom-right, au-dessus de la time-slider. Bouton (i) circulaire
@@ -2733,6 +2783,30 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   }
   categoryColor(shipType: number | null): string {
     return CATEGORY_COLOR[categoryOf(shipType)].fill;
+  }
+
+  /** Bucket de fraîcheur d'une obs EMODnet (cf popup buoys) :
+   *  - 'fresh' : <6h (vert)
+   *  - 'recent' : <24h (orange)
+   *  - 'stale' : >24h ou >7j (gris/rouge selon âge)
+   *  Sert au style CSS .freshness-badge.fresh-{fresh|recent|stale|cold}. */
+  freshnessFor(lastObsIso: string | null | undefined): string {
+    if (!lastObsIso) return 'cold';
+    const ageH = (Date.now() - new Date(lastObsIso).getTime()) / 3_600_000;
+    if (ageH < 6) return 'fresh';
+    if (ageH < 24) return 'recent';
+    if (ageH < 24 * 7) return 'stale';
+    return 'cold';
+  }
+
+  /** Label tooltip pour le badge fraîcheur. */
+  freshnessLabel(lastObsIso: string | null | undefined): string {
+    if (!lastObsIso) return 'Aucune obs récente';
+    const ageH = (Date.now() - new Date(lastObsIso).getTime()) / 3_600_000;
+    if (ageH < 1) return `Dernière obs : il y a ${Math.round(ageH * 60)} min — temps réel`;
+    if (ageH < 24) return `Dernière obs : il y a ${Math.round(ageH)}h — récent`;
+    const ageD = Math.round(ageH / 24);
+    return `Dernière obs : il y a ${ageD}j — données anciennes`;
   }
 
   // ─── Map init ───────────────────────────────────────────────────────
