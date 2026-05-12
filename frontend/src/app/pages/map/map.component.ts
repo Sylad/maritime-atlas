@@ -2284,9 +2284,14 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     }
   }
 
+  /** V2 (2026-05-12) : accordion strict — un seul tiroir ouvert à la fois.
+   *  Si on clique sur une section déjà ouverte → on la ferme. Si on clique
+   *  une fermée → on l'ouvre et on ferme toutes les autres. */
   toggleCatalogSection(key: 'maritime' | 'observation' | 'forecast' | 'hydrology' | 'sources'): void {
     this.catalogSections.update((m) => {
-      const next = { ...m, [key]: !m[key] };
+      const wasOpen = m[key];
+      const next: typeof m = { maritime: false, observation: false, forecast: false, hydrology: false, sources: false };
+      next[key] = !wasOpen;
       try { localStorage.setItem('maritime.catalog-sections-v1', JSON.stringify(next)); } catch {}
       return next;
     });
