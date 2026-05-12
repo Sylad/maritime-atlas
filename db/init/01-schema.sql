@@ -3,8 +3,9 @@
 -- TimescaleDB pour vessel_positions (hypertable partitionné par jour),
 -- PostGIS pour les types geometry/geography.
 --
--- Hypotheses :
---   * Bbox Bretagne+golfe Gascogne ≈ 50 msg/s peak → ~4M positions/jour.
+-- Hypotheses (post-sprint Europe 2026-05-12, bbox étendu Açores→Pologne) :
+--   * Bbox Europe étroite ≈ 170 msg/s peak → ~14-15M positions/jour
+--     (×3 vs bbox FR métro pré-sprint).
 --   * Hypertable + chunk_time_interval=1d permet INSERT massifs sans
 --     bloquer les SELECT spatiaux.
 --   * vessels.last_position est dénormalisé pour servir un WFS rapide
@@ -52,9 +53,14 @@ CREATE INDEX IF NOT EXISTS vessel_positions_geom_gix ON vessel_positions USING G
 CREATE INDEX IF NOT EXISTS vessel_positions_mmsi_ts_idx ON vessel_positions (mmsi, ts DESC);
 
 -- ─── TTL policies — évite que le NAS sature ──────────────────────────
--- Estimation volume Bretagne : ~50 msg/s × 86400 = 4M lignes/jour ×
--- ~80 octets/ligne ≈ 320 MB/jour sans compression. Sur 30 jours = 9.6 GB.
--- Avec compression TimescaleDB (~10×) sur les chunks > 7j → ~1.5 GB total.
+-- Estimation volume Europe (post-sprint Europe 2026-05-12) :
+--   ~14M positions/jour × ~120 octets/ligne ≈ 1.6 GB/jour sans compression.
+--   Sur 30 jours retention = ~48 GB.
+--   Avec compression TimescaleDB sur chunks > 7j (ratio mesuré 8.9×
+--   sur AIS Europe — segmentby mmsi pack très bien les positions
+--   sériées d'un même navire) → ~7-8 GB total.
+-- Mesure validée 2026-05-12 : 1er chunk compressé 64 MB → 7.4 MB (88.7%
+-- saved). Cf force-compress lors du sprint Europe Chantier #5.
 
 -- Compression : chunks > 7 jours compressés (segmentby mmsi → 5-15× ratio)
 ALTER TABLE vessel_positions SET (
@@ -68,10 +74,15 @@ ALTER TABLE vessel_positions SET (
 --   SELECT add_retention_policy('vessel_positions', INTERVAL '90 days');
 DO $$
 BEGIN
-  -- Compression policy
+  -- Compression policy. TimescaleDB 2.18+ renomme `policy_compression`
+  -- en `policy_columnstore` — on matche les deux pour rester idempotent
+  -- cross-version. Si la policy est déjà créée auto par TS au moment du
+  -- `ALTER TABLE ... SET timescaledb.compress` (comportement par défaut
+  -- en TS 2.18+), on ne fait rien.
   IF NOT EXISTS (
     SELECT 1 FROM timescaledb_information.jobs
-    WHERE proc_name = 'policy_compression' AND hypertable_name = 'vessel_positions'
+    WHERE hypertable_name = 'vessel_positions'
+      AND proc_name IN ('policy_compression', 'policy_columnstore')
   ) THEN
     PERFORM add_compression_policy('vessel_positions', INTERVAL '7 days');
   END IF;
