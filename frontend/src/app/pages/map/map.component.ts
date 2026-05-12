@@ -599,6 +599,63 @@ function toIsoTimestamp(d: Date): string {
             }
           </div>
 
+          <!-- ═══ Section HYDROLOGIE ═════════════════════════════════ -->
+          <div class="catalog-section" [class.is-open]="catalogSections().hydrology">
+            <button type="button" class="catalog-section-head section-hydrology"
+                    (click)="toggleCatalogSection('hydrology')"
+                    [attr.aria-expanded]="catalogSections().hydrology">
+              <span class="head-chevron">{{ catalogSections().hydrology ? '▼' : '▶' }}</span>
+              <span class="head-icon">💧</span>
+              <span class="head-name">Hydrologie</span>
+              <span class="head-count">{{ catalogSectionCount('hydrology').active }}/{{ catalogSectionCount('hydrology').total }}</span>
+            </button>
+            @if (catalogSections().hydrology) {
+            <div class="catalog-section-body">
+              <!-- Placeholders V2 — sources hydrologiques européennes -->
+              <div class="layer-row layer-soon">
+                <label class="layer-toggle dim">
+                  <input type="checkbox" disabled />
+                  <span class="toggle-glyph"><span class="glyph-icon">≈</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Débits rivières <span class="soon-tag">à venir</span></span>
+                    <span class="toggle-count">Hub'eau FR + UK EA + DWD DE</span>
+                  </span>
+                </label>
+              </div>
+              <div class="layer-row layer-soon">
+                <label class="layer-toggle dim">
+                  <input type="checkbox" disabled />
+                  <span class="toggle-glyph"><span class="glyph-icon">⇣</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Niveaux piézo <span class="soon-tag">à venir</span></span>
+                    <span class="toggle-count">nappes souterraines Hub'eau</span>
+                  </span>
+                </label>
+              </div>
+              <div class="layer-row layer-soon">
+                <label class="layer-toggle dim">
+                  <input type="checkbox" disabled />
+                  <span class="toggle-glyph"><span class="glyph-icon">⚠</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Prévisions crues <span class="soon-tag">à venir</span></span>
+                    <span class="toggle-count">EFAS Copernicus 10j</span>
+                  </span>
+                </label>
+              </div>
+              <div class="layer-row layer-soon">
+                <label class="layer-toggle dim">
+                  <input type="checkbox" disabled />
+                  <span class="toggle-glyph"><span class="glyph-icon">⚗</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Qualité eau <span class="soon-tag">à venir</span></span>
+                    <span class="toggle-count">EEA WISE masses d'eau</span>
+                  </span>
+                </label>
+              </div>
+            </div>
+            }
+          </div>
+
           <!-- ═══ Section SOURCES ════════════════════════════════════ -->
           <div class="catalog-section" [class.is-open]="catalogSections().sources">
             <button type="button" class="catalog-section-head section-sources"
@@ -1090,6 +1147,7 @@ function toIsoTimestamp(d: Date): string {
     .catalog-section-head.section-maritime    { color: #60a5fa; }
     .catalog-section-head.section-observation { color: #a78bfa; }
     .catalog-section-head.section-forecast    { color: #fb923c; }
+    .catalog-section-head.section-hydrology   { color: #22d3ee; }
     .catalog-section-head.section-sources     { color: #94a3b8; }
     .catalog-section-head .head-chevron {
       font-size: 0.55rem;
@@ -1855,7 +1913,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // Persistance localStorage indépendante des layer prefs. Défaut :
   // Maritime ouvert, Observation/Forecast/Sources fermés (économie scroll
   // au boot, tout reste accessible en 1 click).
-  readonly catalogSections = signal<Record<'maritime' | 'observation' | 'forecast' | 'sources', boolean>>(this.loadCatalogSections());
+  readonly catalogSections = signal<Record<'maritime' | 'observation' | 'forecast' | 'hydrology' | 'sources', boolean>>(this.loadCatalogSections());
   readonly hasPopup = computed(() =>
     this.selectedVessel() !== null
     || this.selectedLightning() !== null
@@ -1995,8 +2053,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // ─── V2 Phase 1 (2026-05-12) — Data catalog accordion helpers ─────
   /** Restore l'état pli/déplié des sections du data catalog. Stocké
    *  séparément des layer prefs pour pouvoir resetter l'un sans l'autre. */
-  private loadCatalogSections(): Record<'maritime' | 'observation' | 'forecast' | 'sources', boolean> {
-    const defaults = { maritime: true, observation: false, forecast: false, sources: false };
+  private loadCatalogSections(): Record<'maritime' | 'observation' | 'forecast' | 'hydrology' | 'sources', boolean> {
+    const defaults = { maritime: true, observation: false, forecast: false, hydrology: false, sources: false };
     try {
       const raw = localStorage.getItem('maritime.catalog-sections-v1');
       if (!raw) return defaults;
@@ -2007,7 +2065,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  toggleCatalogSection(key: 'maritime' | 'observation' | 'forecast' | 'sources'): void {
+  toggleCatalogSection(key: 'maritime' | 'observation' | 'forecast' | 'hydrology' | 'sources'): void {
     this.catalogSections.update((m) => {
       const next = { ...m, [key]: !m[key] };
       try { localStorage.setItem('maritime.catalog-sections-v1', JSON.stringify(next)); } catch {}
@@ -2016,7 +2074,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Compte les layers actifs par section. Affiché en badge dans le head. */
-  catalogSectionCount(key: 'maritime' | 'observation' | 'forecast' | 'sources'): { active: number; total: number } {
+  catalogSectionCount(key: 'maritime' | 'observation' | 'forecast' | 'hydrology' | 'sources'): { active: number; total: number } {
     if (key === 'maritime') {
       const flags = [this.showVessels(), this.showTracks(), this.showAlerts(), this.showBuoys(),
                      this.showSST(), this.showWaves(), this.showWaveArrows()];
