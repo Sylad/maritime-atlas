@@ -116,9 +116,15 @@ function toIsoTimestamp(d: Date): string {
         }
       </div>
 
-      <!-- Dock controls TOP-RIGHT (sous auth-corner) : zoom +/-.
-           OL injecte .ol-zoom dans ce div via le target option. -->
-      <div class="controls-dock controls-dock-top-right" #zoomDockEl></div>
+      <!-- Dock controls TOP-RIGHT (sous auth-corner) : zoom +/- + recentrer.
+           OL injecte .ol-zoom dans ce div via le target option.
+           Phase C.3 bonus : bouton ⊙ pour revenir à la zone par défaut
+           (utile après un gros pan/zoom-out, plus rapide qu'un refresh). -->
+      <div class="controls-dock controls-dock-top-right" #zoomDockEl>
+        <button type="button" class="recenter-btn"
+                (click)="recenterDefaultZone()"
+                [title]="recenterTooltip()">⊙</button>
+      </div>
 
       <!-- Dock controls BOTTOM-RIGHT (au-dessus de la time-slider) :
            HDMS coords (top), scale 100 NM, attribution (i) bottom.
@@ -1201,6 +1207,31 @@ function toIsoTimestamp(d: Date): string {
     .controls-dock-top-right {
       top: 4em;                /* sous auth-corner qui est à top:1em + ~2.5em haut */
       align-items: flex-end;
+    }
+    /* Phase C.3 bonus : bouton "Recentrer sur ma zone par défaut".
+       Aligné visuellement avec les boutons .ol-zoom (mêmes dimensions
+       et style brut OL). Placé sous les boutons +/- via flex direction
+       column du parent. */
+    .recenter-btn {
+      width: 1.375em;     /* matche .ol-zoom button width OL default */
+      height: 1.375em;
+      margin: 0 0 4px 0;  /* small gap au-dessus du zoom OL */
+      padding: 0;
+      background: rgba(0, 60, 136, 0.5);
+      border: 1px solid transparent;
+      border-radius: 2px;
+      color: #fff;
+      font-size: 1.14em;
+      line-height: 1;
+      cursor: pointer;
+      transition: background 150ms;
+    }
+    .recenter-btn:hover {
+      background: rgba(0, 60, 136, 0.7);
+    }
+    .recenter-btn:focus-visible {
+      outline: 2px solid var(--accent-bright);
+      outline-offset: 2px;
     }
     .controls-dock-bottom-right {
       bottom: 6em;             /* au-dessus de la time-slider (~5em haut) */
@@ -2696,6 +2727,29 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   }
 
   // ─── Map init ───────────────────────────────────────────────────────
+
+  /** Phase C.3 bonus : recentre sur la zone par défaut (avec animation
+   *  OL.animate 600ms). Utile post pan/zoom-out lointain. */
+  recenterDefaultZone(): void {
+    if (!this.map) return;
+    const u = this.currentUser();
+    const zoneId = u?.defaultZone || localStorage.getItem('maritime.default-zone') || DEFAULT_ZONE_ID;
+    const zone = findZone(zoneId);
+    const projection = this.map.getView().getProjection().getCode();
+    this.map.getView().animate({
+      center: fromLonLat(zone.center, projection),
+      zoom: zone.zoom,
+      duration: 600,
+    });
+  }
+
+  /** Tooltip dynamique sur le bouton recentrer. */
+  readonly recenterTooltip = computed(() => {
+    const u = this.currentUser();
+    const zoneId = u?.defaultZone || DEFAULT_ZONE_ID;
+    const z = findZone(zoneId);
+    return `Recentrer sur ${z.label}`;
+  });
 
   /** Phase C.3 + C.4 (2026-05-12) : construit la View initiale avec la
    *  zone d'arrivée + projection préférée du user (DB pour connectés,
