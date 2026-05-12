@@ -188,6 +188,8 @@ INSERT INTO data_sources (name, kind, url, schedule_expr, sink_label, bbox) VALU
    '/coverage/wind-speed + /wind-arrows/wind_arrows_*.geojson',                        '[-15,35,30,65]'),
   ('weather-fetcher-arpege', 'http_grib', 'https://object.data.gouv.fr/meteofrance-pnt/pnt/<RUN>/arpege/01/SP1/', 'cron 03:30 / 09:30 / 15:30 / 21:30 UTC',
    '/coverage/wind-speed-arpege + arpege_wind_arrows_*.geojson',                       '[-15,35,30,65]'),
+  ('weather-fetcher-arome', 'http_grib', 'https://object.data.gouv.fr/meteofrance-pnt/pnt/<RUN>/arome/0025/SP1/', 'cron 02:30 / 08:30 / 14:30 / 20:30 UTC',
+   '/coverage/wind-speed-arome + arome_wind_arrows_*.geojson',                         '[-6,41,10,51.5]'),
   ('lightning-fetcher',  'websocket',  'wss://ws1.blitzortung.org/',                   'continu (WSS)',
    'PostGIS lightning_strikes + RMQ lightning.strike',                                  '[-15,35,30,65]'),
   ('buoy-fetcher',       'http_wfs',   'https://geoserver.emodnet-physics.eu/geoserver/emodnet/ows', 'cron 1×/jour',

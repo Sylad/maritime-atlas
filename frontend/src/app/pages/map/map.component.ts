@@ -340,20 +340,26 @@ function toIsoTimestamp(d: Date): string {
                 </span>
                 <span class="toggle-text">
                   <span class="toggle-name">Vent</span>
-                  <span class="toggle-count">{{ windSource() === 'arpege' ? 'forecast 10m (ARPEGE 11km)' : 'forecast 10m (GFS 25km)' }}</span>
+                  <span class="toggle-count">{{ windSourceLabel() }}</span>
                 </span>
                 <span class="wind-source-radios" (click)="$event.stopPropagation()">
-                  <label class="radio-mini">
+                  <label class="radio-mini" title="NOAA GFS 25km, couverture monde">
                     <input type="radio" name="windSrc" value="gfs"
                            [checked]="windSource() === 'gfs'"
                            (change)="windSource.set('gfs')" />
                     GFS
                   </label>
-                  <label class="radio-mini">
+                  <label class="radio-mini" title="Météo-France ARPEGE 11km, Europe étroite">
                     <input type="radio" name="windSrc" value="arpege"
                            [checked]="windSource() === 'arpege'"
                            (change)="windSource.set('arpege')" />
                     ARPEGE
+                  </label>
+                  <label class="radio-mini" title="Météo-France AROME 2.5km, FR métropole uniquement">
+                    <input type="radio" name="windSrc" value="arome"
+                           [checked]="windSource() === 'arome'"
+                           (change)="windSource.set('arome')" />
+                    AROME
                   </label>
                 </span>
                 @if (isAuthenticated() && palettesFor('wind').length > 0) {
@@ -377,7 +383,7 @@ function toIsoTimestamp(d: Date): string {
                 </span>
                 <span class="toggle-text">
                   <span class="toggle-name">Vent flèches</span>
-                  <span class="toggle-count">{{ windSource() === 'arpege' ? 'ARPEGE · ' : 'GFS · ' }}{{ windArrowsStatus() }}</span>
+                  <span class="toggle-count">{{ windSourceShortLabel() }} · {{ windArrowsStatus() }}</span>
                 </span>
               </label>
               @if (showWindArrows()) {
@@ -1437,7 +1443,23 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // Le toggle pilote à la fois le layer WMS (maritime:wind-speed vs
   // maritime:wind-speed-arpege) ET les arrows GeoJSON (wind_arrows_*.geojson
   // vs arpege_wind_arrows_*.geojson).
-  readonly windSource = signal<'gfs' | 'arpege'>('gfs');
+  readonly windSource = signal<'gfs' | 'arpege' | 'arome'>('gfs');
+  /** Label long affiché dans la légende sous "Vent". */
+  readonly windSourceLabel = computed(() => {
+    switch (this.windSource()) {
+      case 'arpege': return 'forecast 10m (ARPEGE 11km)';
+      case 'arome':  return 'forecast 10m (AROME 2.5km, FR)';
+      default:       return 'forecast 10m (GFS 25km)';
+    }
+  });
+  /** Label court affiché dans la cellule "Vent flèches". */
+  readonly windSourceShortLabel = computed(() => {
+    switch (this.windSource()) {
+      case 'arpege': return 'ARPEGE';
+      case 'arome':  return 'AROME';
+      default:       return 'GFS';
+    }
+  });
   readonly showWindArrows = signal(false);
   readonly showWaveArrows = signal(false);
   readonly windArrowsStatus = signal('forecast vent');
@@ -1795,18 +1817,21 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       }
     });
 
-    // Sprint 11 + Europe Chantier #2 : effet dédié pour le switch GFS↔ARPEGE.
+    // Sprint 11 + Europe Chantier #2 + Phase C.6 (AROME réintroduit
+    // 2026-05-12) : effet dédié pour le switch GFS ↔ ARPEGE ↔ AROME.
     // - Met à jour le LAYERS du WMS wind (force un refresh des tiles)
     // - Reset le lastWindArrowsTs pour forcer le re-fetch du GeoJSON
-    //   correspondant (arpege_wind_arrows_ vs wind_arrows_) au prochain tick
+    //   correspondant (wind_arrows_ vs arpege_wind_arrows_ vs
+    //   arome_wind_arrows_) au prochain tick
     // - Re-déclenche immédiatement le fetch arrows si la couche est ON
     effect(() => {
       const src = this.windSource();
       queueMicrotask(() => {
         if (this.windWmsSource) {
-          this.windWmsSource.updateParams({
-            LAYERS: src === 'arpege' ? 'maritime:wind-speed-arpege' : 'maritime:wind-speed',
-          });
+          const layer = src === 'arpege' ? 'maritime:wind-speed-arpege'
+                      : src === 'arome'  ? 'maritime:wind-speed-arome'
+                                         : 'maritime:wind-speed';
+          this.windWmsSource.updateParams({ LAYERS: layer });
         }
         this.lastWindArrowsTs = undefined;
         if (this.showWindArrows()) {
@@ -2059,20 +2084,26 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     const manifest = await this.arrows.getManifest();
     if (!manifest) return;
     if (wantWind && this.windArrowsSource) {
-      // Sprint 11 + Europe Chantier #2 : choisit la source manifest selon
-      // windSource(). ARPEGE a sa propre liste de ts (manifest.arpege).
-      // Fallback automatique sur GFS si ARPEGE pas encore alimenté (premier
-      // boot, ou volume vide).
+      // Sprint 11 + Europe Chantier #2 + Phase C.6 (AROME réintro) :
+      // choisit la source manifest selon windSource(). ARPEGE et AROME
+      // ont chacun leur liste de ts (manifest.arpege / manifest.arome).
+      // Fallback automatique sur GFS si la source choisie pas alimentée.
       const src = this.windSource();
-      const useArpege = src === 'arpege' && Array.isArray(manifest.arpege) && manifest.arpege.length > 0;
-      const tsList = useArpege ? (manifest.arpege ?? []) : manifest.wind;
-      const kind: ArrowsKind = useArpege ? 'arpege' : 'wind';
+      const manifestList = src === 'arpege' ? manifest.arpege
+                         : src === 'arome'  ? manifest.arome
+                                            : null;
+      const hasSpecific = Array.isArray(manifestList) && manifestList.length > 0;
+      const tsList = hasSpecific ? manifestList! : manifest.wind;
+      const kind: ArrowsKind = hasSpecific
+        ? (src as ArrowsKind)
+        : 'wind';
+      const srcUpper = src.toUpperCase();
       const ts = this.arrows.findNearestTs(tsList, t);
       if (!ts) {
         this.windArrowsSource.clear();
-        this.windArrowsStatus.set(useArpege
-          ? 'hors fenêtre ARPEGE'
-          : (src === 'arpege' ? 'ARPEGE indispo, fallback GFS vide' : 'hors fenêtre GFS'));
+        this.windArrowsStatus.set(hasSpecific
+          ? `hors fenêtre ${srcUpper}`
+          : (src !== 'gfs' ? `${srcUpper} indispo, fallback GFS vide` : 'hors fenêtre GFS'));
       } else if (ts !== this.lastWindArrowsTs) {
         try {
           const fc = await this.arrows.fetchArrows(kind, ts);
@@ -2133,7 +2164,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private styleArrow(kind: ArrowsKind, feat: FeatureLike): Style {
     const props = feat.getProperties() as { speed?: number; hs?: number; dirTo: number };
     // 'arpege' partage la sémantique 'wind' (m/s + dirTo) — Beaufort palette.
-    const isWindLike = kind === 'wind' || kind === 'arpege';
+    const isWindLike = kind === 'wind' || kind === 'arpege' || kind === 'arome';
     const value = isWindLike ? (props.speed ?? 0) : (props.hs ?? 0);
     const color = this.colorForArrow(kind, value);
     const scale = isWindLike ? this.scaleForWind(value) : this.scaleForWaves(value);
@@ -2149,7 +2180,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   }
 
   private colorForArrow(kind: ArrowsKind, v: number): string {
-    if (kind === 'wind' || kind === 'arpege') {
+    if (kind === 'wind' || kind === 'arpege' || kind === 'arome') {
       // Beaufort-like : ≤3 bleu, ≤6 cyan, ≤10 vert, ≤14 jaune, ≤18 orange, >18 rouge
       if (v <= 3)  return '#38bdf8';
       if (v <= 6)  return '#06b6d4';
@@ -2470,13 +2501,16 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.windParticlesStatus.set('manifest indispo');
       return;
     }
-    // Sprint 11 + Europe Chantier #2 : aligne les particules sur la source
-    // choisie (GFS ou ARPEGE). Si ARPEGE est sélectionné mais manifest.arpege
-    // est vide → fallback GFS (mieux d'afficher quelque chose plutôt que rien).
+    // Sprint 11 + Europe Chantier #2 + Phase C.6 : aligne les particules
+    // sur la source choisie (GFS / ARPEGE / AROME). Si la source choisie
+    // est vide (manifest empty) → fallback GFS.
     const src = this.windSource();
-    const useArpege = src === 'arpege' && Array.isArray(manifest.arpege) && manifest.arpege.length > 0;
-    const tsList = useArpege ? (manifest.arpege ?? []) : manifest.wind;
-    const kind: ArrowsKind = useArpege ? 'arpege' : 'wind';
+    const specific = src === 'arpege' ? manifest.arpege
+                   : src === 'arome'  ? manifest.arome
+                                      : null;
+    const hasSpecific = Array.isArray(specific) && specific.length > 0;
+    const tsList = hasSpecific ? specific! : manifest.wind;
+    const kind: ArrowsKind = hasSpecific ? (src as ArrowsKind) : 'wind';
     const ts = this.arrows.findNearestTs(tsList, t);
     if (!ts) {
       this.windParticlesStatus.set('hors fenêtre forecast');
@@ -2711,6 +2745,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     const ATTRIB_AIS = 'Positions navires © <a href="https://aisstream.io" target="_blank">aisstream.io</a>';
     const ATTRIB_NOAA = 'Modèles météo © <a href="https://nomads.ncep.noaa.gov" target="_blank">NOAA NOMADS</a> (GFS, WW3, OISST)';
     const ATTRIB_ARPEGE = 'Vent Europe © <a href="https://meteo.data.gouv.fr" target="_blank">Météo-France ARPEGE</a>';
+    const ATTRIB_AROME = 'Vent FR HD © <a href="https://meteo.data.gouv.fr" target="_blank">Météo-France AROME 2.5km</a>';
     const ATTRIB_LIGHTNING = 'Foudre © <a href="https://www.blitzortung.org" target="_blank">Blitzortung community network</a>';
     const ATTRIB_RAIN = 'Radar pluie © <a href="https://www.rainviewer.com" target="_blank">RainViewer</a>';
     const ATTRIB_CANDHIS = 'Bouées houle © <a href="https://candhis.cerema.fr" target="_blank">CANDHIS / CEREMA</a> (Licence Etalab 2.0)';
@@ -2762,17 +2797,19 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
     // Vent (force, m/s) — WMS time-enabled depuis ImageMosaic GeoServer.
     // GeoServer applique automatiquement un style "raster" arc-en-ciel par
-    // défaut. Sprint 11 + Europe Chantier #2 : le LAYERS param est dynamique
-    // (signal `windSource`) entre 'maritime:wind-speed' (GFS) et
-    // 'maritime:wind-speed-arpege' (ARPEGE).
-    const initialWindLayer = this.windSource() === 'arpege'
-      ? 'maritime:wind-speed-arpege'
-      : 'maritime:wind-speed';
+    // défaut. Sprint 11 + Europe Chantier #2 + Phase C.6 (AROME réintro) :
+    // le LAYERS param est dynamique (signal `windSource`) entre
+    // 'maritime:wind-speed' (GFS) / 'maritime:wind-speed-arpege' /
+    // 'maritime:wind-speed-arome'.
+    const wsrc = this.windSource();
+    const initialWindLayer = wsrc === 'arpege' ? 'maritime:wind-speed-arpege'
+                           : wsrc === 'arome'  ? 'maritime:wind-speed-arome'
+                                               : 'maritime:wind-speed';
     this.windWmsSource = new TileWMS({
       url: '/geoserver/maritime/wms',
       params: { LAYERS: initialWindLayer, TILED: true, TRANSPARENT: true },
       serverType: 'geoserver',
-      attributions: [ATTRIB_NOAA, ATTRIB_ARPEGE],
+      attributions: [ATTRIB_NOAA, ATTRIB_ARPEGE, ATTRIB_AROME],
     });
     this.windLayer = new TileLayer({
       source: this.windWmsSource,
@@ -2824,16 +2861,16 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // Sprint 6 : flèches vent + flèches vagues. VectorSource alimenté à
     // chaque tick du time slider via fetch GeoJSON (manifest + nearest ts).
     this.windArrowsSource = new VectorSource({
-      attributions: [ATTRIB_NOAA, ATTRIB_ARPEGE],
+      attributions: [ATTRIB_NOAA, ATTRIB_ARPEGE, ATTRIB_AROME],
     });
     this.windArrowsLayer = new VectorLayer({
       source: this.windArrowsSource,
-      // Le `kind` passé au style suit le signal `windSource()` — comme ça
-      // un éventuel re-render à un changement de source utilise la bonne
-      // palette/scale (en pratique : Beaufort wind dans les 2 cas, donc
-      // visuel identique — mais on garde la sémantique propre).
+      // Le `kind` passé au style suit le signal `windSource()` — palette
+      // Beaufort identique pour les 3 sources mais on garde la sémantique.
       style: (feat: FeatureLike) => this.styleArrow(
-        this.windSource() === 'arpege' ? 'arpege' : 'wind', feat,
+        this.windSource() === 'arpege' ? 'arpege'
+        : this.windSource() === 'arome' ? 'arome' : 'wind',
+        feat,
       ),
       zIndex: 95,
       visible: false,

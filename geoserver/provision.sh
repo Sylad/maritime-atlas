@@ -235,14 +235,14 @@ if [ -f "/styles/sst-rainbow.sld" ]; then
 fi
 if [ -f "/styles/wind-speed-rainbow.sld" ]; then
   upload_style "wind-speed-rainbow" "/styles/wind-speed-rainbow.sld" "wind-speed"
-  # Sprint 11 + Europe Chantier #2 — Météo-France ARPEGE en parallèle de GFS
-  # (ARPEGE remplace l'ex-AROME FR-only, couvre maintenant l'Europe étroite
-  # en 0.1°). Le mosaic store 'wind_speed_arpege' (et donc le layer
-  # 'wind-speed-arpege') est créé au premier cycle weather-fetcher-arpege,
-  # pas par ce sidecar. Si la layer existe déjà à ce boot, on lui ré-applique
-  # le SLD (idempotent). Le 404 silencieux (>/dev/null sur le PUT) couvre le
-  # cas premier-boot.
+  # Sprint 11 + Europe Chantier #2 + Phase C.6 (AROME réintroduit
+  # 2026-05-12) — 3 sources vent coexistent : GFS / ARPEGE / AROME.
+  # Les mosaic stores (wind_speed_arpege / wind_speed_arome) sont créés
+  # au premier cycle de leurs services respectifs. Si la layer existe
+  # déjà au boot, on lui ré-applique le SLD (idempotent). Le 404
+  # silencieux couvre le premier-boot (layer pas encore créée).
   upload_style "wind-speed-rainbow" "/styles/wind-speed-rainbow.sld" "wind-speed-arpege"
+  upload_style "wind-speed-rainbow" "/styles/wind-speed-rainbow.sld" "wind-speed-arome"
 fi
 if [ -f "/styles/wave-hs-rainbow.sld" ]; then
   upload_style "wave-hs-rainbow" "/styles/wave-hs-rainbow.sld" "wave-hs"

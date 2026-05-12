@@ -413,8 +413,10 @@ def generate_wave_arrows_geojson(hs: xr.DataArray, direction: xr.DataArray,
 
 
 def update_arrows_manifest() -> None:
-    """Synchronise un manifest unique listant les ts dispos pour vent + vagues.
-    Le frontend l'interroge pour trouver le ts le plus proche du cursor."""
+    """Synchronise un manifest unique listant les ts dispos pour vent
+    GFS + vagues + ARPEGE + AROME. Le frontend l'interroge pour trouver
+    le ts le plus proche du cursor. Phase C.6 (2026-05-12) : on scan
+    les 4 sources pour ne pas écraser arpege/arome quand seul GFS tourne."""
     wind_ts = sorted([
         p.stem.replace('wind_arrows_', '')
         for p in WIND_ARROWS_DIR.glob('wind_arrows_*.geojson')
@@ -423,12 +425,24 @@ def update_arrows_manifest() -> None:
         p.stem.replace('wave_arrows_', '')
         for p in WIND_ARROWS_DIR.glob('wave_arrows_*.geojson')
     ])
+    arpege_ts = sorted([
+        p.stem.replace('arpege_wind_arrows_', '')
+        for p in WIND_ARROWS_DIR.glob('arpege_wind_arrows_*.geojson')
+    ])
+    arome_ts = sorted([
+        p.stem.replace('arome_wind_arrows_', '')
+        for p in WIND_ARROWS_DIR.glob('arome_wind_arrows_*.geojson')
+    ])
     manifest = {
         'wind': wind_ts,
         'wave': wave_ts,
+        'arpege': arpege_ts,
+        'arome': arome_ts,
         'patterns': {
             'wind': '/wind-arrows/wind_arrows_{ts}.geojson',
             'wave': '/wind-arrows/wave_arrows_{ts}.geojson',
+            'arpege': '/wind-arrows/arpege_wind_arrows_{ts}.geojson',
+            'arome': '/wind-arrows/arome_wind_arrows_{ts}.geojson',
         },
         'updated_at': datetime.now(timezone.utc).isoformat(),
     }

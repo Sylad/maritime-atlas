@@ -1,37 +1,42 @@
 """
-weather-fetcher-arpege — récupère les forecasts vent à 10m du modèle ARPEGE
-de Météo-France (résolution 0.1° ≈ 11km sur Europe, vs GFS 0.25° ≈ 25km).
+weather-fetcher-arome — récupère les forecasts vent à 10m du modèle AROME
+de Météo-France (résolution 0.025° ≈ 2.5 km, France métropole uniquement).
 
-Sprint Europe 2026-05-12 — Chantier #2 : ARPEGE remplace AROME en tant que
-modèle météo principal. ARPEGE couvre toute l'Europe étroite (Açores → Pologne,
-Méditerranée → Cap Nord) là où AROME ne couvre que la métropole FR. La perte de
-résolution est limitée (11 km vs 2.5 km) et le gain de couverture est massif.
+Réintroduit 2026-05-12 (post-Sprint Europe Chantier #2 qui avait supprimé
+AROME au profit d'ARPEGE Europe). Sylvain a choisi de réactiver AROME
+malgré sa couverture restreinte FR métro, parce que sa résolution 2.5km
+(vs ARPEGE 11km) donne des détails côtiers / micro-météo précieux pour
+la navigation FR. Les 3 sources coexistent maintenant côté frontend :
+GFS (monde, 25km) · ARPEGE (Europe, 11km) · AROME (FR, 2.5km).
 
-Source : bucket S3 public PNT (Prévision Numérique du Temps) hébergé par
-data.gouv.fr, AUCUNE clé API requise. Documentation officielle :
-  https://meteo.data.gouv.fr/datasets/donnees-du-modele-arpege
+Source : bucket S3 public PNT (Prévision Numérique du Temps) hébergé
+par data.gouv.fr, AUCUNE clé API requise.
+  https://meteo.data.gouv.fr/datasets/donnees-du-modele-arome
 
 Structure des objets :
-  pnt/<RUN_ISO>/arpege/01/SP1/arpege__01__SP1__<H1>H<H2>H__<RUN_ISO>.grib2
+  pnt/<RUN_ISO>/arome/0025/SP1/arome__0025__SP1__<H1>H<H2>H__<RUN_ISO>.grib2
 
 Où :
-  - <RUN_ISO> = 2026-05-12T00:00:00Z (4 runs/jour : 00, 06, 12, 18 UTC,
-    contre 8 pour AROME — c'est le cycle ARPEGE)
+  - <RUN_ISO> = 2026-05-12T00:00:00Z (AROME publie 8 runs/jour : 00, 03,
+    06, …, 21 UTC ; on en prend 4 alignés sur cron pour limiter la charge)
   - SP1 = "Surface Parameters 1" → contient u10, v10, t2m, surface pressure.
-  - Les bundles 01 packent ~12 timesteps horaires (000H012H, 013H024H, …) →
-    9 fichiers par run pour 0-102h de forecast. ~30MB par bundle.
+  - Les bundles 0025 packent 6 timesteps horaires (00H06H, 07H12H, …) →
+    9 fichiers par run pour 0-51h de forecast. ~55MB par bundle.
 
-Pattern fichier de sortie : arpege_wind_speed_<YYYYMMDDTHHMMSSZ>.tif dans
-le coverage dir partagé avec GeoServer. Layer publié = maritime:wind-speed-arpege.
+Pattern fichier de sortie : arome_wind_speed_<YYYYMMDDTHHMMSSZ>.tif dans
+le coverage dir partagé avec GeoServer. Layer publié = maritime:wind-speed-arome.
 
-GeoJSON arrows : arpege_wind_arrows_<ts>.geojson dans /wind-arrows/. Sampling
-step 3×3 sur la grille 0.1° (≈ 0.3° entre flèches) — densité comparable au GFS
-0.25° step 2×2 sans surcharger.
+GeoJSON arrows : arome_wind_arrows_<ts>.geojson dans /wind-arrows/. Sampling
+step 4×4 sur la grille 0.025° (≈ 0.1° entre flèches) — plus dense que
+ARPEGE/GFS car la couverture est restreinte FR métro et on veut profiter
+de la précision native du modèle côtier.
 
-Pourquoi un service séparé plutôt qu'un mode ARPEGE=true dans weather-fetcher ?
+Pourquoi un service séparé plutôt qu'un mode AROME=true dans weather-fetcher ?
 - Source totalement différente (S3 vs CGI NOMADS), pas de mutualisation utile.
-- Schedule différent (ARPEGE runs 4×/jour avec latence ~3h).
+- Schedule différent (AROME 8 runs/jour vs GFS 4/jour).
 - Permet de désactiver l'un sans toucher l'autre (compose service profile).
+- Coexiste avec ARPEGE (même bucket S3, sources distinctes mais code dupliqué
+  ~95% — refactoring potentiel post-N4 si on absorbe les 2 dans l'orchestrator).
 """
 from __future__ import annotations
 
@@ -54,12 +59,12 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
 )
-log = logging.getLogger('weather-fetcher-arpege')
+log = logging.getLogger('weather-fetcher-arome')
 
 # ─── Orchestrator client (Data Orchestrator MVP S1, 2026-05-12) ──────
 _ORCH_API = os.environ.get('ORCHESTRATOR_API', 'http://api:3010')
 _ORCH_TOKEN = os.environ.get('ORCHESTRATOR_JOB_TOKEN', '')
-_ORCH_SOURCE = os.environ.get('ORCHESTRATOR_SOURCE_NAME', 'weather-fetcher-arpege')
+_ORCH_SOURCE = os.environ.get('ORCHESTRATOR_SOURCE_NAME', 'weather-fetcher-arome')
 
 def report_job(status: str, started_at: datetime, **kwargs: object) -> None:
     if not _ORCH_TOKEN:
@@ -81,7 +86,7 @@ def report_job(status: str, started_at: datetime, **kwargs: object) -> None:
         log.warning('report_job failed: %s', exc)
 
 # ─── Config ─────────────────────────────────────────────────────────────
-WIND_DIR = Path(os.environ.get('WIND_DIR', '/coverage/wind-speed-arpege'))
+WIND_DIR = Path(os.environ.get('WIND_DIR', '/coverage/wind-speed-arome'))
 WIND_ARROWS_DIR = Path(os.environ.get('WIND_ARROWS_DIR', '/wind-arrows'))
 
 RABBITMQ_URL = os.environ.get('RABBITMQ_URL', 'amqp://maritime:maritime@rabbitmq:5672')
@@ -89,18 +94,17 @@ GEOSERVER_URL = os.environ.get('GEOSERVER_URL', 'http://geoserver:8080/geoserver
 GEOSERVER_USER = os.environ.get('GEOSERVER_ADMIN_USER', 'admin')
 GEOSERVER_PASS = os.environ.get('GEOSERVER_ADMIN_PASSWORD', 'geoserver')
 
-# Sprint Europe 2026-05-12 : bbox Europe étroite — cohérence avec ais, sst,
-# gfs, lightning. ARPEGE 0.1° couvre nativement un domaine global (publié par
-# Météo-France sur leur S3 public), le subset xarray gère la sélection bbox.
-BBOX_LON = (-15.0, 30.0)
-BBOX_LAT = (35.0, 65.0)
+# AROME 0.025° couvre nativement la France métropole + marge côtière.
+# Bbox réelle Météo-France ~ [-5.5, 41, 10, 52] — on prend un peu plus
+# large pour absorber la marge mer.
+BBOX_LON = (-6.0, 10.0)
+BBOX_LAT = (41.0, 51.5)
 
-# Horizon de forecast — ARPEGE va jusqu'à +102h, on prend 48h par défaut
-# (= 4 bundles SP1 × 30MB ≈ 120MB / run). Configurable par env.
-FORECAST_HOURS = int(os.environ.get('FORECAST_HOURS', '48'))
-# Sampling temporel — ARPEGE fournit des steps horaires dans chaque bundle 12h.
-# Pas de step >1 ; pour alléger on filtre par modulo (default 3h pour rester
-# alignés avec le slider GFS qui sample par 6h).
+# Horizon de forecast — AROME va jusqu'à +51h, on prend 24h par défaut
+# (= 4 bundles SP1 × 55MB ≈ 220MB / run × 4 runs/jour ≈ 880MB / jour).
+FORECAST_HOURS = int(os.environ.get('FORECAST_HOURS', '24'))
+# Sampling temporel — bundles AROME contiennent des steps horaires.
+# 3h aligne avec le slider GFS qui sample par 6h.
 SAMPLE_STEP_HOURS = int(os.environ.get('SAMPLE_STEP_HOURS', '3'))
 
 # Bucket public Météo-France PNT (S3-compatible MinIO, hébergé data.gouv.fr).
@@ -264,7 +268,7 @@ def trigger_reindex(store_name: str, coverage_dir: Path) -> None:
         log.warning('Reindex %s failed: %s', store_name, exc)
 
 
-# ─── ARPEGE S3 listing & fetch ──────────────────────────────────────────
+# ─── AROME S3 listing & fetch ───────────────────────────────────────────
 def s3_list_keys(prefix: str, max_pages: int = 5) -> list[str]:
     """List S3 keys under a prefix via list-type=2 + pagination
     NextContinuationToken. Le bucket meteofrance-pnt parle protocole S3 v2."""
@@ -298,22 +302,22 @@ def s3_list_keys(prefix: str, max_pages: int = 5) -> list[str]:
     return keys
 
 
-def latest_arpege_run() -> datetime | None:
-    """ARPEGE runs 4×/jour (00, 06, 12, 18 UTC). Mise à dispo ~3h après l'heure
-    du run. On scanne les 24 dernières heures et on retient le run le plus
-    récent qui a au moins 1 bundle SP1 01 dispo."""
+def latest_arome_run() -> datetime | None:
+    """AROME runs 8×/jour (00, 03, 06, 09, 12, 15, 18, 21 UTC). Mise à dispo
+    ~2h après l'heure du run. On scanne les 24 dernières heures et on retient
+    le run le plus récent qui a au moins 1 bundle SP1 0025 dispo."""
     now = datetime.now(timezone.utc)
-    for hours_back in range(0, 30, 6):
+    for hours_back in range(0, 30, 3):
         candidate = (now - timedelta(hours=hours_back)).replace(minute=0, second=0, microsecond=0)
-        run_hour = (candidate.hour // 6) * 6
+        run_hour = (candidate.hour // 3) * 3
         run = candidate.replace(hour=run_hour)
         run_iso = run.strftime('%Y-%m-%dT%H:%M:%SZ')
-        prefix = f'pnt/{run_iso}/arpege/01/SP1/'
+        prefix = f'pnt/{run_iso}/arome/0025/SP1/'
         keys = s3_list_keys(prefix, max_pages=1)
         if len(keys) >= 1:
-            log.info('Latest ARPEGE run = %s (%d SP1 bundles)', run_iso, len(keys))
+            log.info('Latest AROME run = %s (%d SP1 bundles)', run_iso, len(keys))
             return run
-    log.warning('No ARPEGE run found in last 30h')
+    log.warning('No AROME run found in last 30h')
     return None
 
 
@@ -335,13 +339,14 @@ def fetch_object(url: str, dest: Path) -> bool:
         return False
 
 
-# ─── Arrows GeoJSON (préfixé arpege_ pour distinguer du GFS) ─────────────
+# ─── Arrows GeoJSON (préfixé arome_ pour distinguer du GFS / ARPEGE) ─────
 def generate_arrows_geojson(u: xr.DataArray, v: xr.DataArray, speed: xr.DataArray,
-                            valid_time: datetime, step_lon: int = 3, step_lat: int = 3) -> Path | None:
+                            valid_time: datetime, step_lon: int = 4, step_lat: int = 4) -> Path | None:
     """Idem weather-fetcher.generate_arrows_geojson mais avec :
-    - préfixe arpege_ pour ne pas collisioner avec les arrows GFS
-    - step 3×3 par défaut (grille 2.5× plus dense que GFS, 3×3 donne une
-      densité visuelle équivalente à GFS step 2×2 ≈ 0.3°).
+    - préfixe arome_ pour ne pas collisioner avec les arrows GFS/ARPEGE
+    - step 4×4 par défaut (grille 0.025° native, 4×4 donne ~0.1° entre
+      flèches — plus dense que GFS/ARPEGE car la couverture est restreinte
+      FR métro et on veut profiter de la précision native côtière).
     """
     if 'longitude' not in u.coords or 'latitude' not in u.coords:
         return None
@@ -380,13 +385,13 @@ def generate_arrows_geojson(u: xr.DataArray, v: xr.DataArray, speed: xr.DataArra
         'features': features,
         'properties': {
             'valid_time': valid_time.isoformat(),
-            'forecast_run': 'Météo-France ARPEGE 0.1°',
+            'forecast_run': 'Météo-France AROME 0.025°',
             'sampling': f'{step_lon}x{step_lat} grid step',
         },
     }
     WIND_ARROWS_DIR.mkdir(parents=True, exist_ok=True)
     ts_str = valid_time.strftime('%Y%m%dT%H%M%SZ')
-    out = WIND_ARROWS_DIR / f'arpege_wind_arrows_{ts_str}.geojson'
+    out = WIND_ARROWS_DIR / f'arome_wind_arrows_{ts_str}.geojson'
     out.write_text(json.dumps(geojson, separators=(',', ':')))
     update_arrows_manifest()
     return out
@@ -396,11 +401,7 @@ def update_arrows_manifest() -> None:
     """Re-écrit le manifest commun à TOUTES les sources de flèches.
     Scan disque pour wind (GFS) / wave (WW3) / arpege / arome — chaque
     service écrit les 4 keys à chaque cycle, le manifest reste cohérent
-    peu importe quel service tourne en isolation.
-
-    Phase C.6 (2026-05-12) : AROME réintroduit en parallèle d'ARPEGE,
-    on doit scanner les deux côté arpege pour ne pas écraser la clé
-    `arome` quand seul arpege a tourné."""
+    peu importe quel service tourne en isolation."""
     manifest_path = WIND_ARROWS_DIR / 'manifest.json'
 
     wind_ts = sorted([
@@ -438,10 +439,10 @@ def update_arrows_manifest() -> None:
 
 # ─── GRIB → GeoTIFF (par timestep) ──────────────────────────────────────
 def grib_to_geotiffs(grib: Path, run: datetime) -> dict[datetime, Path]:
-    """Charge un bundle GRIB2 ARPEGE SP1 (multi-step) + sépare chaque
+    """Charge un bundle GRIB2 AROME SP1 (multi-step) + sépare chaque
     timestep en GeoTIFF distinct. Renvoie {valid_time: path}.
 
-    ARPEGE 01 packe ~12 forecasts horaires par bundle (000H012H, 013H024H, …).
+    AROME 0025 packe 6 forecasts horaires par bundle (00H06H, 07H12H, …).
     cfgrib expose ça comme dimension `step` (timedelta), donc on itère
     ds.step.values.
     """
@@ -502,9 +503,9 @@ def grib_to_geotiffs(grib: Path, run: datetime) -> dict[datetime, Path]:
         speed = np.sqrt(u ** 2 + v ** 2)
         speed.name = 'wind_speed'
         speed.attrs['units'] = 'm s-1'
-        speed.attrs['long_name'] = 'Wind speed at 10m (ARPEGE)'
+        speed.attrs['long_name'] = 'Wind speed at 10m (AROME)'
 
-        dest = WIND_DIR / f'arpege_wind_speed_{ts_str}.tif'
+        dest = WIND_DIR / f'arome_wind_speed_{ts_str}.tif'
         if dest.exists():
             log.debug('Skip %s (already exists)', dest.name)
             continue
@@ -536,7 +537,7 @@ def grib_to_geotiffs(grib: Path, run: datetime) -> dict[datetime, Path]:
 
 # ─── Bundle filename helpers ────────────────────────────────────────────
 # arpege__01__SP1__000H012H__2026-05-12T00:00:00Z.grib2
-BUNDLE_RE = re.compile(r'arpege__01__SP1__(\d+)H(\d+)H__')
+BUNDLE_RE = re.compile(r'arome__0025__SP1__(\d+)H(\d+)H__')
 
 
 def bundle_first_hour(key: str) -> int | None:
@@ -567,7 +568,7 @@ def cleanup_old_files(retention_days: int = 7) -> None:
             except (ValueError, IndexError):
                 continue
     if removed > 0:
-        log.info('Cleanup: removed %d ARPEGE files older than %dd', removed, retention_days)
+        log.info('Cleanup: removed %d AROME files older than %dd', removed, retention_days)
 
 
 # ─── Cycle ──────────────────────────────────────────────────────────────
@@ -577,7 +578,7 @@ def run_fetch_cycle() -> None:
         _records_out = _do_fetch_cycle()
         report_job('ok', _started_at, recordsOut=_records_out)
     except Exception as exc:  # noqa: BLE001
-        log.exception('weather-fetcher-arpege cycle failed')
+        log.exception('weather-fetcher-arome cycle failed')
         report_job('error', _started_at,
                    errorKind=type(exc).__name__,
                    errorMsg=str(exc)[:500])
@@ -586,18 +587,18 @@ def run_fetch_cycle() -> None:
 
 def _do_fetch_cycle() -> int:
     """Returns count of new ARPEGE GeoTIFFs produced."""
-    log.info('weather-fetcher-arpege cycle starting (forecast=%dh, step=%dh)',
+    log.info('weather-fetcher-arome cycle starting (forecast=%dh, step=%dh)',
              FORECAST_HOURS, SAMPLE_STEP_HOURS)
     cleanup_old_files(retention_days=int(os.environ.get('WEATHER_RETENTION_DAYS', '7')))
     ensure_mosaic_config_files(WIND_DIR)
 
-    run = latest_arpege_run()
+    run = latest_arome_run()
     if run is None:
-        log.warning('No ARPEGE run available — abort cycle')
+        log.warning('No AROME run available — abort cycle')
         return
 
     run_iso = run.strftime('%Y-%m-%dT%H:%M:%SZ')
-    prefix = f'pnt/{run_iso}/arpege/01/SP1/'
+    prefix = f'pnt/{run_iso}/arome/0025/SP1/'
     all_keys = s3_list_keys(prefix, max_pages=2)
     relevant = []
     for k in all_keys:
@@ -622,7 +623,7 @@ def _do_fetch_cycle() -> int:
             tmp.unlink(missing_ok=True)
             (tmp.with_suffix('.grib2.idx')).unlink(missing_ok=True)
 
-    log.info('Cycle done — new ARPEGE GeoTIFFs: %d', len(new_tiffs))
+    log.info('Cycle done — new AROME GeoTIFFs: %d', len(new_tiffs))
 
     # Wait for GeoServer
     for _ in range(10):
@@ -636,39 +637,41 @@ def _do_fetch_cycle() -> int:
         time.sleep(3)
 
     # Create or reindex le mosaic store
-    store = 'wind_speed_arpege'
-    coverage = 'wind-speed-arpege'
-    title = 'Wind speed at 10m (Météo-France ARPEGE 0.1°)'
-    has_tifs = any(WIND_DIR.glob('arpege_*.tif'))
+    store = 'wind_speed_arome'
+    coverage = 'wind-speed-arome'
+    title = 'Wind speed at 10m (Météo-France AROME 0.025°)'
+    has_tifs = any(WIND_DIR.glob('arome_*.tif'))
     if has_tifs and not coverage_store_exists(store):
         create_mosaic_store(store, coverage, WIND_DIR, title)
     elif new_tiffs:
         trigger_reindex(store, WIND_DIR)
 
     publish_raster_ready({
-        'type': 'weather-arpege',
+        'type': 'weather-arome',
         'run': run.isoformat(),
         'forecast_hours': FORECAST_HOURS,
         'new_files': len(new_tiffs),
     })
-    log.info('weather-fetcher-arpege cycle done')
+    log.info('weather-fetcher-arome cycle done')
     return len(new_tiffs)
 
 
 def main() -> None:
     WIND_DIR.mkdir(parents=True, exist_ok=True)
     WIND_ARROWS_DIR.mkdir(parents=True, exist_ok=True)
-    log.info('weather-fetcher-arpege starting')
+    log.info('weather-fetcher-arome starting')
 
     run_fetch_cycle()
 
-    # ARPEGE publie 4 runs/jour (00, 06, 12, 18 UTC) avec ~3h de latence.
-    # Cron 03:30 / 09:30 / 15:30 / 21:30 UTC pour récupérer chaque run dès
-    # qu'il est complet sur S3.
+    # AROME publie 8 runs/jour (00, 03, 06, …, 21 UTC) avec ~2h de latence.
+    # On en prend 4 alignés sur les runs principaux pour limiter la charge
+    # réseau et disque (~1GB / jour pour 24h de forecast × 4 runs).
+    # Cron 02:30 / 08:30 / 14:30 / 20:30 UTC (différent d'ARPEGE pour ne
+    # pas se chevaucher).
     from apscheduler.schedulers.blocking import BlockingScheduler
     sched = BlockingScheduler(timezone='UTC')
-    sched.add_job(run_fetch_cycle, 'cron', hour='3,9,15,21', minute=30)
-    log.info('Scheduler armed (03:30 / 09:30 / 15:30 / 21:30 UTC)')
+    sched.add_job(run_fetch_cycle, 'cron', hour='2,8,14,20', minute=30)
+    log.info('Scheduler armed (02:30 / 08:30 / 14:30 / 20:30 UTC)')
     try:
         sched.start()
     except (KeyboardInterrupt, SystemExit):

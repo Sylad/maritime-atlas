@@ -80,11 +80,15 @@ export class WindParticleEngine {
       numParticles: opts.numParticles ?? 1500,
       maxTtl: opts.maxTtl ?? 200,        // ↑ pour compenser advectScale réduit (sprint 8b)
       advectScale: opts.advectScale ?? 0.0035,  // ↓ ~4× plus lent, plus lisible (sprint 8b)
-      // 0.97 (ancien défaut) → trails ~0.37s à 60fps, trop persistants au pan/zoom
-      // (les anciennes traces "salissent" l'image quand on bouge la carte).
-      // 0.92 → trails ~0.13s, ×3 plus rapides à disparaître. Toujours visible
-      // comme effet de mouvement, mais ne laisse plus de halo derrière.
-      fadeAlpha: opts.fadeAlpha ?? 0.92,
+      // Iteration trails (2026-05-12) :
+      //   0.97 → ~0.37s à 60fps : trop long, "salit" pan/zoom
+      //   0.92 → 50% en 0.13s mais 10% en 0.45s : encore perçu comme
+      //          "des limaces qui passent" (Sylvain feedback)
+      //   0.85 (actuel) → 10% en 0.23s, 2% (invisible) en 0.4s. Effet
+      //          de mouvement bien visible mais sillage court.
+      // Override possible via WindParticlesOptions.fadeAlpha si besoin
+      // d'un mode démo avec trails plus longs pour screenshots.
+      fadeAlpha: opts.fadeAlpha ?? 0.85,
       lineWidth: opts.lineWidth ?? 1.2,
     };
   }

@@ -37,7 +37,7 @@ utilisateur.
 |---|---|---|
 | **Navires AIS** (silhouettes colorées par catégorie : pêche, passagers, cargo, tanker, autres) | aisstream.io WSS, ~2700 positions live | ![Navires AIS](docs/screenshots/01-vessels.jpg) |
 | **SST** — température de surface de la mer | NOAA OISST quotidien, GeoTIFF time-tagged | ![SST](docs/screenshots/02-sst.jpg) |
-| **Vent** raster + flèches direction | NOAA GFS 25km / Météo-France ARPEGE 11km (sprint Europe), forecasts +72h | ![Vent](docs/screenshots/03-wind.jpg) |
+| **Vent** raster + flèches direction | 3 sources commutables : NOAA GFS 25km · Météo-France ARPEGE 11km (Europe) · AROME 2.5km (FR métropole HD), forecasts +24-72h | ![Vent](docs/screenshots/03-wind.jpg) |
 | **Vagues** raster + flèches direction | NOAA WaveWatch III, Hs + DIRPW | ![Vagues](docs/screenshots/04-waves.jpg) |
 | **Radar pluie** + **foudre** | RainViewer XYZ tiles + Blitzortung WSS (LZW JSON) | ![Pluie + foudre](docs/screenshots/05-rain-lightning.jpg) |
 | **Alertes maritimes** (panel + cercles colorisés) | alerts-engine croise AIS × foudre × vent fort via RMQ | ![Alertes](docs/screenshots/06-alerts.jpg) |
@@ -108,7 +108,8 @@ https://github.com/Sylad/maritime-atlas/raw/main/docs/screenshots/07-particles.m
 | `track-builder` | NestJS 11 | — | Cron horaire (xx:35) `vessel_positions` → `vessel_tracks_daily` (LineStrings) |
 | `sst-fetcher` | Python (xarray + rioxarray) | — | Cron quotidien 06:00 UTC, NOAA OISST → GeoTIFF mosaic store |
 | `weather-fetcher` | Python (cfgrib + xarray) | — | Cron 4×/jour, GFS (vent 10m) + WW3 (HTSGW + DIRPW), forecasts +72h, GeoTIFF + GeoJSON arrows |
-| `weather-fetcher-arpege` | Python (cfgrib + xarray) | — | **Sprint Europe Chantier #2** (remplace l'ex-`weather-fetcher-arome` FR-only). Cron 4×/jour, Météo-France ARPEGE 0.1° (~11km) sur Europe étroite en parallèle du GFS 25km, forecasts +48h, layer `wind-speed-arpege` |
+| `weather-fetcher-arpege` | Python (cfgrib + xarray) | — | **Sprint Europe Chantier #2**. Cron 03:30/09:30/15:30/21:30 UTC, Météo-France ARPEGE 0.1° (~11km) sur Europe étroite, forecasts +48h, layer `wind-speed-arpege` |
+| `weather-fetcher-arome` | Python (cfgrib + xarray) | — | **Phase C.6 (réintroduit 2026-05-12)**. Cron 02:30/08:30/14:30/20:30 UTC, Météo-France AROME 0.025° (~2.5km) FR métropole uniquement, forecasts +24h, layer `wind-speed-arome`. Coexiste avec ARPEGE — 3 sources vent sélectionnables côté frontend (GFS / ARPEGE / AROME). |
 | `buoy-fetcher` | Python (requests + psycopg) | — | **Sprint Europe Chantier #3** (remplace l'ex-`candhis-fetcher` 118 bouées FR/CEREMA). Re-seed quotidien, EMODnet Physics WFS `ERD_EP_WAVES_INSITU` → ~28 plateformes vagues Europe (bbox étroite), UPSERT dans `buoys` (PK héritée `candhis_id` = PLATFORMCODE EMODnet) |
 | `api` | NestJS 11 + Drizzle | — | Auth JWT 24h · CRUD palettes (max 5/user) · vérif email Resend · Google OAuth (`/auth/google`) · RBAC admin (`/admin/users` list/promote/delete) · cron dormants 03:00 Europe/Paris |
 | `frontend` | Angular 19 + nginx | 4204 | UI map, nginx proxy `/api/` et `/geoserver/` (CORS-free) |

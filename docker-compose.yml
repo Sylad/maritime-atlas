@@ -379,6 +379,43 @@ services:
       - geoserver
     restart: unless-stopped
 
+  # ─── Worker : weather-fetcher-arome (réintroduit 2026-05-12) ──────
+  # Sylvain a choisi de réactiver AROME après le Chantier #2 Sprint
+  # Europe qui l'avait supprimé au profit d'ARPEGE Europe. Couverture
+  # FR métropole uniquement (bbox ~ [-6, 41, 10, 51.5]) mais résolution
+  # 0.025° (2.5 km) — 4× plus fin qu'ARPEGE 0.1° et 10× plus fin que
+  # GFS 0.25°. Coexiste désormais avec ARPEGE : 3 sources vent
+  # sélectionnables dans le frontend (GFS / ARPEGE / AROME).
+  #
+  # Cron 4×/jour décalé d'ARPEGE pour éviter le chevauchement (02:30 /
+  # 08:30 / 14:30 / 20:30 UTC vs ARPEGE 03:30 / 09:30 / 15:30 / 21:30).
+  # Layer GeoServer publiée = maritime:wind-speed-arome (style SLD
+  # partagé via provision.sh).
+  weather-fetcher-arome:
+    build: ./services/weather-fetcher-arome
+    container_name: maritime-weather-fetcher-arome
+    env_file: .env
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-maritime}:${RABBITMQ_PASSWORD:-maritime}@rabbitmq:5672
+      GEOSERVER_URL: http://geoserver:8080/geoserver
+      GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
+      GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}
+      WIND_DIR: /coverage/wind-speed-arome
+      WIND_ARROWS_DIR: /wind-arrows
+      # AROME va jusqu'à +51h ; on prend 24h pour limiter la charge
+      # (4 bundles × 55MB ≈ 220MB / run × 4 runs/jour ≈ 880MB / jour).
+      FORECAST_HOURS: "24"
+      SAMPLE_STEP_HOURS: "3"
+      ORCHESTRATOR_API: http://api:3010/api
+      ORCHESTRATOR_JOB_TOKEN: ${ORCHESTRATOR_JOB_TOKEN:-dev-orchestrator-token-change-me}
+      ORCHESTRATOR_SOURCE_NAME: weather-fetcher-arome
+    volumes:
+      - coverage-data:/coverage
+      - wind-arrows-data:/wind-arrows
+    depends_on:
+      - geoserver
+    restart: unless-stopped
+
   # ─── Worker : buoy-fetcher (sprint Europe Chantier #3) ────────────
   # Migration CANDHIS → EMODnet Physics 2026-05-12. L'ancien
   # `candhis-fetcher` couvrait 118 bouées houlographes FR (CEREMA, métro
