@@ -329,7 +329,13 @@ def _subset(ds: xr.Dataset, bbox: Optional[list[float]]) -> xr.Dataset:
 def _to_geotiff(da: xr.DataArray, dest: Path) -> None:
     """Export DataArray vers GeoTIFF EPSG:4326 north-up. Convention :
     latitude descendante (origin = coin nord-ouest), x=lon / y=lat
-    dims pour rioxarray."""
+    dims pour rioxarray.
+
+    NB : on N'UPSAMPLE PAS ici. L'interpolation IDW (~bicubic) sera faite
+    à la volée côté GeoServer via un WPS process custom (cf
+    `services/geoserver-idw-process/`). Économie de disque + interpolation
+    pure rendering-side, chainable dans tous les SLDs (raster + contour).
+    """
     if 'latitude' in da.coords:
         da = da.sortby('latitude', ascending=False)
     if 'longitude' in da.dims:

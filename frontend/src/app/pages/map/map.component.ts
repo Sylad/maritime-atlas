@@ -4320,6 +4320,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         LAYERS: 'maritime:sst-daily',
         TILED: true,
         TRANSPARENT: true,
+        // V2 (2026-05-12) : bicubic interpolation côté GeoServer pour
+        // rendu lisse au lieu de carré-pixelisé. Standard météo.
+        // Le SLD <VendorOption interpolation> est ignoré, passer via
+        // le param WMS officiel `interpolations` qui marche.
+        interpolations: 'bicubic',
       },
       serverType: 'geoserver',
       attributions: ATTRIB_NOAA,
@@ -4343,7 +4348,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
                                                : 'maritime:wind-speed';
     this.windWmsSource = new TileWMS({
       url: '/geoserver/maritime/wms',
-      params: { LAYERS: initialWindLayer, TILED: true, TRANSPARENT: true },
+      params: { LAYERS: initialWindLayer, TILED: true, TRANSPARENT: true, interpolations: 'bicubic' },
       serverType: 'geoserver',
       attributions: [ATTRIB_NOAA, ATTRIB_ARPEGE, ATTRIB_AROME],
     });
@@ -4357,7 +4362,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // Vagues (hauteur sig., m) — WMS time-enabled.
     this.wavesSource = new TileWMS({
       url: '/geoserver/maritime/wms',
-      params: { LAYERS: 'maritime:wave-hs', TILED: true, TRANSPARENT: true },
+      params: { LAYERS: 'maritime:wave-hs', TILED: true, TRANSPARENT: true, interpolations: 'bicubic' },
       serverType: 'geoserver',
       attributions: ATTRIB_NOAA,
     });
