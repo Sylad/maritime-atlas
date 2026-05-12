@@ -15,12 +15,10 @@
 #
 #   git clone https://github.com/Sylad/maritime-atlas.git
 #   cd maritime-atlas
-#   # Installe nfs-common si pas déjà fait
-#   sudo apt update && sudo apt install -y nfs-common
-#   # Monte le partage NFS coverage du NAS (étape 1 ci-dessous)
-#   sudo mkdir -p /mnt/maritime-coverage
-#   sudo mount -t nfs -o vers=3,nolock 192.168.1.17:/volume2/@docker/volumes/maritime-atlas_coverage-data/_data /mnt/maritime-coverage
-#   # Lance le sidecar
+#   # Le mount NFS sur l'hôte WSL N'EST PAS nécessaire — Docker monte lui-même
+#   # le NFS via le volume driver local (cf section `volumes` en bas). Tu peux
+#   # garder un mount WSL pour debug mais pas obligatoire.
+#   # Lance le sidecar :
 #   docker compose -f compose.mini-blue.yml up -d --build
 #
 #   # Health check après ~20s :
@@ -80,10 +78,11 @@ services:
       GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
       GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}
     volumes:
-      # NFS-monted du NAS : /mnt/maritime-coverage côté hôte WSL → /coverage
-      # dans le container. Path identique au NAS local (/coverage) pour que
-      # GeoServer puisse lire les GeoTIFFs sans mapping de chemin.
-      - /mnt/maritime-coverage:/coverage
+      # NFS volume direct : Docker monte lui-même le partage du NAS (au lieu
+      # de bind-mounter depuis Ubuntu WSL — le bind-mount NFS WSL ne se
+      # propage pas dans la VM docker-desktop-data). Path /coverage identique
+      # au NAS pour que GeoServer puisse lire les GeoTIFFs sans mapping.
+      - coverage-nfs:/coverage
     ports:
       # Expose 8500 sur le LAN. Docker Desktop forward depuis Windows host
       # automatiquement. Le firewall Windows doit autoriser inbound 8500
@@ -97,3 +96,13 @@ services:
       retries: 3
       start_period: 30s
     restart: unless-stopped
+
+volumes:
+  coverage-nfs:
+    driver: local
+    driver_opts:
+      type: nfs
+      # nolock = WSL2 ne supporte pas bien les locks NFS, on désactive.
+      # nfsvers=3 = compat plus large que v4 sur Synology DSM 7.
+      o: "addr=192.168.1.17,nolock,vers=3,soft,timeo=30"
+      device: ":/volume2/@docker/volumes/maritime-atlas_coverage-data/_data"
