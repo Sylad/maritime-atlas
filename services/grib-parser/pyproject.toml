@@ -1,0 +1,20 @@
+[project]
+name = "grib-parser"
+version = "0.1.0"
+description = "FastAPI sidecar called by the orchestrator runner Node to parse GRIB/NetCDF files via xarray/cfgrib/rioxarray and emit GeoTIFFs to a shared coverage volume."
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "xarray>=2024.10.0",
+    "rioxarray>=0.18.0",
+    "cfgrib>=0.9.14",
+    "eccodes>=2.38.0",
+    "netcdf4>=1.7.1",
+    "numpy>=2.0.0",
+    "requests>=2.32.0",
+]
+
+[tool.uv]
+package = false

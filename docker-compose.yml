@@ -473,6 +473,30 @@ services:
       - geoserver
     restart: unless-stopped
 
+  # ─── Sidecar Python grib-parser (sprint N4 orchestrator 2026-05-12) ──
+  # Appelé par le runner orchestrator (côté api) via HTTP POST /parse pour
+  # parser des fichiers GRIB/NetCDF et écrire les GeoTIFFs résultants
+  # dans le volume coverage partagé. Permet d'absorber les fetchers
+  # historiques (sst-fetcher, weather-fetcher, …) dans l'orchestrator
+  # dynamique sans réécrire xarray+rioxarray en Node.
+  #
+  # Pas d'auth — réseau interne docker compose uniquement (pas de port
+  # publié). Le runner connaît l'URL via env GRIB_PARSER_URL côté api.
+  grib-parser:
+    build: ./services/grib-parser
+    container_name: maritime-grib-parser
+    environment:
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - coverage-data:/coverage
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8500/health', timeout=2)\" || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
   # ─── API NestJS (sprint 5) — auth + palettes utilisateur ──────────
   # Service jeune avec Postgres (réutilise la base maritime existante,
   # 3 nouvelles tables isolées : users, palettes, user_layer_preferences).
@@ -489,6 +513,8 @@ services:
       JWT_EXPIRES_IN: "24h"
       # Sprint N2 orchestrator runner : RMQ pour le sink rmq_publish.
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-maritime}:${RABBITMQ_PASSWORD:-maritime}@rabbitmq:5672
+      # Sprint N4 orchestrator : sidecar Python grib-parser.
+      GRIB_PARSER_URL: http://grib-parser:8500
       GEOSERVER_URL: http://geoserver:8080/geoserver
       GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
       GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}

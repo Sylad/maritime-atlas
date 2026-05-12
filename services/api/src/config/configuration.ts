@@ -44,6 +44,9 @@ const configuration = () => ({
   rabbitMqUrl: process.env.RABBITMQ_URL ?? '',
   /** Shared secret pour POST /admin/jobs/log depuis les ingesters. */
   orchestratorJobToken: process.env.ORCHESTRATOR_JOB_TOKEN ?? '',
+  /** Sprint N4 : sidecar Python qui parse GRIB/NetCDF. Réseau interne
+      docker compose, pas d'auth (pas exposé en publique). */
+  gribParserUrl: process.env.GRIB_PARSER_URL ?? 'http://grib-parser:8500',
 });
 
 export default configuration;

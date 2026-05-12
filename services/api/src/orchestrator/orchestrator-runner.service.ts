@@ -174,6 +174,32 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
     let bytesIn = 0;
     let meta: Record<string, unknown> | undefined;
 
+    // Sprint N4 (2026-05-12) : si parser_kind est un des kinds GRIB/NetCDF,
+    // on délègue au sidecar Python qui fetch+parse+écrit le GeoTIFF d'un
+    // coup, puis on trigger reindex GeoServer si sink_config le précise.
+    const sidecarKinds = ['grib_wind10m', 'grib_wave', 'netcdf_sst'];
+    if (src.parserKind && sidecarKinds.includes(src.parserKind)) {
+      try {
+        const result = await this.runSidecarCycle(src);
+        bytesIn = result.bytesIn;
+        recordsIn = result.recordsIn;
+        recordsOut = result.recordsOut;
+        status = result.status;
+        errorKind = result.errorKind;
+        errorMsg = result.errorMsg;
+        meta = { kind: src.kind, parserKind: src.parserKind, sinkKind: src.sinkKind, paths: result.paths };
+      } catch (err) {
+        status = 'error';
+        errorKind = (err as Error).name;
+        errorMsg = (err as Error).message.slice(0, 500);
+        this.logger.warn(`Sidecar cycle ${src.name} failed: ${errorMsg}`);
+      } finally {
+        await this.persistJob(src, startedAt, status, errorKind, errorMsg,
+          recordsIn, recordsOut, bytesIn, meta);
+      }
+      return;
+    }
+
     try {
       // FETCH
       const fetched = await this.fetch(src);
@@ -200,33 +226,130 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
       errorMsg = (err as Error).message.slice(0, 500);
       this.logger.warn(`Cycle ${src.name} failed: ${errorMsg}`);
     } finally {
-      const finishedAt = new Date();
-      const durationMs = finishedAt.getTime() - startedAt.getTime();
-      await this.db.insert(dataJobs).values({
-        sourceName: src.name,
-        status,
-        startedAt,
-        finishedAt,
-        durationMs,
-        recordsIn, recordsOut, bytesIn,
-        errorKind, errorMsg,
-        meta,
-      });
-      await this.db.update(dataSources)
-        .set({ lastRunAt: finishedAt, lastStatus: status })
-        .where(eq(dataSources.id, src.id));
-      // SSE event après commit pour qu'un client qui refetch après reçoit
-      // bien le nouveau row.
-      this.emitJobCompleted({
-        type: 'job.completed',
-        sourceName: src.name,
-        status,
-        startedAt: startedAt.toISOString(),
-        finishedAt: finishedAt.toISOString(),
-        durationMs,
-        recordsOut,
-        errorMsg: errorMsg ?? null,
-      });
+      await this.persistJob(src, startedAt, status, errorKind, errorMsg,
+        recordsIn, recordsOut, bytesIn, meta);
+    }
+  }
+
+  /** Persiste data_jobs + update data_sources + emit SSE event. Extrait
+   *  pour être réutilisé par runCycle classique + runSidecarCycle. */
+  private async persistJob(
+    src: DataSource, startedAt: Date,
+    status: 'ok' | 'partial' | 'error',
+    errorKind: string | undefined, errorMsg: string | undefined,
+    recordsIn: number, recordsOut: number, bytesIn: number,
+    meta: Record<string, unknown> | undefined,
+  ): Promise<void> {
+    const finishedAt = new Date();
+    const durationMs = finishedAt.getTime() - startedAt.getTime();
+    await this.db.insert(dataJobs).values({
+      sourceName: src.name,
+      status,
+      startedAt,
+      finishedAt,
+      durationMs,
+      recordsIn, recordsOut, bytesIn,
+      errorKind, errorMsg,
+      meta,
+    });
+    await this.db.update(dataSources)
+      .set({ lastRunAt: finishedAt, lastStatus: status })
+      .where(eq(dataSources.id, src.id));
+    this.emitJobCompleted({
+      type: 'job.completed',
+      sourceName: src.name,
+      status,
+      startedAt: startedAt.toISOString(),
+      finishedAt: finishedAt.toISOString(),
+      durationMs,
+      recordsOut,
+      errorMsg: errorMsg ?? null,
+    });
+  }
+
+  // ─── Sidecar GRIB/NetCDF cycle (Sprint N4) ──────────────────────────
+  /** Appelle le sidecar Python grib-parser via HTTP POST /parse, puis
+   *  trigger un reindex GeoServer si `sink_config.geoserver_store` est
+   *  précisé. Retourne les stats du cycle pour persistJob. */
+  private async runSidecarCycle(src: DataSource): Promise<{
+    bytesIn: number; recordsIn: number; recordsOut: number;
+    status: 'ok' | 'partial' | 'error';
+    errorKind?: string; errorMsg?: string;
+    paths: string[];
+  }> {
+    if (!src.url) throw new Error('url required for sidecar cycle');
+    const sinkCfg = (src.sinkConfig ?? {}) as {
+      output_dir?: string; output_prefix?: string;
+      geoserver_store?: string; geoserver_workspace?: string;
+      valid_time?: string; bbox?: number[];
+    };
+    if (!sinkCfg.output_dir) throw new Error('sink_config.output_dir required');
+    const baseUrl = this.config.get<string>('gribParserUrl') ?? 'http://grib-parser:8500';
+
+    const payload = {
+      url: src.url,
+      kind: src.parserKind,
+      output_dir: sinkCfg.output_dir,
+      output_prefix: sinkCfg.output_prefix ?? src.name,
+      valid_time: sinkCfg.valid_time,
+      bbox: sinkCfg.bbox,
+    };
+    const resp = await fetch(`${baseUrl}/parse`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(300_000),
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`Sidecar HTTP ${resp.status}: ${text.slice(0, 200)}`);
+    }
+    const result = await resp.json() as {
+      ok: boolean; paths: string[]; records_out: number; bytes_in: number; error?: string;
+    };
+
+    let status: 'ok' | 'partial' | 'error' = result.ok ? 'ok' : 'error';
+    const errorMsg = result.error;
+
+    // Optionnel : trigger reindex GeoServer si le sink précise un store.
+    if (result.ok && sinkCfg.geoserver_store && this.config.get<string>('geoserverUrl')) {
+      try {
+        await this.triggerGeoServerReindex(
+          sinkCfg.geoserver_workspace ?? 'maritime',
+          sinkCfg.geoserver_store,
+          sinkCfg.output_dir,
+        );
+      } catch (err) {
+        status = 'partial';
+      }
+    }
+
+    return {
+      bytesIn: result.bytes_in,
+      recordsIn: result.ok ? 1 : 0,
+      recordsOut: result.records_out,
+      status,
+      errorMsg,
+      paths: result.paths,
+    };
+  }
+
+  /** POST external.imagemosaic au GeoServer REST pour qu'il indexe le
+   *  nouveau GeoTIFF dans le mosaic store time-aware. */
+  private async triggerGeoServerReindex(workspace: string, store: string, coverageDir: string): Promise<void> {
+    const gsUrl = this.config.get<string>('geoserverUrl');
+    const user = this.config.get<string>('geoserverUser') ?? 'admin';
+    const pass = this.config.get<string>('geoserverPass') ?? 'geoserver';
+    const url = `${gsUrl}/rest/workspaces/${workspace}/coveragestores/${store}/external.imagemosaic`;
+    const auth = Buffer.from(`${user}:${pass}`).toString('base64');
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain', Authorization: `Basic ${auth}` },
+      body: coverageDir,
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (![200, 201, 202].includes(resp.status)) {
+      throw new Error(`GeoServer reindex HTTP ${resp.status}`);
     }
   }
 
