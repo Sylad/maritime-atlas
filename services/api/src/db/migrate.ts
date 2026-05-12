@@ -122,6 +122,19 @@ CREATE TABLE IF NOT EXISTS data_sources (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS data_sources_name_idx ON data_sources (name);
 
+-- Sprint N2 : colonnes additionnelles pour exécution dynamique. ALTERs
+-- idempotents pour ne pas casser les seeds existants.
+ALTER TABLE data_sources ADD COLUMN IF NOT EXISTS schedule_kind TEXT;
+ALTER TABLE data_sources ADD COLUMN IF NOT EXISTS interval_seconds INTEGER;
+ALTER TABLE data_sources ADD COLUMN IF NOT EXISTS http_method TEXT DEFAULT 'GET';
+ALTER TABLE data_sources ADD COLUMN IF NOT EXISTS http_headers JSONB;
+ALTER TABLE data_sources ADD COLUMN IF NOT EXISTS http_params JSONB;
+ALTER TABLE data_sources ADD COLUMN IF NOT EXISTS parser_kind TEXT DEFAULT 'identity';
+ALTER TABLE data_sources ADD COLUMN IF NOT EXISTS parser_config JSONB;
+ALTER TABLE data_sources ADD COLUMN IF NOT EXISTS sink_kind TEXT DEFAULT 'rmq_publish';
+ALTER TABLE data_sources ADD COLUMN IF NOT EXISTS sink_config JSONB;
+ALTER TABLE data_sources ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
 CREATE TABLE IF NOT EXISTS data_jobs (
   id              BIGSERIAL,
   source_name     TEXT NOT NULL,

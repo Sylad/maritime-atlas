@@ -118,13 +118,38 @@ export const dataSources = pgTable('data_sources', {
   sinkLabel: text('sink_label'),
   /** Bbox cible (cohérence avec sprint Europe — informatif). */
   bbox: text('bbox'),
-  /** Activé pour orchestration auto (Sprint N2+). False en MVP. */
+  /** Activé pour orchestration auto. */
   enabled: boolean('enabled').notNull().default(false),
   /** Mis à jour à chaque reportJob() reçu. NULL = jamais reporté. */
   lastRunAt: timestamp('last_run_at', { withTimezone: true }),
   /** Dernier status reçu via reportJob() : 'ok' | 'partial' | 'error'. */
   lastStatus: text('last_status'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  // ─── Sprint N2 : exécution dynamique ──────────────────────────────
+  /** 'cron' (expr cron 6-fields), 'interval' (interval_seconds), 'once'
+   *  (déclenché manuellement uniquement). NULL = legacy seed (les
+   *  ingesters historiques continuent à se scheduler eux-mêmes). */
+  scheduleKind: text('schedule_kind'),
+  /** Pour scheduleKind='interval' : nombre de secondes entre runs. */
+  intervalSeconds: integer('interval_seconds'),
+  /** HTTP method (GET, POST, …) pour kind='http_json'. */
+  httpMethod: text('http_method').default('GET'),
+  /** Headers HTTP additionnels (JSON objet). */
+  httpHeaders: jsonb('http_headers'),
+  /** Query params (JSON objet, encodé safe). */
+  httpParams: jsonb('http_params'),
+  /** Parser kind : 'identity' (pass-through), 'json_path' (extract via
+   *  jq-like path), 'grib' (sidecar Python — N4+). */
+  parserKind: text('parser_kind').default('identity'),
+  /** Config parser : pour 'json_path', { extractPath: '$.features[*]' }. */
+  parserConfig: jsonb('parser_config'),
+  /** Sink kind : 'pg_insert' (table + columns), 'rmq_publish' (exchange
+   *  + routing), 'geotiff_volume' (N4+). */
+  sinkKind: text('sink_kind').default('rmq_publish'),
+  /** Config sink : pour 'pg_insert', { table, columns: { sourceKey: dbColumn } }
+   *  ; pour 'rmq_publish', { exchange, routingKey }. */
+  sinkConfig: jsonb('sink_config'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({
   nameIdx: uniqueIndex('data_sources_name_idx').on(t.name),
 }));

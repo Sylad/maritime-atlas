@@ -1,7 +1,8 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { RouterLink, RouterLinkActive } from '@angular/router';
-import { OrchestratorService, type DataJob, type DataSource } from '../../services/orchestrator.service';
+import { OrchestratorService, type DataJob, type DataSource, type UpsertSourceInput } from '../../services/orchestrator.service';
 
 /**
  * Data Orchestrator MVP S1 (2026-05-12) — admin page.
@@ -25,7 +26,7 @@ interface HourBucket {
 
 @Component({
   selector: 'app-admin-orchestrator',
-  imports: [DatePipe, DecimalPipe, RouterLink, RouterLinkActive],
+  imports: [DatePipe, DecimalPipe, FormsModule, RouterLink, RouterLinkActive],
   template: `
     <div class="orch-shell">
       <header class="orch-header">
@@ -100,7 +101,14 @@ interface HourBucket {
 
       <!-- ─── Section 2 : table sources ─── -->
       <section class="orch-section">
-        <h2>Sources ({{ svc.sources().length }})</h2>
+        <h2>
+          Sources ({{ svc.sources().length }})
+          <button type="button" class="btn-create" (click)="openCreate()">+ Nouvelle source</button>
+        </h2>
+        <p class="orch-hint">
+          <span class="legend-self">self-managed</span> = scheduler interne du service
+          (legacy, le toggle est informatif). <span class="legend-orch">orchestrator</span> = scheduler dynamique géré ici.
+        </p>
         <div class="orch-table-wrap">
           <table class="orch-table">
             <thead>
@@ -110,8 +118,9 @@ interface HourBucket {
                 <th>Schedule</th>
                 <th>Dernière exécution</th>
                 <th>Status</th>
-                <th>24h (sparkline)</th>
-                <th>Enabled</th>
+                <th>24h</th>
+                <th>Exécution</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -149,11 +158,24 @@ interface HourBucket {
                     </svg>
                   </td>
                   <td>
-                    <label class="toggle">
-                      <input type="checkbox" [checked]="src.enabled"
-                             (change)="onToggle(src, $any($event.target).checked)" />
-                      <span></span>
-                    </label>
+                    @if (!src.scheduleKind) {
+                      <span class="pill pill-self" title="Le service gère son propre scheduler — le toggle est informatif tant qu'on n'a pas migré son exécution vers l'orchestrator">self-managed</span>
+                    } @else {
+                      <label class="toggle" [title]="src.enabled ? 'Activé · orchestrator schedule' : 'Désactivé'">
+                        <input type="checkbox" [checked]="src.enabled"
+                               (change)="onToggle(src, $any($event.target).checked)" />
+                        <span></span>
+                      </label>
+                    }
+                  </td>
+                  <td class="orch-actions">
+                    @if (src.scheduleKind) {
+                      <button type="button" class="btn-trigger" (click)="onTrigger(src)" title="Trigger une exécution manuelle maintenant">▶</button>
+                      <button type="button" class="btn-edit" (click)="openEdit(src)">Edit</button>
+                      <button type="button" class="btn-delete" (click)="onDelete(src)" title="Supprimer (cascade jobs)">×</button>
+                    } @else {
+                      <span class="orch-noaction">—</span>
+                    }
                   </td>
                 </tr>
               }
@@ -161,6 +183,78 @@ interface HourBucket {
           </table>
         </div>
       </section>
+
+      <!-- ─── Modal create/edit source ─── -->
+      @if (formOpen()) {
+        <div class="modal-backdrop" (click)="closeForm()">
+          <div class="modal" (click)="$event.stopPropagation()">
+            <h3>{{ editingId() ? 'Éditer source' : 'Nouvelle source' }}</h3>
+            <div class="form-grid">
+              <label>Name<input [(ngModel)]="form.name" placeholder="ex: weather-mongo" /></label>
+              <label>Kind
+                <select [(ngModel)]="form.kind">
+                  <option value="http_json">http_json</option>
+                  <option value="http_wfs">http_wfs</option>
+                  <option value="http_netcdf">http_netcdf</option>
+                </select>
+              </label>
+              <label>URL<input [(ngModel)]="form.url" placeholder="https://…" /></label>
+              <label>Schedule kind
+                <select [(ngModel)]="form.scheduleKind">
+                  <option value="">— (manual only)</option>
+                  <option value="cron">cron</option>
+                  <option value="interval">interval</option>
+                </select>
+              </label>
+              @if (form.scheduleKind === 'cron') {
+                <label>Cron expr (6 fields)<input [(ngModel)]="form.scheduleExpr" placeholder="0 */15 * * * *" /></label>
+              }
+              @if (form.scheduleKind === 'interval') {
+                <label>Interval (s)<input type="number" [(ngModel)]="form.intervalSeconds" placeholder="60" /></label>
+              }
+              <label>Parser
+                <select [(ngModel)]="form.parserKind">
+                  <option value="identity">identity</option>
+                  <option value="json_path">json_path</option>
+                </select>
+              </label>
+              @if (form.parserKind === 'json_path') {
+                <label>Extract path<input [(ngModel)]="form.parserExtractPath" placeholder="$.features[*]" /></label>
+              }
+              <label>Sink
+                <select [(ngModel)]="form.sinkKind">
+                  <option value="rmq_publish">rmq_publish</option>
+                  <option value="pg_insert">pg_insert</option>
+                </select>
+              </label>
+              @if (form.sinkKind === 'rmq_publish') {
+                <label>RMQ exchange<input [(ngModel)]="form.sinkExchange" placeholder="orchestrator.weather" /></label>
+                <label>Routing key<input [(ngModel)]="form.sinkRoutingKey" placeholder="weather.point" /></label>
+              }
+              @if (form.sinkKind === 'pg_insert') {
+                <label>PG table<input [(ngModel)]="form.sinkTable" placeholder="my_table" /></label>
+                <label class="span2">Columns mapping (JSON 'srcKey → dbCol')
+                  <textarea rows="3" [(ngModel)]="form.sinkColumnsJson"
+                            placeholder='{"name": "title", "value": "val"}'></textarea>
+                </label>
+              }
+              <label class="span2 row-checkbox">
+                <input type="checkbox" [(ngModel)]="form.enabled" />
+                Enabled (le runner schedule cette source)
+              </label>
+              @if (formError()) {
+                <div class="form-error span2">{{ formError() }}</div>
+              }
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="btn-cancel" (click)="closeForm()">Annuler</button>
+              <button type="button" class="btn-save" (click)="onSave()" [disabled]="saving()">
+                {{ saving() ? '…' : 'Enregistrer' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      }
 
       <!-- ─── Section 3 : derniers jobs ─── -->
       <section class="orch-section">
@@ -355,8 +449,125 @@ interface HourBucket {
     }
     .toggle input:checked + span { background: #22c55e; }
     .toggle input:checked + span::before { transform: translateX(18px); }
+
+    /* Pills & legend */
+    .pill-self {
+      background: rgba(148, 163, 184, 0.15);
+      color: #94a3b8;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.7em;
+      font-family: 'JetBrains Mono', monospace;
+      letter-spacing: 0.05em;
+      cursor: help;
+    }
+    .legend-self { color: #94a3b8; padding: 0 2px; }
+    .legend-orch { color: #22c55e; padding: 0 2px; }
+
+    /* Action buttons */
+    .orch-actions { display: flex; gap: 4px; white-space: nowrap; }
+    .orch-noaction { color: #475569; font-size: 0.8em; padding-left: 8px; }
+    .btn-create {
+      margin-left: 12px;
+      padding: 4px 12px;
+      background: #16a34a;
+      color: white;
+      border: 0;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.85em;
+    }
+    .btn-create:hover { background: #15803d; }
+    .btn-trigger, .btn-edit, .btn-delete {
+      padding: 3px 8px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.04);
+      color: #cbd5e1;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 0.78em;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .btn-trigger { color: #4ade80; }
+    .btn-trigger:hover { background: rgba(22, 163, 74, 0.2); }
+    .btn-edit:hover { background: rgba(96, 165, 250, 0.2); color: #93c5fd; }
+    .btn-delete { color: #f87171; }
+    .btn-delete:hover { background: rgba(220, 38, 38, 0.2); }
+
+    /* Modal */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.65);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    .modal {
+      background: #0f172a;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px;
+      padding: 24px;
+      width: min(640px, 95vw);
+      max-height: 90vh;
+      overflow-y: auto;
+      color: #e5e7eb;
+    }
+    .modal h3 { margin: 0 0 16px; font-size: 1.1em; color: #cbd5e1; }
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px 16px;
+    }
+    .form-grid label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 0.78em;
+      color: #94a3b8;
+    }
+    .form-grid label.span2 { grid-column: 1 / -1; }
+    .form-grid input, .form-grid select, .form-grid textarea {
+      padding: 6px 10px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: #e5e7eb;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 0.88em;
+    }
+    .form-grid textarea { font-family: 'JetBrains Mono', monospace; font-size: 0.82em; }
+    .row-checkbox { flex-direction: row !important; align-items: center; gap: 8px !important; color: #cbd5e1 !important; }
+    .form-error {
+      color: #fca5a5;
+      background: rgba(220, 38, 38, 0.1);
+      border: 1px solid rgba(220, 38, 38, 0.3);
+      padding: 8px;
+      border-radius: 4px;
+      font-size: 0.85em;
+    }
+    .modal-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      margin-top: 20px;
+    }
+    .btn-cancel, .btn-save {
+      padding: 8px 18px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.88em;
+      border: 0;
+    }
+    .btn-cancel { background: rgba(255,255,255,0.08); color: #cbd5e1; }
+    .btn-cancel:hover { background: rgba(255,255,255,0.14); }
+    .btn-save { background: #2563eb; color: white; }
+    .btn-save:hover { background: #1d4ed8; }
+    .btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
   `,
-  changeDetection: ChangeDetectionStrategy.OnPush,
+  // OnPush désactivé : la modale utilise ngModel two-way binding (form
+  // mutable), incompatible avec OnPush sans wrapper signal par champ.
 })
 export class AdminOrchestratorComponent implements OnInit {
   readonly svc = inject(OrchestratorService);
@@ -391,6 +602,33 @@ export class AdminOrchestratorComponent implements OnInit {
   /** Max bucket count par-source (pour échelle indépendante des sparklines). */
   private sparkMaxBySource = new Map<string, number>();
 
+  // ─── Form state (modal create/edit) ──────────────────────────────
+  readonly formOpen = signal(false);
+  readonly editingId = signal<number | null>(null);
+  readonly saving = signal(false);
+  readonly formError = signal<string | null>(null);
+
+  form = this.blankForm();
+
+  private blankForm() {
+    return {
+      name: '',
+      kind: 'http_json',
+      url: '',
+      scheduleKind: '',
+      scheduleExpr: '',
+      intervalSeconds: 60 as number | null,
+      parserKind: 'identity',
+      parserExtractPath: '',
+      sinkKind: 'rmq_publish',
+      sinkExchange: '',
+      sinkRoutingKey: '',
+      sinkTable: '',
+      sinkColumnsJson: '',
+      enabled: false,
+    };
+  }
+
   ngOnInit(): void {
     this.svc.loadAll();
     // Auto-refresh toutes les 60s pour suivre les jobs cron qui arrivent.
@@ -403,6 +641,111 @@ export class AdminOrchestratorComponent implements OnInit {
 
   async onToggle(src: DataSource, checked: boolean): Promise<void> {
     await this.svc.toggle(src.id, checked);
+  }
+
+  openCreate(): void {
+    this.form = this.blankForm();
+    this.editingId.set(null);
+    this.formError.set(null);
+    this.formOpen.set(true);
+  }
+
+  openEdit(src: DataSource): void {
+    this.form = {
+      name: src.name,
+      kind: src.kind,
+      url: src.url ?? '',
+      scheduleKind: src.scheduleKind ?? '',
+      scheduleExpr: src.scheduleExpr ?? '',
+      intervalSeconds: src.intervalSeconds ?? 60,
+      parserKind: src.parserKind ?? 'identity',
+      parserExtractPath: (src.parserConfig as { extractPath?: string } | null)?.extractPath ?? '',
+      sinkKind: src.sinkKind ?? 'rmq_publish',
+      sinkExchange: (src.sinkConfig as { exchange?: string } | null)?.exchange ?? '',
+      sinkRoutingKey: (src.sinkConfig as { routingKey?: string } | null)?.routingKey ?? '',
+      sinkTable: (src.sinkConfig as { table?: string } | null)?.table ?? '',
+      sinkColumnsJson: JSON.stringify((src.sinkConfig as { columns?: object } | null)?.columns ?? {}, null, 2),
+      enabled: src.enabled,
+    };
+    this.editingId.set(src.id);
+    this.formError.set(null);
+    this.formOpen.set(true);
+  }
+
+  closeForm(): void {
+    this.formOpen.set(false);
+  }
+
+  async onSave(): Promise<void> {
+    this.formError.set(null);
+    this.saving.set(true);
+    try {
+      const payload: UpsertSourceInput = {
+        name: this.form.name.trim(),
+        kind: this.form.kind,
+        url: this.form.url.trim() || undefined,
+        scheduleKind: this.form.scheduleKind || undefined,
+        scheduleExpr: this.form.scheduleExpr.trim() || undefined,
+        intervalSeconds: this.form.scheduleKind === 'interval' ? Number(this.form.intervalSeconds) : undefined,
+        parserKind: this.form.parserKind,
+        parserConfig: this.form.parserKind === 'json_path' && this.form.parserExtractPath
+          ? { extractPath: this.form.parserExtractPath }
+          : undefined,
+        sinkKind: this.form.sinkKind,
+        sinkConfig: this.buildSinkConfig(),
+        enabled: this.form.enabled,
+      };
+      if (this.editingId() != null) {
+        await this.svc.update(this.editingId()!, payload);
+      } else {
+        await this.svc.create(payload);
+      }
+      this.closeForm();
+    } catch (err: any) {
+      const msg = err?.error?.message ?? err?.message ?? 'Erreur';
+      this.formError.set(Array.isArray(msg) ? msg.join(' · ') : String(msg));
+    } finally {
+      this.saving.set(false);
+    }
+  }
+
+  private buildSinkConfig(): Record<string, unknown> | undefined {
+    if (this.form.sinkKind === 'rmq_publish') {
+      const exchange = this.form.sinkExchange.trim();
+      const routingKey = this.form.sinkRoutingKey.trim();
+      if (!exchange && !routingKey) return undefined;
+      return { exchange, routingKey };
+    }
+    if (this.form.sinkKind === 'pg_insert') {
+      const table = this.form.sinkTable.trim();
+      let columns: Record<string, string> = {};
+      try {
+        columns = this.form.sinkColumnsJson.trim()
+          ? JSON.parse(this.form.sinkColumnsJson)
+          : {};
+      } catch {
+        throw new Error('Colonnes JSON invalides');
+      }
+      return { table, columns };
+    }
+    return undefined;
+  }
+
+  async onDelete(src: DataSource): Promise<void> {
+    if (!confirm(`Supprimer la source "${src.name}" ? (jobs historiques préservés)`)) return;
+    try {
+      await this.svc.remove(src.id);
+    } catch (err: any) {
+      alert(`Erreur suppression: ${err?.error?.message ?? err?.message ?? err}`);
+    }
+  }
+
+  async onTrigger(src: DataSource): Promise<void> {
+    try {
+      await this.svc.trigger(src.id);
+    } catch (err: any) {
+      alert(`Erreur trigger: ${err?.error?.message ?? err?.message ?? err}`);
+    }
   }
 
   // ─── Helpers chart (main) ──────────────────────────────────────────

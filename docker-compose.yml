@@ -450,6 +450,8 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-maritime}:${POSTGRES_PASSWORD:-maritime}@postgres:5432/${POSTGRES_DB:-maritime}
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-in-prod}
       JWT_EXPIRES_IN: "24h"
+      # Sprint N2 orchestrator runner : RMQ pour le sink rmq_publish.
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-maritime}:${RABBITMQ_PASSWORD:-maritime}@rabbitmq:5672
       GEOSERVER_URL: http://geoserver:8080/geoserver
       GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
       GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}

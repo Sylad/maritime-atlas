@@ -14,6 +14,17 @@ export interface DataSource {
   lastRunAt: string | null;
   lastStatus: 'ok' | 'partial' | 'error' | null;
   createdAt: string;
+  // N2 additions
+  scheduleKind: 'cron' | 'interval' | 'once' | null;
+  intervalSeconds: number | null;
+  httpMethod: string | null;
+  httpHeaders: Record<string, string> | null;
+  httpParams: Record<string, string> | null;
+  parserKind: 'identity' | 'json_path' | 'grib' | null;
+  parserConfig: Record<string, unknown> | null;
+  sinkKind: 'pg_insert' | 'rmq_publish' | 'geotiff_volume' | null;
+  sinkConfig: Record<string, unknown> | null;
+  updatedAt: string | null;
 }
 
 export interface DataJob {
@@ -29,6 +40,25 @@ export interface DataJob {
   errorKind: string | null;
   errorMsg: string | null;
   meta: Record<string, unknown> | null;
+}
+
+export interface UpsertSourceInput {
+  name: string;
+  kind: string;
+  url?: string;
+  scheduleExpr?: string;
+  scheduleKind?: string;
+  intervalSeconds?: number;
+  httpMethod?: string;
+  httpHeaders?: Record<string, string>;
+  httpParams?: Record<string, string>;
+  parserKind?: string;
+  parserConfig?: Record<string, unknown>;
+  sinkKind?: string;
+  sinkConfig?: Record<string, unknown>;
+  bbox?: string;
+  sinkLabel?: string;
+  enabled?: boolean;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -62,5 +92,36 @@ export class OrchestratorService {
       this.http.patch<DataSource>(`/api/admin/sources/${id}`, { enabled }),
     );
     await this.loadAll();
+  }
+
+  async create(payload: UpsertSourceInput): Promise<DataSource> {
+    const created = await firstValueFrom(
+      this.http.post<DataSource>('/api/admin/sources', payload),
+    );
+    await this.loadAll();
+    return created;
+  }
+
+  async update(id: number, payload: UpsertSourceInput): Promise<DataSource> {
+    const updated = await firstValueFrom(
+      this.http.put<DataSource>(`/api/admin/sources/${id}`, payload),
+    );
+    await this.loadAll();
+    return updated;
+  }
+
+  async remove(id: number): Promise<void> {
+    await firstValueFrom(
+      this.http.delete<{ ok: boolean }>(`/api/admin/sources/${id}`),
+    );
+    await this.loadAll();
+  }
+
+  async trigger(id: number): Promise<void> {
+    await firstValueFrom(
+      this.http.post<{ ok: boolean }>(`/api/admin/sources/${id}/trigger`, {}),
+    );
+    // Pause courte avant de reload : laisser le runner finir + persister.
+    setTimeout(() => this.loadAll(), 1500);
   }
 }

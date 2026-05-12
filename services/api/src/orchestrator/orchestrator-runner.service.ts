@@ -1,0 +1,299 @@
+import { Injectable, Logger, OnModuleInit, Inject, OnModuleDestroy } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { CronJob } from 'cron';
+import { SchedulerRegistry } from '@nestjs/schedule';
+import { eq } from 'drizzle-orm';
+import { DB_TOKEN, type Db } from '../db/db.module';
+import { dataSources, dataJobs, type DataSource } from '../db/schema';
+import { connect, type Channel, type ChannelModel } from 'amqplib';
+
+/**
+ * Sprint N2 (2026-05-12) — exécution dynamique des sources `enabled=true`.
+ *
+ * Au boot et à chaque `reload()` (déclenché par les controllers
+ * POST/PUT/PATCH/DELETE sur `/admin/sources`), on :
+ *   1. Read sources `enabled=true` ET `schedule_kind IS NOT NULL`
+ *   2. Pour chaque source, registre un cron job (via SchedulerRegistry)
+ *      ou un setInterval.
+ *   3. Au tick, exécute la chaîne fetch → parse → sink, persiste un
+ *      row dans data_jobs (via le helper interne, pas via le HTTP
+ *      endpoint — on est dans la même process).
+ *
+ * Les sources legacy (schedule_kind=NULL) sont skippées : elles ont
+ * leur propre scheduler embarqué (apscheduler Python, @Cron NestJS).
+ *
+ * Parsers supportés :
+ *   - identity    → pass-through (le sink reçoit le body brut)
+ *   - json_path   → extractPath dot/$.features[*]/etc., array iterable
+ *
+ * Sinks supportés :
+ *   - rmq_publish → JSON.stringify + publish sur (exchange, routingKey)
+ *   - pg_insert   → SQL INSERT dynamique sur (table, columns map)
+ */
+
+type RegisteredJob = {
+  type: 'cron' | 'interval';
+  name: string;
+  cleanup: () => void;
+};
+
+@Injectable()
+export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(OrchestratorRunnerService.name);
+  private rmqChannel: Channel | null = null;
+  private rmqConn: ChannelModel | null = null;
+  private registered: Map<number, RegisteredJob> = new Map();
+
+  constructor(
+    @Inject(DB_TOKEN) private readonly db: Db,
+    private readonly config: ConfigService,
+    private readonly scheduler: SchedulerRegistry,
+  ) {}
+
+  async onModuleInit(): Promise<void> {
+    // Connect RMQ best-effort (le sink rmq_publish en dépend).
+    const rmqUrl = this.config.get<string>('rabbitMqUrl');
+    if (rmqUrl) {
+      try {
+        this.rmqConn = await connect(rmqUrl);
+        this.rmqChannel = await this.rmqConn.createChannel();
+        this.logger.log('RMQ connected (orchestrator runner)');
+      } catch (err) {
+        this.logger.warn(`RMQ connect failed: ${(err as Error).message} — sink rmq_publish disabled`);
+      }
+    }
+    await this.reload();
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    for (const [, job] of this.registered) job.cleanup();
+    this.registered.clear();
+    try { await this.rmqChannel?.close(); } catch {}
+    try { await this.rmqConn?.close(); } catch {}
+  }
+
+  /** Refresh complet : drop tous les jobs registered + re-register depuis DB. */
+  async reload(): Promise<void> {
+    for (const [, job] of this.registered) job.cleanup();
+    this.registered.clear();
+
+    const sources = await this.db.select().from(dataSources);
+    let scheduled = 0;
+    for (const src of sources) {
+      if (!src.enabled) continue;
+      if (!src.scheduleKind) continue;
+      try {
+        this.registerSource(src);
+        scheduled++;
+      } catch (err) {
+        this.logger.error(`Failed to register source ${src.name}: ${(err as Error).message}`);
+      }
+    }
+    this.logger.log(`Orchestrator reload : ${scheduled} sources scheduled`);
+  }
+
+  private registerSource(src: DataSource): void {
+    const name = `orchestrator-src-${src.id}`;
+    if (src.scheduleKind === 'cron') {
+      if (!src.scheduleExpr) throw new Error(`scheduleExpr required for cron`);
+      const job = new CronJob(src.scheduleExpr, () => this.runOnceSilent(src));
+      this.scheduler.addCronJob(name, job);
+      job.start();
+      this.registered.set(src.id, {
+        type: 'cron', name,
+        cleanup: () => {
+          try { job.stop(); } catch {}
+          try { this.scheduler.deleteCronJob(name); } catch {}
+        },
+      });
+    } else if (src.scheduleKind === 'interval') {
+      if (!src.intervalSeconds || src.intervalSeconds < 5) {
+        throw new Error(`intervalSeconds >= 5 required for interval schedule`);
+      }
+      const handle = setInterval(() => this.runOnceSilent(src), src.intervalSeconds * 1000);
+      this.scheduler.addInterval(name, handle);
+      this.registered.set(src.id, {
+        type: 'interval', name,
+        cleanup: () => {
+          clearInterval(handle);
+          try { this.scheduler.deleteInterval(name); } catch {}
+        },
+      });
+    } else if (src.scheduleKind === 'once') {
+      // Trigger manuel uniquement — pas de schedule auto.
+    } else {
+      throw new Error(`Unknown scheduleKind: ${src.scheduleKind}`);
+    }
+  }
+
+  /** Public : exécution one-shot (depuis le bouton trigger UI). Resolve
+   *  même en cas d'erreur (l'erreur est persistée dans data_jobs). */
+  async runOnce(src: DataSource): Promise<void> {
+    await this.runCycle(src);
+  }
+
+  /** Pour les ticks scheduler internes — fire-and-forget. */
+  private runOnceSilent(src: DataSource): void {
+    this.runCycle(src).catch(() => {});
+  }
+
+  // ─── Cycle : fetch → parse → sink + log job ─────────────────────────
+  private async runCycle(src: DataSource): Promise<void> {
+    const startedAt = new Date();
+    let status: 'ok' | 'partial' | 'error' = 'ok';
+    let errorKind: string | undefined;
+    let errorMsg: string | undefined;
+    let recordsIn = 0;
+    let recordsOut = 0;
+    let bytesIn = 0;
+    let meta: Record<string, unknown> | undefined;
+
+    try {
+      // FETCH
+      const fetched = await this.fetch(src);
+      bytesIn = fetched.bytes;
+      // PARSE
+      const records = this.parse(src, fetched.body);
+      recordsIn = records.length;
+      // SINK
+      for (const r of records) {
+        try {
+          await this.sink(src, r);
+          recordsOut++;
+        } catch (err) {
+          status = 'partial';
+          if (!errorMsg) errorMsg = `sink: ${(err as Error).message}`.slice(0, 500);
+          if (!errorKind) errorKind = (err as Error).name;
+        }
+      }
+      if (recordsIn > 0 && recordsOut === 0) status = 'error';
+      meta = { kind: src.kind, parserKind: src.parserKind, sinkKind: src.sinkKind };
+    } catch (err) {
+      status = 'error';
+      errorKind = (err as Error).name;
+      errorMsg = (err as Error).message.slice(0, 500);
+      this.logger.warn(`Cycle ${src.name} failed: ${errorMsg}`);
+    } finally {
+      const finishedAt = new Date();
+      await this.db.insert(dataJobs).values({
+        sourceName: src.name,
+        status,
+        startedAt,
+        finishedAt,
+        durationMs: finishedAt.getTime() - startedAt.getTime(),
+        recordsIn, recordsOut, bytesIn,
+        errorKind, errorMsg,
+        meta,
+      });
+      await this.db.update(dataSources)
+        .set({ lastRunAt: finishedAt, lastStatus: status })
+        .where(eq(dataSources.id, src.id));
+    }
+  }
+
+  // ─── FETCH ──────────────────────────────────────────────────────────
+  private async fetch(src: DataSource): Promise<{ body: unknown; bytes: number }> {
+    if (src.kind === 'http_json' || src.kind === 'http_wfs' || src.kind === 'http_netcdf') {
+      if (!src.url) throw new Error('url required');
+      const params = (src.httpParams ?? {}) as Record<string, string>;
+      const qs = new URLSearchParams(params).toString();
+      const url = qs ? `${src.url}${src.url.includes('?') ? '&' : '?'}${qs}` : src.url;
+      const headers = (src.httpHeaders ?? {}) as Record<string, string>;
+      const method = (src.httpMethod ?? 'GET') as string;
+      const resp = await fetch(url, { method, headers, signal: AbortSignal.timeout(30_000) });
+      const text = await resp.text();
+      const bytes = new TextEncoder().encode(text).length;
+      if (!resp.ok) throw new Error(`HTTP ${resp.status} ${text.slice(0, 200)}`);
+      // Tentative JSON parse pour les payloads JSON, sinon raw text.
+      try { return { body: JSON.parse(text), bytes }; }
+      catch { return { body: text, bytes }; }
+    }
+    throw new Error(`Unsupported fetch kind: ${src.kind}`);
+  }
+
+  // ─── PARSE ──────────────────────────────────────────────────────────
+  private parse(src: DataSource, body: unknown): unknown[] {
+    const kind = src.parserKind ?? 'identity';
+    if (kind === 'identity') {
+      // Si body est un array, on l'itère. Sinon, on wrap en single-item.
+      return Array.isArray(body) ? body : [body];
+    }
+    if (kind === 'json_path') {
+      const cfg = (src.parserConfig ?? {}) as { extractPath?: string };
+      const path = cfg.extractPath ?? '$';
+      return this.applyJsonPath(body, path);
+    }
+    throw new Error(`Unsupported parser kind: ${kind}`);
+  }
+
+  /** Mini-jsonpath : supporte $, $.foo, $.foo.bar, $.foo[*], $.foo[*].bar.
+   *  Pour le full jq-like, on passera à un sidecar Python en N4. */
+  private applyJsonPath(input: unknown, path: string): unknown[] {
+    if (!path || path === '$') return Array.isArray(input) ? input : [input];
+    const tokens = path.replace(/^\$\.?/, '').split('.').filter(Boolean);
+    let cur: unknown[] = [input];
+    for (const tok of tokens) {
+      const wildcardMatch = tok.match(/^(.+?)\[\*\]$/);
+      const key = wildcardMatch ? wildcardMatch[1] : tok;
+      cur = cur.flatMap((node) => {
+        if (node == null) return [];
+        const v = (node as Record<string, unknown>)[key];
+        if (v == null) return [];
+        if (wildcardMatch && Array.isArray(v)) return v;
+        return [v];
+      });
+    }
+    return cur;
+  }
+
+  // ─── SINK ───────────────────────────────────────────────────────────
+  private async sink(src: DataSource, record: unknown): Promise<void> {
+    const kind = src.sinkKind ?? 'rmq_publish';
+    if (kind === 'rmq_publish') {
+      if (!this.rmqChannel) throw new Error('RMQ channel not available');
+      const cfg = (src.sinkConfig ?? {}) as { exchange?: string; routingKey?: string };
+      const exchange = cfg.exchange ?? `orchestrator.${src.name}`;
+      const routingKey = cfg.routingKey ?? src.name;
+      // Assert exchange à la 1ère fois (idempotent).
+      await this.rmqChannel.assertExchange(exchange, 'topic', { durable: true });
+      const payload = Buffer.from(JSON.stringify(record));
+      this.rmqChannel.publish(exchange, routingKey, payload, {
+        contentType: 'application/json', persistent: false,
+      });
+      return;
+    }
+    if (kind === 'pg_insert') {
+      const cfg = (src.sinkConfig ?? {}) as { table?: string; columns?: Record<string, string> };
+      if (!cfg.table) throw new Error('sinkConfig.table required for pg_insert');
+      const cols = cfg.columns ?? {};
+      const rec = (record ?? {}) as Record<string, unknown>;
+      const dbColumns: string[] = [];
+      const values: unknown[] = [];
+      const placeholders: string[] = [];
+      let i = 1;
+      for (const [srcKey, dbCol] of Object.entries(cols)) {
+        dbColumns.push(this.safeIdent(dbCol));
+        values.push(rec[srcKey] ?? null);
+        placeholders.push(`$${i++}`);
+      }
+      if (dbColumns.length === 0) throw new Error('No columns mapping in sinkConfig');
+      const sql = `INSERT INTO ${this.safeIdent(cfg.table)} (${dbColumns.join(', ')}) VALUES (${placeholders.join(', ')})`;
+      // db.execute(rawSql) — Drizzle execute attend du sql tagged. On
+      // utilise le client pg direct via $client.
+      const pgClient = (this.db as unknown as { $client: { unsafe: (sql: string, params: unknown[]) => Promise<unknown> } }).$client;
+      await pgClient.unsafe(sql, values);
+      return;
+    }
+    throw new Error(`Unsupported sink kind: ${kind}`);
+  }
+
+  /** Whitelist [a-zA-Z0-9_] pour éviter SQL injection sur les identifiants
+   *  dynamiques table/column. Si l'utilisateur a un nom avec caractère
+   *  louche, le sink reject. */
+  private safeIdent(s: string): string {
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)) {
+      throw new Error(`Unsafe SQL identifier: ${s}`);
+    }
+    return s;
+  }
+}

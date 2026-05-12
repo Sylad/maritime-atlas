@@ -39,6 +39,11 @@ const configuration = () => ({
   /** URL de retour Google après l'auth. Doit être whitelist côté Google
       Cloud Console "Identifiants" → "ID client OAuth" → URI de redirection. */
   googleCallbackUrl: process.env.GOOGLE_CALLBACK_URL ?? 'http://localhost:4204/api/auth/google/callback',
+  // ─── Data Orchestrator (Sprint N1+N2) ───
+  /** RMQ URL pour le sink `rmq_publish` du runner. Best-effort si absent. */
+  rabbitMqUrl: process.env.RABBITMQ_URL ?? '',
+  /** Shared secret pour POST /admin/jobs/log depuis les ingesters. */
+  orchestratorJobToken: process.env.ORCHESTRATOR_JOB_TOKEN ?? '',
 });
 
 export default configuration;
