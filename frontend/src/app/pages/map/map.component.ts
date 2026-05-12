@@ -364,6 +364,19 @@ function toIsoTimestamp(d: Date): string {
                   <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
                          [value]="getOpacity('sst')"
                          (input)="setOpacity('sst', +$any($event.target).value)" />
+                  <div class="contour-control">
+                    <label class="contour-toggle">
+                      <input type="checkbox" [checked]="showSstContours()" (change)="showSstContours.set($any($event.target).checked)" />
+                      <span>Isolignes</span>
+                    </label>
+                    @if (showSstContours()) {
+                      <input type="range" min="0.5" max="5" step="0.5"
+                             [value]="sstContourInterval()"
+                             (input)="sstContourInterval.set(+$any($event.target).value)"
+                             title="Intervalle isolignes" />
+                      <span class="contour-value">{{ sstContourInterval() }}°C</span>
+                    }
+                  </div>
                 }
               </div>
               <div class="layer-row">
@@ -1391,6 +1404,42 @@ function toIsoTimestamp(d: Date): string {
       from { opacity: 0; transform: translateY(-4px); }
       to   { opacity: 1; transform: translateY(0); }
     }
+    /* V2 isolignes sous-toggle — sous l'opacity slider du raster */
+    .contour-control {
+      display: flex;
+      align-items: center;
+      gap: 0.5em;
+      margin-left: 1.6em;
+      margin-top: 0.3em;
+      font-size: 0.7rem;
+      color: var(--fg-muted);
+    }
+    .contour-toggle {
+      display: flex;
+      align-items: center;
+      gap: 0.3em;
+      cursor: pointer;
+      input {
+        accent-color: var(--accent);
+        width: 12px;
+        height: 12px;
+      }
+    }
+    .contour-control input[type="range"] {
+      flex: 1;
+      max-width: 90px;
+      height: 3px;
+      appearance: none;
+      background: var(--bg-3);
+      border-radius: 2px;
+      accent-color: var(--accent);
+    }
+    .contour-value {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      color: var(--fg);
+      min-width: 30px;
+    }
     /* Placeholder rows = "à venir" — désactivées visuellement */
     .layer-row.layer-soon {
       opacity: 0.45;
@@ -2179,6 +2228,16 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // métadonnées + lien NetCDF source.
   readonly showBuoys = signal(false);
   readonly buoysStatus = signal('plateformes vagues (EMODnet)');
+  // ─── V2 Isolignes (2026-05-12) — sous-toggle par raster ───────────
+  // Pattern : GeoServer expose des styles `<layer>-with-contours` qui font
+  // raster + ras:Contour avec interval depuis env var. Le frontend swap
+  // STYLES + env=contourInterval:N à la volée.
+  readonly showSstContours = signal(false);
+  readonly sstContourInterval = signal(2);   // °C
+  readonly showWaveContours = signal(false);
+  readonly waveContourInterval = signal(0.5); // m
+  readonly showWindContours = signal(false);
+  readonly windContourInterval = signal(5);   // m/s
   // ─── V2 Observation #1 (2026-05-12) — METAR ────────────────────────
   // ~35 aéroports européens, refresh 60s côté front, données ingérées
   // par orchestrator (source `metar-fetcher-eu`, NOAA AWC, cron 30min).
@@ -2777,6 +2836,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       const prefs = this.palettesSvc.myPreferences();
       queueMicrotask(() => this.applyUserStyles(prefs));
     });
+
+    // V2 Isolignes (2026-05-12) : effect qui swap STYLES + env vars
+    // selon les signaux showSstContours / sstContourInterval.
+    effect(() => {
+      this.showSstContours(); this.sstContourInterval();
+      queueMicrotask(() => this.applyContours());
+    });
   }
 
   /** Mémoize la liste des palettes par layer kind. */
@@ -2825,6 +2891,27 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     if (this.sstSource)     this.sstSource.updateParams({ STYLES: styleParam('sst') });
     if (this.windWmsSource) this.windWmsSource.updateParams({ STYLES: styleParam('wind') });
     if (this.wavesSource)   this.wavesSource.updateParams({ STYLES: styleParam('waves') });
+  }
+
+  /** V2 Isolignes (2026-05-12) : swap STYLES vers le SLD with-contours +
+   *  set env=contourInterval:N quand le toggle isolignes est ON. Sinon
+   *  reset au style user-pref ou default. Appelé via un effect réactif. */
+  private applyContours(): void {
+    if (this.sstSource) {
+      if (this.showSstContours()) {
+        this.sstSource.updateParams({
+          STYLES: 'maritime:sst-with-contours',
+          env: `contourInterval:${this.sstContourInterval()}`,
+        });
+      } else {
+        // Restore le style courant (user pref ou default vide).
+        const userPref = this.palettesSvc.myPreferences()['sst'] ?? null;
+        this.sstSource.updateParams({
+          STYLES: userPref ? `maritime:${userPref}` : '',
+          env: undefined,
+        });
+      }
+    }
   }
 
   ngAfterViewInit(): void {

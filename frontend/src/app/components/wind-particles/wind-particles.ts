@@ -260,13 +260,22 @@ export class WindParticleEngine {
       }
       if (pts.length < 2 || allOutside) continue;
 
-      ctx.strokeStyle = this.colorForSpeed(wind.speed);
-      ctx.beginPath();
-      ctx.moveTo(pts[0][0], pts[0][1]);
+      // V2.2 (2026-05-12) : gradient d'alpha tail → head pour reproduire
+      // le look "trail qui s'estompe" de l'ancien fadeAlpha sans cumul
+      // blanchâtre. Tail (frames anciens) = alpha 0.05 ; head (frame
+      // courant) = alpha 1.0. On rend segment par segment pour faire
+      // varier alpha le long du polyline.
+      const baseColor = this.colorForSpeed(wind.speed);
       for (let i = 1; i < pts.length; i++) {
+        const t = i / (pts.length - 1);  // 0 (tail) → 1 (head)
+        ctx.globalAlpha = t;              // gradient transparence
+        ctx.strokeStyle = baseColor;
+        ctx.beginPath();
+        ctx.moveTo(pts[i - 1][0], pts[i - 1][1]);
         ctx.lineTo(pts[i][0], pts[i][1]);
+        ctx.stroke();
       }
-      ctx.stroke();
+      ctx.globalAlpha = 1;
     }
   }
 }
