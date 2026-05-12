@@ -40,6 +40,33 @@ logging.basicConfig(
 )
 log = logging.getLogger('sst-fetcher')
 
+# ─── Orchestrator client (Data Orchestrator MVP S1, 2026-05-12) ──────
+# Heartbeat vers POST /admin/jobs/log de l'api. Silencieux si l'env
+# ORCHESTRATOR_JOB_TOKEN n'est pas set (mode standalone, pré-MVP).
+_ORCH_API = os.environ.get('ORCHESTRATOR_API', 'http://api:3010')
+_ORCH_TOKEN = os.environ.get('ORCHESTRATOR_JOB_TOKEN', '')
+_ORCH_SOURCE = os.environ.get('ORCHESTRATOR_SOURCE_NAME', 'sst-fetcher')
+
+def report_job(status: str, started_at: datetime, **kwargs: object) -> None:
+    """POST /admin/jobs/log. Silent fail si l'orchestrator est down."""
+    if not _ORCH_TOKEN:
+        return
+    try:
+        requests.post(
+            f'{_ORCH_API}/admin/jobs/log',
+            json={
+                'sourceName': _ORCH_SOURCE,
+                'status': status,
+                'startedAt': started_at.isoformat(),
+                'finishedAt': datetime.now(timezone.utc).isoformat(),
+                **kwargs,
+            },
+            headers={'X-Job-Token': _ORCH_TOKEN, 'Content-Type': 'application/json'},
+            timeout=5,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning('report_job failed: %s', exc)
+
 # ─── Config ─────────────────────────────────────────────────────────────
 COVERAGE_DIR = Path(os.environ.get('COVERAGE_DIR', '/coverage/sst-daily'))
 RABBITMQ_URL = os.environ.get('RABBITMQ_URL', 'amqp://maritime:maritime@rabbitmq:5672')
@@ -355,6 +382,21 @@ def cleanup_old_files(retention_days: int = 30) -> None:
 
 def run_fetch_cycle() -> None:
     """Tente LOOKBACK_DAYS jours (skip ceux déjà présents)."""
+    _started_at = datetime.now(timezone.utc)
+    _records_out = 0
+    try:
+        _records_out = _do_fetch_cycle()
+        report_job('ok', _started_at, recordsOut=_records_out)
+    except Exception as exc:  # noqa: BLE001
+        log.exception('SST cycle failed')
+        report_job('error', _started_at,
+                   errorKind=type(exc).__name__,
+                   errorMsg=str(exc)[:500])
+        raise
+
+
+def _do_fetch_cycle() -> int:
+    """Returns the number of new GeoTIFFs produced (for orchestrator metrics)."""
     log.info('SST fetch cycle starting (lookback %dd)', LOOKBACK_DAYS)
     ensure_mosaic_config_files()
     cleanup_old_files(retention_days=int(os.environ.get('SST_RETENTION_DAYS', '30')))
@@ -373,9 +415,11 @@ def run_fetch_cycle() -> None:
         dates = [today - timedelta(days=i) for i in range(1, LOOKBACK_DAYS + 1)]
 
     any_new = False
+    new_count = 0
     for date in dates:
         if fetch_and_convert(date):
             any_new = True
+            new_count += 1
 
     # Wait pour laisser GeoServer démarrer si on est très tôt au boot.
     for _ in range(10):
@@ -395,7 +439,8 @@ def run_fetch_cycle() -> None:
         create_mosaic_store()
     elif any_new:
         trigger_geoserver_reindex()
-    log.info('SST fetch cycle done')
+    log.info('SST fetch cycle done — %d new GeoTIFFs', new_count)
+    return new_count
 
 
 def main() -> None:

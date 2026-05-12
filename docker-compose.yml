@@ -254,6 +254,10 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-maritime}:${POSTGRES_PASSWORD:-maritime}@postgres:5432/${POSTGRES_DB:-maritime}
+      # Data Orchestrator MVP S1 (2026-05-12) — heartbeat opt-in
+      ORCHESTRATOR_API: http://api:3010/api
+      ORCHESTRATOR_JOB_TOKEN: ${ORCHESTRATOR_JOB_TOKEN:-dev-orchestrator-token-change-me}
+      ORCHESTRATOR_SOURCE_NAME: track-builder
     depends_on:
       postgres:
         condition: service_healthy
@@ -325,6 +329,9 @@ services:
       WIND_ARROWS_DIR: /wind-arrows
       FORECAST_HOURS: "72"
       FORECAST_STEP: "6"
+      ORCHESTRATOR_API: http://api:3010/api
+      ORCHESTRATOR_JOB_TOKEN: ${ORCHESTRATOR_JOB_TOKEN:-dev-orchestrator-token-change-me}
+      ORCHESTRATOR_SOURCE_NAME: weather-fetcher
     volumes:
       - coverage-data:/coverage
       - wind-arrows-data:/wind-arrows
@@ -362,6 +369,9 @@ services:
       FORECAST_HOURS: "48"
       # Bundles GRIB2 contiennent du pas horaire ; 3h aligne avec le slider GFS.
       SAMPLE_STEP_HOURS: "3"
+      ORCHESTRATOR_API: http://api:3010/api
+      ORCHESTRATOR_JOB_TOKEN: ${ORCHESTRATOR_JOB_TOKEN:-dev-orchestrator-token-change-me}
+      ORCHESTRATOR_SOURCE_NAME: weather-fetcher-arpege
     volumes:
       - coverage-data:/coverage
       - wind-arrows-data:/wind-arrows
@@ -394,6 +404,9 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-maritime}:${POSTGRES_PASSWORD:-maritime}@postgres:5432/${POSTGRES_DB:-maritime}
       # Re-seed quotidien (1440 min). EMODnet bouge rarement.
       BUOY_FETCH_INTERVAL_MIN: "1440"
+      ORCHESTRATOR_API: http://api:3010/api
+      ORCHESTRATOR_JOB_TOKEN: ${ORCHESTRATOR_JOB_TOKEN:-dev-orchestrator-token-change-me}
+      ORCHESTRATOR_SOURCE_NAME: buoy-fetcher
     depends_on:
       postgres:
         condition: service_healthy
@@ -414,6 +427,9 @@ services:
       GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
       GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}
       COVERAGE_DIR: /coverage/sst-daily
+      ORCHESTRATOR_API: http://api:3010/api
+      ORCHESTRATOR_JOB_TOKEN: ${ORCHESTRATOR_JOB_TOKEN:-dev-orchestrator-token-change-me}
+      ORCHESTRATOR_SOURCE_NAME: sst-fetcher
     volumes:
       - coverage-data:/coverage
     depends_on:
@@ -450,6 +466,11 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-https://maritime.sladoire.dev/api/auth/google/callback}
+      # ─── Data Orchestrator MVP S1 (2026-05-12) ───
+      # Shared secret pour le endpoint POST /admin/jobs/log appelé par les
+      # ingesters cron. Doit matcher ORCHESTRATOR_JOB_TOKEN dans chaque
+      # ingester. Default dev-only — override via .env.
+      ORCHESTRATOR_JOB_TOKEN: ${ORCHESTRATOR_JOB_TOKEN:-dev-orchestrator-token-change-me}
     depends_on:
       postgres:
         condition: service_healthy

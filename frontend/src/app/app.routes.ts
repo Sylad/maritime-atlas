@@ -46,6 +46,12 @@ export const routes: Routes = [
     title: 'Admin · Utilisateurs · Maritime Atlas',
   },
   {
+    path: 'admin/orchestrator',
+    canActivate: [adminGuard],
+    loadComponent: () => import('./pages/admin/admin-orchestrator.component').then((m) => m.AdminOrchestratorComponent),
+    title: 'Admin · Data Orchestrator · Maritime Atlas',
+  },
+  {
     path: 'about',
     loadComponent: () => import('./pages/about/about.component').then((m) => m.AboutComponent),
     title: 'À propos · Maritime Atlas',

@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, real, jsonb, boolean, primaryKey, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, serial, text, integer, timestamp, real, jsonb, boolean, primaryKey, uniqueIndex, bigserial } from 'drizzle-orm/pg-core';
 
 /**
  * 3 tables only. Schéma volontairement isolé du schéma TimescaleDB
@@ -88,3 +88,77 @@ export type LayerKind = typeof VALID_LAYER_KINDS[number];
 
 export const VALID_ROLES = ['user', 'admin'] as const;
 export type Role = typeof VALID_ROLES[number];
+
+/**
+ * Data Orchestrator MVP Sprint 1 (2026-05-12) — visibility-only.
+ *
+ * Référentiel des sources de données ingérées. À ce stade aucune
+ * exécution dynamique : on liste les 6 services existants seed manuel
+ * (ais-ingester, ais-decoder, sst-fetcher, weather-fetcher,
+ * weather-fetcher-arpege, lightning-fetcher, buoy-fetcher) et chaque
+ * cycle POST `/admin/jobs/log` un récap d'exécution.
+ *
+ * Les colonnes `parser_kind/sink_kind/etc.` sont snapshotées dès maintenant
+ * pour préparer les Sprints 2-7 (exécution dynamique) — `enabled=false`
+ * par défaut signifie "le row sert juste de référentiel pour les logs,
+ * pas d'orchestration auto".
+ */
+export const dataSources = pgTable('data_sources', {
+  id: serial('id').primaryKey(),
+  /** Identifiant slug-style, ex: 'sst-fetcher'. UNIQUE. */
+  name: text('name').notNull(),
+  /** Catégorie : 'http_json', 'http_grib', 'websocket', 'sql_view'. Sert
+   *  au futur dispatcher de stratégie d'exécution. */
+  kind: text('kind').notNull(),
+  /** URL source. Informatif en MVP (le service tape déjà l'URL en dur). */
+  url: text('url'),
+  /** Fréquence informative : 'cron 02:30 / 08:30 / …' ou 'continu WS'. */
+  scheduleExpr: text('schedule_expr'),
+  /** Nom du sink (PostGIS table cible, ou volume coverage). Informatif. */
+  sinkLabel: text('sink_label'),
+  /** Bbox cible (cohérence avec sprint Europe — informatif). */
+  bbox: text('bbox'),
+  /** Activé pour orchestration auto (Sprint N2+). False en MVP. */
+  enabled: boolean('enabled').notNull().default(false),
+  /** Mis à jour à chaque reportJob() reçu. NULL = jamais reporté. */
+  lastRunAt: timestamp('last_run_at', { withTimezone: true }),
+  /** Dernier status reçu via reportJob() : 'ok' | 'partial' | 'error'. */
+  lastStatus: text('last_status'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  nameIdx: uniqueIndex('data_sources_name_idx').on(t.name),
+}));
+
+/**
+ * Hypertable historique des exécutions des sources. PK composite
+ * `(started_at, id)` obligatoire en hypertable + serial (cf. memory
+ * `timescale_hypertable_serial_pk.md`).
+ *
+ * Drizzle ne sait pas exprimer `SELECT create_hypertable()` — la
+ * conversion en hypertable est faite côté `migrate.ts` SQL inline.
+ */
+export const dataJobs = pgTable('data_jobs', {
+  id: bigserial('id', { mode: 'number' }).notNull(),
+  /** FK logique vers data_sources.name (pas FK SQL pour éviter le
+   *  coupling lors des truncate / migration). */
+  sourceName: text('source_name').notNull(),
+  status: text('status').notNull(), // 'ok' | 'partial' | 'error'
+  startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+  finishedAt: timestamp('finished_at', { withTimezone: true }),
+  durationMs: integer('duration_ms'),
+  recordsIn: integer('records_in'),
+  recordsOut: integer('records_out'),
+  bytesIn: integer('bytes_in'),
+  errorKind: text('error_kind'),
+  errorMsg: text('error_msg'),
+  /** JSON libre pour metadata parser-specific (run_iso, bundle keys, etc.). */
+  meta: jsonb('meta'),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.startedAt, t.id] }),
+}));
+
+export type DataSource = typeof dataSources.$inferSelect;
+export type DataJob = typeof dataJobs.$inferSelect;
+
+export const VALID_JOB_STATUS = ['ok', 'partial', 'error'] as const;
+export type JobStatus = typeof VALID_JOB_STATUS[number];

@@ -45,7 +45,7 @@ import logging
 import os
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlencode
 
@@ -58,6 +58,30 @@ logging.basicConfig(
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
 )
 log = logging.getLogger('buoy-fetcher')
+
+# ─── Orchestrator client (Data Orchestrator MVP S1, 2026-05-12) ──────
+_ORCH_API = os.environ.get('ORCHESTRATOR_API', 'http://api:3010')
+_ORCH_TOKEN = os.environ.get('ORCHESTRATOR_JOB_TOKEN', '')
+_ORCH_SOURCE = os.environ.get('ORCHESTRATOR_SOURCE_NAME', 'buoy-fetcher')
+
+def report_job(status: str, started_at: datetime, **kwargs: object) -> None:
+    if not _ORCH_TOKEN:
+        return
+    try:
+        requests.post(
+            f'{_ORCH_API}/admin/jobs/log',
+            json={
+                'sourceName': _ORCH_SOURCE,
+                'status': status,
+                'startedAt': started_at.isoformat(),
+                'finishedAt': datetime.now(timezone.utc).isoformat(),
+                **kwargs,
+            },
+            headers={'X-Job-Token': _ORCH_TOKEN, 'Content-Type': 'application/json'},
+            timeout=5,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning('report_job failed: %s', exc)
 
 # ─── Config ─────────────────────────────────────────────────────────────
 DATABASE_URL = os.environ['DATABASE_URL']
@@ -352,34 +376,37 @@ def upsert_platforms(conn: psycopg.Connection, features: list[dict[str, Any]]) -
 
 # ─── Cron jobs ──────────────────────────────────────────────────────────
 def job_referential() -> None:
+    started_at = datetime.now(timezone.utc)
     try:
         features = fetch_emodnet_wave_platforms()
         if not features:
             log.warning('No EMODnet features — referential left as-is')
+            report_job('partial', started_at, errorKind='EmptyFeatures',
+                       errorMsg='EMODnet WFS returned 0 features')
             return
         conn = connect_db()
         try:
-            ts_start = datetime.now()  # local clock, used only for cleanup
+            ts_start = datetime.now()
             count = upsert_platforms(conn, features)
-            # Cleanup stale plateformes : tout ce qui n'a pas été touché par
-            # ce run (last_updated < début du run) est obsolète (plateforme
-            # disparue de la layer EMODnet ou bbox élargie / réduite). On
-            # garde une marge de 60s pour absorber l'écart now() PG / now()
-            # Python.
             with conn.cursor() as cur:
                 cur.execute(
                     "DELETE FROM buoys WHERE last_updated < %s - INTERVAL '60 seconds'",
                     (ts_start,),
                 )
-                deleted = cur.rowcount
+                deleted = cur.rowcount or 0
                 if deleted > 0:
                     log.info('Cleaned up %d stale plateformes', deleted)
             log.info('Referential refresh complete: %d upserted, %d removed',
-                     count, deleted if deleted else 0)
+                     count, deleted)
+            report_job('ok', started_at, recordsIn=len(features),
+                       recordsOut=count, meta={'removed': deleted})
         finally:
             conn.close()
-    except Exception:
+    except Exception as exc:
         log.exception('job_referential failed')
+        report_job('error', started_at,
+                   errorKind=type(exc).__name__,
+                   errorMsg=str(exc)[:500])
 
 
 def main() -> None:

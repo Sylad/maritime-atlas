@@ -3,6 +3,46 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PgService } from './pg.service';
 
 /**
+ * Data Orchestrator MVP S1 — heartbeat client. Silent fail si l'orchestrator
+ * est down (mode standalone si ORCHESTRATOR_JOB_TOKEN non set).
+ */
+const ORCH_API = process.env.ORCHESTRATOR_API ?? 'http://api:3010';
+const ORCH_TOKEN = process.env.ORCHESTRATOR_JOB_TOKEN ?? '';
+const ORCH_SOURCE = process.env.ORCHESTRATOR_SOURCE_NAME ?? 'track-builder';
+
+async function reportJob(payload: {
+  status: 'ok' | 'partial' | 'error';
+  startedAt: Date;
+  recordsOut?: number;
+  durationMs?: number;
+  errorKind?: string;
+  errorMsg?: string;
+  meta?: Record<string, unknown>;
+}): Promise<void> {
+  if (!ORCH_TOKEN) return;
+  try {
+    await fetch(`${ORCH_API}/admin/jobs/log`, {
+      method: 'POST',
+      headers: { 'X-Job-Token': ORCH_TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceName: ORCH_SOURCE,
+        status: payload.status,
+        startedAt: payload.startedAt.toISOString(),
+        finishedAt: new Date().toISOString(),
+        durationMs: payload.durationMs,
+        recordsOut: payload.recordsOut,
+        errorKind: payload.errorKind,
+        errorMsg: payload.errorMsg,
+        meta: payload.meta,
+      }),
+      signal: AbortSignal.timeout(5_000),
+    });
+  } catch {
+    // silent fail — pas de raison de bloquer le cycle métier
+  }
+}
+
+/**
  * track-builder — agrège les positions (hypertable) en LineStrings
  * journalières dans `vessel_tracks_daily`.
  *
@@ -49,6 +89,7 @@ export class TrackBuilderService implements OnModuleInit {
     }
     this.running = true;
     const t0 = Date.now();
+    const startedAt = new Date(t0);
 
     try {
       // Ré-agrège tous les jours touchés par les positions des dernières 25h.
@@ -79,9 +120,17 @@ export class TrackBuilderService implements OnModuleInit {
       `;
       const result = await this.pg.pool.query(sql);
       const dt = Date.now() - t0;
-      this.logger.log(`Aggregated ${result.rowCount ?? 0} tracks in ${dt}ms`);
+      const rows = result.rowCount ?? 0;
+      this.logger.log(`Aggregated ${rows} tracks in ${dt}ms`);
+      await reportJob({ status: 'ok', startedAt, recordsOut: rows, durationMs: dt });
     } catch (err) {
-      this.logger.error(`Aggregation failed: ${(err as Error).message}`, (err as Error).stack);
+      const e = err as Error;
+      this.logger.error(`Aggregation failed: ${e.message}`, e.stack);
+      await reportJob({
+        status: 'error', startedAt,
+        durationMs: Date.now() - t0,
+        errorKind: e.name, errorMsg: e.message.slice(0, 500),
+      });
     } finally {
       this.running = false;
     }

@@ -56,6 +56,30 @@ logging.basicConfig(
 )
 log = logging.getLogger('weather-fetcher-arpege')
 
+# ─── Orchestrator client (Data Orchestrator MVP S1, 2026-05-12) ──────
+_ORCH_API = os.environ.get('ORCHESTRATOR_API', 'http://api:3010')
+_ORCH_TOKEN = os.environ.get('ORCHESTRATOR_JOB_TOKEN', '')
+_ORCH_SOURCE = os.environ.get('ORCHESTRATOR_SOURCE_NAME', 'weather-fetcher-arpege')
+
+def report_job(status: str, started_at: datetime, **kwargs: object) -> None:
+    if not _ORCH_TOKEN:
+        return
+    try:
+        requests.post(
+            f'{_ORCH_API}/admin/jobs/log',
+            json={
+                'sourceName': _ORCH_SOURCE,
+                'status': status,
+                'startedAt': started_at.isoformat(),
+                'finishedAt': datetime.now(timezone.utc).isoformat(),
+                **kwargs,
+            },
+            headers={'X-Job-Token': _ORCH_TOKEN, 'Content-Type': 'application/json'},
+            timeout=5,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning('report_job failed: %s', exc)
+
 # ─── Config ─────────────────────────────────────────────────────────────
 WIND_DIR = Path(os.environ.get('WIND_DIR', '/coverage/wind-speed-arpege'))
 WIND_ARROWS_DIR = Path(os.environ.get('WIND_ARROWS_DIR', '/wind-arrows'))
@@ -538,6 +562,20 @@ def cleanup_old_files(retention_days: int = 7) -> None:
 
 # ─── Cycle ──────────────────────────────────────────────────────────────
 def run_fetch_cycle() -> None:
+    _started_at = datetime.now(timezone.utc)
+    try:
+        _records_out = _do_fetch_cycle()
+        report_job('ok', _started_at, recordsOut=_records_out)
+    except Exception as exc:  # noqa: BLE001
+        log.exception('weather-fetcher-arpege cycle failed')
+        report_job('error', _started_at,
+                   errorKind=type(exc).__name__,
+                   errorMsg=str(exc)[:500])
+        raise
+
+
+def _do_fetch_cycle() -> int:
+    """Returns count of new ARPEGE GeoTIFFs produced."""
     log.info('weather-fetcher-arpege cycle starting (forecast=%dh, step=%dh)',
              FORECAST_HOURS, SAMPLE_STEP_HOURS)
     cleanup_old_files(retention_days=int(os.environ.get('WEATHER_RETENTION_DAYS', '7')))
@@ -604,6 +642,7 @@ def run_fetch_cycle() -> None:
         'new_files': len(new_tiffs),
     })
     log.info('weather-fetcher-arpege cycle done')
+    return len(new_tiffs)
 
 
 def main() -> None:

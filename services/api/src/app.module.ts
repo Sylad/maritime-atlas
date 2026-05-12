@@ -8,6 +8,7 @@ import { PalettesModule } from './palettes/palettes.module';
 import { PreferencesModule } from './preferences/preferences.module';
 import { GeoServerModule } from './geoserver/geoserver.module';
 import { AdminModule } from './admin/admin.module';
+import { OrchestratorModule } from './orchestrator/orchestrator.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { AdminModule } from './admin/admin.module';
     PalettesModule,
     PreferencesModule,
     AdminModule,
+    OrchestratorModule,
   ],
 })
 export class AppModule {}

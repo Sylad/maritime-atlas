@@ -103,6 +103,78 @@ CREATE UNIQUE INDEX IF NOT EXISTS users_username_idx ON users (username);
 -- Check role enum
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
 ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('user', 'admin'));
+
+-- ─── Data Orchestrator MVP Sprint 1 (2026-05-12) — visibility-only ───
+-- Référentiel data_sources (seed manuel des 6 ingesters) + hypertable
+-- data_jobs (1 ligne par cycle d'exécution reporté via POST /admin/jobs/log).
+CREATE TABLE IF NOT EXISTS data_sources (
+  id              SERIAL PRIMARY KEY,
+  name            TEXT NOT NULL,
+  kind            TEXT NOT NULL,
+  url             TEXT,
+  schedule_expr   TEXT,
+  sink_label      TEXT,
+  bbox            TEXT,
+  enabled         BOOLEAN NOT NULL DEFAULT FALSE,
+  last_run_at     TIMESTAMPTZ,
+  last_status     TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS data_sources_name_idx ON data_sources (name);
+
+CREATE TABLE IF NOT EXISTS data_jobs (
+  id              BIGSERIAL,
+  source_name     TEXT NOT NULL,
+  status          TEXT NOT NULL CHECK (status IN ('ok', 'partial', 'error')),
+  started_at      TIMESTAMPTZ NOT NULL,
+  finished_at     TIMESTAMPTZ,
+  duration_ms     INTEGER,
+  records_in      INTEGER,
+  records_out     INTEGER,
+  bytes_in        INTEGER,
+  error_kind      TEXT,
+  error_msg       TEXT,
+  meta            JSONB,
+  PRIMARY KEY (started_at, id)
+);
+CREATE INDEX IF NOT EXISTS data_jobs_source_started_idx
+  ON data_jobs (source_name, started_at DESC);
+
+-- Hypertable + retention 90j. if_not_exists pour idempotence.
+SELECT create_hypertable('data_jobs', 'started_at',
+  chunk_time_interval => INTERVAL '7 days',
+  if_not_exists => TRUE);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM timescaledb_information.jobs
+    WHERE proc_name = 'policy_retention' AND hypertable_name = 'data_jobs'
+  ) THEN
+    PERFORM add_retention_policy('data_jobs', INTERVAL '90 days');
+  END IF;
+END $$;
+
+-- Seed manuel des 6 sources actuelles. ON CONFLICT (name) DO NOTHING pour
+-- ne pas écraser les modifs faites côté UI (toggle enabled, etc.).
+INSERT INTO data_sources (name, kind, url, schedule_expr, sink_label, bbox) VALUES
+  ('ais-ingester',       'websocket', 'wss://stream.aisstream.io/v0/stream',           'continu (WSS)',
+   'RMQ ais.raw',                                                                       '[-15,35,30,65]'),
+  ('ais-decoder',        'rmq_consumer', 'amqp://rabbitmq:5672 (queue ais.raw)',       'continu (RMQ)',
+   'PostGIS vessel_positions + UPSERT vessels',                                         NULL),
+  ('sst-fetcher',        'http_netcdf', 'https://www.ncei.noaa.gov/data/sea-surface-temperature-optimum-interpolation/v2.1', 'cron 06:00 UTC',
+   '/coverage/sst-daily/*.tif',                                                         '[-15,35,30,65]'),
+  ('weather-fetcher',    'http_grib',  'https://nomads.ncep.noaa.gov/cgi-bin/...',     'cron 4×/jour',
+   '/coverage/wind-speed + /wind-arrows/wind_arrows_*.geojson',                        '[-15,35,30,65]'),
+  ('weather-fetcher-arpege', 'http_grib', 'https://object.data.gouv.fr/meteofrance-pnt/pnt/<RUN>/arpege/01/SP1/', 'cron 03:30 / 09:30 / 15:30 / 21:30 UTC',
+   '/coverage/wind-speed-arpege + arpege_wind_arrows_*.geojson',                       '[-15,35,30,65]'),
+  ('lightning-fetcher',  'websocket',  'wss://ws1.blitzortung.org/',                   'continu (WSS)',
+   'PostGIS lightning_strikes + RMQ lightning.strike',                                  '[-15,35,30,65]'),
+  ('buoy-fetcher',       'http_wfs',   'https://geoserver.emodnet-physics.eu/geoserver/emodnet/ows', 'cron 1×/jour',
+   'PostGIS buoys',                                                                     '[-15,35,30,65]'),
+  ('track-builder',      'sql_aggregate', 'PostGIS vessel_positions',                  'cron xx:35 chaque heure',
+   'PostGIS vessel_tracks_daily (LineString par mmsi/day)',                            '[-15,35,30,65]')
+ON CONFLICT (name) DO NOTHING;
 `;
 
 export async function runMigrations(databaseUrl: string): Promise<void> {
