@@ -171,11 +171,11 @@ interface HourBucket {
                   <td class="orch-actions">
                     @if (src.scheduleKind) {
                       <button type="button" class="btn-trigger" (click)="onTrigger(src)" title="Trigger une exécution manuelle maintenant">▶</button>
-                      <button type="button" class="btn-edit" (click)="openEdit(src)">Edit</button>
-                      <button type="button" class="btn-delete" (click)="onDelete(src)" title="Supprimer (cascade jobs)">×</button>
                     } @else {
-                      <span class="orch-noaction">—</span>
+                      <span class="btn-trigger-disabled" title="Source self-managed — pas de trigger orchestrator possible">▶</span>
                     }
+                    <button type="button" class="btn-edit" (click)="openEdit(src)" title="Éditer (passer en mode orchestrator possible ici)">Edit</button>
+                    <button type="button" class="btn-delete" (click)="onDelete(src)" title="Supprimer (la source de référence — les data_jobs historiques restent)">×</button>
                   </td>
                 </tr>
               }
@@ -368,7 +368,7 @@ interface HourBucket {
       border-radius: 6px;
       border: 1px solid rgba(255,255,255,0.06);
     }
-    .orch-chart { width: 100%; height: 120px; display: block; }
+    .orch-chart { width: 100%; height: 180px; display: block; }
     .orch-table-wrap {
       background: rgba(15, 23, 42, 0.6);
       border-radius: 6px;
@@ -381,9 +381,11 @@ interface HourBucket {
       font-size: 0.9em;
     }
     .orch-table th, .orch-table td {
-      padding: 8px 12px;
+      padding: 10px 12px;
       text-align: left;
+      vertical-align: middle;
       border-bottom: 1px solid rgba(255,255,255,0.06);
+      line-height: 1.5;
     }
     .orch-table th {
       font-weight: 500;
@@ -465,7 +467,8 @@ interface HourBucket {
     .legend-orch { color: #22c55e; padding: 0 2px; }
 
     /* Action buttons */
-    .orch-actions { display: flex; gap: 4px; white-space: nowrap; }
+    .orch-actions { white-space: nowrap; }
+    .orch-actions > * { margin-right: 4px; }
     .orch-noaction { color: #475569; font-size: 0.8em; padding-left: 8px; }
     .btn-create {
       margin-left: 12px;
@@ -478,7 +481,7 @@ interface HourBucket {
       font-size: 0.85em;
     }
     .btn-create:hover { background: #15803d; }
-    .btn-trigger, .btn-edit, .btn-delete {
+    .btn-trigger, .btn-edit, .btn-delete, .btn-trigger-disabled {
       padding: 3px 8px;
       border: 1px solid rgba(255,255,255,0.12);
       background: rgba(255,255,255,0.04);
@@ -487,9 +490,12 @@ interface HourBucket {
       cursor: pointer;
       font-size: 0.78em;
       font-family: 'JetBrains Mono', monospace;
+      display: inline-block;
+      vertical-align: middle;
     }
     .btn-trigger { color: #4ade80; }
     .btn-trigger:hover { background: rgba(22, 163, 74, 0.2); }
+    .btn-trigger-disabled { color: #475569; cursor: not-allowed; opacity: 0.4; }
     .btn-edit:hover { background: rgba(96, 165, 250, 0.2); color: #93c5fd; }
     .btn-delete { color: #f87171; }
     .btn-delete:hover { background: rgba(220, 38, 38, 0.2); }
@@ -574,8 +580,8 @@ export class AdminOrchestratorComponent implements OnInit {
 
   // ─── Chart layout constants ────────────────────────────────────────
   readonly chartWidth = 600;
-  readonly chartHeight = 120;
-  readonly chartMaxH = 100; // height reserved for bars (chartHeight - 20 pour labels)
+  readonly chartHeight = 180;
+  readonly chartMaxH = 155; // height reserved for bars (chartHeight - 25 pour labels)
   readonly barWidth = (this.chartWidth / 24) - 1;
   readonly sparkW = 110;
   readonly sparkH = 28;
