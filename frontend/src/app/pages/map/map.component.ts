@@ -50,6 +50,23 @@ import { AlertsService, type AlertProperties, type AlertSeverity } from '../../s
 import { BuoysService, type BuoyProperties, type BuoyObservationProperties } from '../../services/buoys.service';
 import { WindParticleEngine, speedDirToUv, type WindPoint as WindParticlePoint } from '../../components/wind-particles/wind-particles';
 
+/** V2 Observation #1 (2026-05-12) — METAR feature properties. Mirrore
+ *  l'output de l'endpoint GET /api/metar/recent. */
+interface MetarProperties {
+  icao: string;
+  station_name: string | null;
+  ts: string;
+  age_seconds: number;
+  temp_c: number | null;
+  dewp_c: number | null;
+  wind_dir_deg: number | null;
+  wind_speed_kt: number | null;
+  wind_gust_kt: number | null;
+  altimeter_hpa: number | null;
+  weather_str: string | null;
+  raw: string | null;
+}
+
 // Europe étroite (sprint Europe 2026-05-12) — centré ~Allemagne, zoom 4
 // pour couvrir d'Açores à Pologne / Méditerranée à Cap Nord en une vue.
 const INITIAL_CENTER: [number, number] = [10.0, 50.0];
@@ -389,16 +406,20 @@ function toIsoTimestamp(d: Date): string {
                          (input)="setOpacity('rain', +$any($event.target).value)" />
                 }
               </div>
-              <!-- Placeholders V2 — sources gratuites en attente d'implémentation -->
-              <div class="layer-row layer-soon">
-                <label class="layer-toggle dim">
-                  <input type="checkbox" disabled />
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showMetar()">
+                  <input type="checkbox" [checked]="showMetar()" (change)="showMetar.set($any($event.target).checked)" />
                   <span class="toggle-glyph"><span class="glyph-icon">🛬</span></span>
                   <span class="toggle-text">
-                    <span class="toggle-name">METAR / SYNOP <span class="soon-tag">à venir</span></span>
-                    <span class="toggle-count">obs aéroports + stations sol</span>
+                    <span class="toggle-name">METAR aéroports</span>
+                    <span class="toggle-count">{{ metarStatus() }}</span>
                   </span>
                 </label>
+                @if (showMetar()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getOpacity('metar')"
+                         (input)="setOpacity('metar', +$any($event.target).value)" />
+                }
               </div>
               <div class="layer-row layer-soon">
                 <label class="layer-toggle dim">
@@ -755,6 +776,44 @@ function toIsoTimestamp(d: Date): string {
           }
           @if (a.detail?.distanceM != null) {
             <div class="popup-row"><span>Distance strike</span><strong>{{ a.detail.distanceM | number:'1.0-0' }} m</strong></div>
+          }
+        }
+        @if (selectedMetar(); as m) {
+          <button class="popup-close" type="button" (click)="closePopup()">×</button>
+          <div class="popup-name">🛬 {{ m.station_name || m.icao }}</div>
+          <div class="popup-meta">
+            <span class="badge" style="background:#a78bfa;color:#0a0e1a">{{ m.icao }}</span>
+            <span class="popup-flag">NOAA AWC</span>
+            <span class="popup-flag">il y a {{ formatAge(m.age_seconds) }}</span>
+          </div>
+          <div class="popup-row"><span>Observation</span><strong class="mono">{{ m.ts | date:'HH:mm':'+0000' }}Z</strong></div>
+          @if (m.temp_c != null) {
+            <div class="popup-row"><span>Température</span><strong>{{ m.temp_c | number:'1.0-1' }}°C</strong></div>
+          }
+          @if (m.dewp_c != null) {
+            <div class="popup-row"><span>Point de rosée</span><strong>{{ m.dewp_c | number:'1.0-1' }}°C</strong></div>
+          }
+          @if (m.wind_speed_kt != null) {
+            <div class="popup-row">
+              <span>Vent</span>
+              <strong>
+                @if (m.wind_dir_deg != null) { {{ m.wind_dir_deg | number:'3.0-0' }}° }
+                {{ m.wind_speed_kt | number:'1.0-0' }} kt
+                @if (m.wind_gust_kt != null) { (G {{ m.wind_gust_kt | number:'1.0-0' }}) }
+              </strong>
+            </div>
+          }
+          @if (m.altimeter_hpa != null) {
+            <div class="popup-row"><span>QNH</span><strong>{{ m.altimeter_hpa | number:'1.0-0' }} hPa</strong></div>
+          }
+          @if (m.weather_str) {
+            <div class="popup-row"><span>Temps présent</span><strong>{{ m.weather_str }}</strong></div>
+          }
+          @if (m.raw) {
+            <div class="popup-row" style="flex-direction:column;align-items:flex-start;gap:0.2em">
+              <span>METAR brut</span>
+              <code class="mono" style="font-size:0.65rem;white-space:pre-wrap;word-break:break-all">{{ m.raw }}</code>
+            </div>
           }
         }
         @if (selectedBuoy(); as b) {
@@ -1801,7 +1860,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.selectedVessel() !== null
     || this.selectedLightning() !== null
     || this.selectedAlert() !== null
-    || this.selectedBuoy() !== null,
+    || this.selectedBuoy() !== null
+    || this.selectedMetar() !== null,
   );
   readonly vesselsCount = signal(0);
   readonly tracksCount = signal(0);
@@ -1858,6 +1918,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // métadonnées + lien NetCDF source.
   readonly showBuoys = signal(false);
   readonly buoysStatus = signal('plateformes vagues (EMODnet)');
+  // ─── V2 Observation #1 (2026-05-12) — METAR ────────────────────────
+  // ~35 aéroports européens, refresh 60s côté front, données ingérées
+  // par orchestrator (source `metar-fetcher-eu`, NOAA AWC, cron 30min).
+  readonly showMetar = signal(false);
+  readonly metarStatus = signal('observations aéroports (NOAA)');
 
   // ─── Sprint Layer UX V2 — Phase A : opacity per layer + persist ──────
   //
@@ -1866,7 +1931,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // Defaults : 1.0 pour vector layers (lisibilité), 0.7 pour rasters
   // (SST/vent/vagues — meilleur blend visuel avec le fond carto).
   readonly layerOpacities = signal<Record<string, number>>({
-    vessels: 1, tracks: 1, alerts: 1, buoys: 1,
+    vessels: 1, tracks: 1, alerts: 1, buoys: 1, metar: 1,
     sst: 0.7, waves: 0.7, waveArrows: 0.9,
     wind: 0.7, windArrows: 0.9, windParticles: 0.9,
     rain: 0.8, lightning: 0.9,
@@ -1878,7 +1943,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     rain: false, wind: false, waves: false,
     windArrows: false, waveArrows: false,
     lightning: false, alerts: false,
-    windParticles: false, buoys: false,
+    windParticles: false, buoys: false, metar: false,
   };
   private readonly DEFAULT_OPACITIES = { ...this.layerOpacities() };
 
@@ -1910,6 +1975,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       lightning: this.lightningLayer,
       alerts: this.alertsLayer,
       buoys: this.buoysLayer,
+      metar: this.metarLayer,
     } as Record<string, { setOpacity: (n: number) => void } | undefined>)[key];
     layer?.setOpacity(value);
     // Wind particles = canvas overlay, opacity réglée via CSS sur le
@@ -1957,7 +2023,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       return { active: flags.filter(Boolean).length, total: flags.length };
     }
     if (key === 'observation') {
-      const flags = [this.showLightning(), this.showRain()];
+      const flags = [this.showLightning(), this.showRain(), this.showMetar()];
       return { active: flags.filter(Boolean).length, total: flags.length };
     }
     if (key === 'forecast') {
@@ -1982,6 +2048,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.showAlerts.set(this.DEFAULT_VISIBILITY['alerts']);
     this.showWindParticles.set(this.DEFAULT_VISIBILITY['windParticles']);
     this.showBuoys.set(this.DEFAULT_VISIBILITY['buoys']);
+    this.showMetar.set(this.DEFAULT_VISIBILITY['metar']);
     this.layerOpacities.set({ ...this.DEFAULT_OPACITIES });
     this.applyAllLayerOpacities();
     this.applyLayerVisibility();
@@ -2005,6 +2072,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       alerts: this.showAlerts(),
       windParticles: this.showWindParticles(),
       buoys: this.showBuoys(),
+      metar: this.showMetar(),
     };
     const opacity = this.layerOpacities();
     try {
@@ -2072,6 +2140,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       alerts: (v) => this.showAlerts.set(v),
       windParticles: (v) => this.showWindParticles.set(v),
       buoys: (v) => this.showBuoys.set(v),
+      metar: (v) => this.showMetar.set(v),
     };
     return map[key] ?? null;
   }
@@ -2095,6 +2164,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       if (typeof vis.alerts === 'boolean') this.showAlerts.set(vis.alerts);
       if (typeof vis.windParticles === 'boolean') this.showWindParticles.set(vis.windParticles);
       if (typeof vis.buoys === 'boolean') this.showBuoys.set(vis.buoys);
+      if (typeof vis.metar === 'boolean') this.showMetar.set(vis.metar);
       const op = data?.opacity ?? {};
       this.layerOpacities.update((m) => ({ ...m, ...op }));
     } catch {
@@ -2178,6 +2248,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
    * On utilise globalThis.Map car `Map` est shadowed par l'import OpenLayers. */
   private buoyObsByCandhisId: globalThis.Map<string, BuoyObservationProperties> =
     new (globalThis as any).Map();
+  // ─── V2 Observation #1 (2026-05-12) — METAR aéroports ────────────
+  private metarLayer?: VectorLayer<VectorSource>;
+  private metarSource?: VectorSource;
+  private metarTimer?: ReturnType<typeof setInterval>;
+  readonly selectedMetar = signal<MetarProperties | null>(null);
   private buoysRefTimer?: ReturnType<typeof setInterval>;
   private buoysObsTimer?: ReturnType<typeof setInterval>;
   private buoysRefSub?: Subscription;
@@ -2206,7 +2281,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.showRain();    this.showWind();   this.showWaves();
       this.showWindArrows(); this.showWaveArrows();
       this.showLightning(); this.showAlerts(); this.showWindParticles();
-      this.showBuoys();
+      this.showBuoys(); this.showMetar();
       // Defer pour s'exécuter après ngAfterViewInit (this.*Layer dispo)
       queueMicrotask(() => {
         this.applyLayerVisibility();
@@ -2362,6 +2437,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.stopLightningLoop();
     this.stopAlertsLoop();
     this.stopBuoysLoop();
+    this.stopMetarLoop();
     this.particlesEngine?.stop();
     this.map?.setTarget(undefined);
     this.map?.dispose();
@@ -2473,6 +2549,14 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.buoysLayer.setVisible(wanted);
       if (wanted) this.startBuoysLoop();
       else this.stopBuoysLoop();
+    }
+    // METAR : visible en mode live (les obs aéroports sont temps réel,
+    // refreshées par l'orchestrator toutes les 30min).
+    if (this.metarLayer) {
+      const wanted = this.showMetar() && this.isLive();
+      this.metarLayer.setVisible(wanted);
+      if (wanted) this.startMetarLoop();
+      else this.stopMetarLoop();
     }
     // Wind particles : engine est démarré au boot, on contrôle juste la
     // visibilité du canvas + la grille. Quand OFF, on stop le rAF pour
@@ -2809,6 +2893,71 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.buoyObsByCandhisId.clear();
   }
 
+  // ─── METAR (V2 Observation #1) ─────────────────────────────────────
+  /** Style d'un point METAR : cercle coloré selon température (bleu froid
+   *  → rouge chaud), taille selon force vent. NaN/null → gris. */
+  private styleMetar(feat: FeatureLike): Style {
+    const p = feat.getProperties() as MetarProperties;
+    const temp = p.temp_c;
+    const wspd = p.wind_speed_kt ?? 0;
+    // Couleur par température (palette 6 buckets)
+    let fill = '#94a3b8'; // gris (no temp)
+    if (temp != null) {
+      if (temp < -5)      fill = '#3b82f6'; // bleu glacé
+      else if (temp < 5)  fill = '#06b6d4'; // cyan
+      else if (temp < 15) fill = '#22c55e'; // vert
+      else if (temp < 25) fill = '#fbbf24'; // jaune
+      else if (temp < 35) fill = '#f97316'; // orange
+      else                fill = '#dc2626'; // rouge
+    }
+    // Rayon par force du vent (5→13px)
+    const radius = Math.max(5, Math.min(13, 5 + wspd / 4));
+    // Stale (> 2h) → opacity réduite
+    const stale = p.age_seconds > 7200;
+    return new Style({
+      image: new CircleStyle({
+        radius,
+        fill: new Fill({ color: fill }),
+        stroke: new Stroke({ color: stale ? '#475569' : '#fff', width: 1.5 }),
+      }),
+    });
+  }
+
+  /** Fetch /api/metar/recent → GeoJSON → features OL. Refresh 60s. */
+  private startMetarLoop(): void {
+    if (this.metarTimer) return;
+    const fetchMetar = async () => {
+      try {
+        const resp = await fetch('/api/metar/recent');
+        if (!resp.ok) return;
+        const fc = await resp.json();
+        if (!this.metarSource) return;
+        this.metarSource.clear();
+        const features = this.geoJsonFmt.readFeatures(fc, {
+          dataProjection: 'EPSG:4326',
+          featureProjection: this.map?.getView().getProjection() ?? 'EPSG:3857',
+        });
+        this.metarSource.addFeatures(features);
+        const count = fc.features?.length ?? 0;
+        const stale = (fc.features as Array<{ properties: MetarProperties }>)
+          .filter((f) => f.properties.age_seconds > 3600).length;
+        this.metarStatus.set(stale > 0 ? `${count} METAR (${stale} >1h)` : `${count} METAR`);
+      } catch {
+        this.metarStatus.set('erreur fetch METAR');
+      }
+    };
+    fetchMetar();
+    this.metarTimer = setInterval(fetchMetar, 60_000);
+  }
+
+  private stopMetarLoop(): void {
+    if (this.metarTimer) {
+      clearInterval(this.metarTimer);
+      this.metarTimer = undefined;
+    }
+    this.metarSource?.clear();
+  }
+
   // ─── Alerts (sprint 10) ───────────────────────────────────────────
   private styleAlert(feat: FeatureLike): Style {
     const props = feat.getProperties() as AlertProperties;
@@ -3108,6 +3257,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.selectedAlert.set(null);
     this.selectedBuoy.set(null);
     this.selectedBuoyObs.set(null);
+    this.selectedMetar.set(null);
     this.popupOverlay?.setPosition(undefined);
   }
 
@@ -3418,6 +3568,17 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       declutter: true,
     });
 
+    // METAR (V2 Observation #1) — ~35 aéroports EU. zIndex 107 = au-dessus
+    // des bouées (105), sous lightning (110).
+    this.metarSource = new VectorSource({ attributions: 'NOAA Aviation Weather Center' });
+    this.metarLayer = new VectorLayer({
+      source: this.metarSource,
+      style: (feat: FeatureLike) => this.styleMetar(feat),
+      zIndex: 107,
+      visible: false,
+      declutter: true,
+    });
+
     this.trackLayer = new VectorLayer({
       source: this.trackSource,
       style: () => this.styleTrack(),
@@ -3446,6 +3607,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         this.trackLayer,
         this.vesselLayer,
         this.buoysLayer,
+        this.metarLayer,
         this.lightningLayer,
         this.alertsLayer,
       ],
@@ -3478,7 +3640,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // forEachFeatureAtPixel passe le layer en 2e arg, ce qui permet de
     // distinguer vessel / lightning / alert sans inspecter les props.
     this.map.on('singleclick', (evt) => {
-      type ClickKind = 'vessel' | 'lightning' | 'alert' | 'buoy';
+      type ClickKind = 'vessel' | 'lightning' | 'alert' | 'buoy' | 'metar';
       let matched: { feat: Feature<Geometry>; kind: ClickKind } | null = null;
       this.map!.forEachFeatureAtPixel(
         evt.pixel,
@@ -3488,6 +3650,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
           else if (layer === this.lightningLayer) matched = { feat: f as Feature<Geometry>, kind: 'lightning' };
           else if (layer === this.alertsLayer) matched = { feat: f as Feature<Geometry>, kind: 'alert' };
           else if (layer === this.buoysLayer) matched = { feat: f as Feature<Geometry>, kind: 'buoy' };
+          else if (layer === this.metarLayer) matched = { feat: f as Feature<Geometry>, kind: 'metar' };
         },
         { hitTolerance: 4 },
       );
@@ -3536,6 +3699,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
           this.selectedBuoyObs.set(obs);
           break;
         }
+        case 'metar':    this.selectedMetar.set(props as MetarProperties); break;
       }
       const geom = m.feat.getGeometry();
       if (geom?.getType() === 'Point') {

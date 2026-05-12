@@ -475,7 +475,13 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
       return;
     }
     if (kind === 'pg_insert') {
-      const cfg = (src.sinkConfig ?? {}) as { table?: string; columns?: Record<string, string> };
+      const cfg = (src.sinkConfig ?? {}) as {
+        table?: string;
+        columns?: Record<string, string>;
+        /** Suffixe ON CONFLICT optionnel — ex: "(ts, icao) DO NOTHING".
+         *  Whitelisté caractère par caractère pour éviter SQL injection. */
+        onConflict?: string;
+      };
       if (!cfg.table) throw new Error('sinkConfig.table required for pg_insert');
       const cols = cfg.columns ?? {};
       const rec = (record ?? {}) as Record<string, unknown>;
@@ -489,7 +495,8 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
         placeholders.push(`$${i++}`);
       }
       if (dbColumns.length === 0) throw new Error('No columns mapping in sinkConfig');
-      const sql = `INSERT INTO ${this.safeIdent(cfg.table)} (${dbColumns.join(', ')}) VALUES (${placeholders.join(', ')})`;
+      const conflict = cfg.onConflict ? ` ON CONFLICT ${this.safeOnConflict(cfg.onConflict)}` : '';
+      const sql = `INSERT INTO ${this.safeIdent(cfg.table)} (${dbColumns.join(', ')}) VALUES (${placeholders.join(', ')})${conflict}`;
       // db.execute(rawSql) — Drizzle execute attend du sql tagged. On
       // utilise le client pg direct via $client.
       const pgClient = (this.db as unknown as { $client: { unsafe: (sql: string, params: unknown[]) => Promise<unknown> } }).$client;
@@ -505,6 +512,17 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
   private safeIdent(s: string): string {
     if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)) {
       throw new Error(`Unsafe SQL identifier: ${s}`);
+    }
+    return s;
+  }
+
+  /** Whitelist ON CONFLICT clauses. Supports patterns comme :
+   *    (col1, col2) DO NOTHING
+   *    ON CONSTRAINT my_idx DO NOTHING
+   *  Caractères autorisés : a-zA-Z0-9_, parenthèses, virgules, espaces, "DO NOTHING". */
+  private safeOnConflict(s: string): string {
+    if (!/^[a-zA-Z0-9_(),\s]+$/.test(s)) {
+      throw new Error(`Unsafe ON CONFLICT clause: ${s}`);
     }
     return s;
   }

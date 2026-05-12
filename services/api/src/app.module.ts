@@ -9,6 +9,7 @@ import { PreferencesModule } from './preferences/preferences.module';
 import { GeoServerModule } from './geoserver/geoserver.module';
 import { AdminModule } from './admin/admin.module';
 import { OrchestratorModule } from './orchestrator/orchestrator.module';
+import { MetarModule } from './metar/metar.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { OrchestratorModule } from './orchestrator/orchestrator.module';
     PreferencesModule,
     AdminModule,
     OrchestratorModule,
+    MetarModule,
   ],
 })
 export class AppModule {}

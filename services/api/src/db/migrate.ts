@@ -221,6 +221,84 @@ INSERT INTO data_sources (
   false
 )
 ON CONFLICT (name) DO NOTHING;
+
+-- ─── V2 Observation #1 — METAR observations (2026-05-12) ────────────
+-- Source : NOAA Aviation Weather Center JSON, ~35 aéroports européens
+-- en 1 call HTTP. Refresh 30min via orchestrator (kind=http_json,
+-- parser=identity, sink=pg_insert avec ON CONFLICT DO NOTHING).
+-- Stockage dénormalisé (lat/lon dans chaque obs) — plus simple qu'une
+-- table stations séparée pour ~35 stations qui bougent jamais.
+CREATE TABLE IF NOT EXISTS metar_observations (
+  ts             TIMESTAMPTZ NOT NULL,
+  icao           TEXT NOT NULL,
+  station_name   TEXT,
+  lat            REAL,
+  lon            REAL,
+  elevation_m    INTEGER,
+  temp_c         REAL,
+  dewp_c         REAL,
+  wind_dir_deg   REAL,
+  wind_speed_kt  REAL,
+  wind_gust_kt   REAL,
+  altimeter_hpa  REAL,
+  weather_str    TEXT,
+  raw            TEXT,
+  source         TEXT NOT NULL DEFAULT 'noaa-awc'
+);
+CREATE UNIQUE INDEX IF NOT EXISTS metar_obs_ts_icao_uidx
+  ON metar_observations (ts, icao);
+SELECT create_hypertable(
+  'metar_observations', 'ts',
+  chunk_time_interval => INTERVAL '7 days',
+  if_not_exists => TRUE
+);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM timescaledb_information.jobs
+    WHERE proc_name = 'policy_retention' AND hypertable_name = 'metar_observations'
+  ) THEN
+    PERFORM add_retention_policy('metar_observations', INTERVAL '30 days');
+  END IF;
+END $$;
+
+-- Vue dernière obs par station (≤6h) avec géom PostGIS, exposée par
+-- l'endpoint GET /api/metar/recent en GeoJSON.
+CREATE OR REPLACE VIEW v_metar_recent AS
+SELECT DISTINCT ON (icao)
+  icao,
+  station_name,
+  ts,
+  EXTRACT(EPOCH FROM (now() - ts))::INTEGER AS age_seconds,
+  temp_c, dewp_c, wind_dir_deg, wind_speed_kt, wind_gust_kt,
+  altimeter_hpa, weather_str, raw,
+  ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom
+FROM metar_observations
+WHERE ts > now() - INTERVAL '6 hours'
+ORDER BY icao, ts DESC;
+
+-- Orchestrator source METAR : NOAA AWC JSON bulk, ~35 aéroports EU.
+-- Cron toutes les 30min. URL fix (pas de date dynamique car NOAA renvoie
+-- toujours les obs les plus récentes pour les ids passés).
+INSERT INTO data_sources (
+  name, kind, url, schedule_kind, schedule_expr,
+  parser_kind, parser_config,
+  sink_kind, sink_config, sink_label, bbox, enabled
+) VALUES (
+  'metar-fetcher-eu',
+  'http_json',
+  'https://aviationweather.gov/api/data/metar?ids=LFPG,LFPO,LFLY,LFML,LFBO,LFBD,LFRS,LFRN,LFST,EGLL,EGKK,EGCC,EGPH,EDDF,EDDM,EDDB,EDDH,EHAM,EBBR,LEMD,LEBL,LIRF,LIMC,LICC,LSZH,LOWW,ESSA,ENGM,EFHK,EKCH,EPWA,LKPR,LGAV,LPPT,BIKF&format=json&hours=2',
+  'cron',
+  '*/30 * * * *',
+  'identity',
+  NULL,
+  'pg_insert',
+  '{"table": "metar_observations", "onConflict": "(ts, icao) DO NOTHING", "columns": {"reportTime": "ts", "icaoId": "icao", "name": "station_name", "lat": "lat", "lon": "lon", "elev": "elevation_m", "temp": "temp_c", "dewp": "dewp_c", "wdir": "wind_dir_deg", "wspd": "wind_speed_kt", "wgst": "wind_gust_kt", "altim": "altimeter_hpa", "wxString": "weather_str", "rawOb": "raw"}}',
+  'PostGIS metar_observations (~35 aéroports EU)',
+  '[-25,30,40,70]',
+  true
+)
+ON CONFLICT (name) DO NOTHING;
 `;
 
 export async function runMigrations(databaseUrl: string): Promise<void> {
