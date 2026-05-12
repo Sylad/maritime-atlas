@@ -299,6 +299,73 @@ INSERT INTO data_sources (
   true
 )
 ON CONFLICT (name) DO NOTHING;
+
+-- ─── V2 Hydrologie #1 — Débits rivières Hub'eau France (2026-05-12) ─
+-- Source : Hub'eau Eaufrance API v2 (hydrometrie/observations_tr) →
+-- ~1500 stations France, débits en L/s natif. Cron 15min via orchestrator
+-- (kind=http_json, parser=json_path extractPath=$.data, sink=pg_insert).
+-- Rows avec code_station NULL (déclarés par Hub'eau pour certaines obs
+-- temporaires) seront rejetés par la NOT NULL — la cycle status reste
+-- 'partial' mais le reste continue.
+CREATE TABLE IF NOT EXISTS hubeau_observations (
+  ts             TIMESTAMPTZ NOT NULL,
+  code_station   TEXT NOT NULL,
+  lat            REAL,
+  lon            REAL,
+  debit_l_s      REAL,
+  qualif         TEXT,
+  source         TEXT NOT NULL DEFAULT 'hubeau-fr'
+);
+CREATE UNIQUE INDEX IF NOT EXISTS hubeau_obs_ts_station_uidx
+  ON hubeau_observations (ts, code_station);
+SELECT create_hypertable(
+  'hubeau_observations', 'ts',
+  chunk_time_interval => INTERVAL '7 days',
+  if_not_exists => TRUE
+);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM timescaledb_information.jobs
+    WHERE proc_name = 'policy_retention' AND hypertable_name = 'hubeau_observations'
+  ) THEN
+    PERFORM add_retention_policy('hubeau_observations', INTERVAL '30 days');
+  END IF;
+END $$;
+
+-- Vue dernière obs par station ≤2h. Débit converti en m³/s pour l'UI.
+CREATE OR REPLACE VIEW v_hubeau_recent AS
+SELECT DISTINCT ON (code_station)
+  code_station,
+  ts,
+  EXTRACT(EPOCH FROM (now() - ts))::INTEGER AS age_seconds,
+  debit_l_s,
+  debit_l_s / 1000.0 AS debit_m3_s,
+  qualif,
+  ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom
+FROM hubeau_observations
+WHERE ts > now() - INTERVAL '2 hours'
+ORDER BY code_station, ts DESC;
+
+INSERT INTO data_sources (
+  name, kind, url, schedule_kind, schedule_expr,
+  parser_kind, parser_config,
+  sink_kind, sink_config, sink_label, bbox, enabled
+) VALUES (
+  'hubeau-debits-fr',
+  'http_json',
+  'https://hubeau.eaufrance.fr/api/v2/hydrometrie/observations_tr?grandeur_hydro=Q&size=2000&sort=desc',
+  'cron',
+  '*/15 * * * *',
+  'json_path',
+  '{"extractPath": "$.data[*]"}',
+  'pg_insert',
+  '{"table": "hubeau_observations", "onConflict": "(ts, code_station) DO NOTHING", "columns": {"date_obs": "ts", "code_station": "code_station", "latitude": "lat", "longitude": "lon", "resultat_obs": "debit_l_s", "libelle_qualification_obs": "qualif"}}',
+  'PostGIS hubeau_observations (~500 stations FR par cycle)',
+  '[-5,41,10,51.5]',
+  true
+)
+ON CONFLICT (name) DO NOTHING;
 `;
 
 export async function runMigrations(databaseUrl: string): Promise<void> {

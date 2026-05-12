@@ -67,6 +67,17 @@ interface MetarProperties {
   raw: string | null;
 }
 
+/** V2 Hydrologie #1 (2026-05-12) — Hub'eau Eaufrance feature properties.
+ *  Mirrore l'output de l'endpoint GET /api/hubeau/recent. */
+interface HubeauProperties {
+  code_station: string;
+  ts: string;
+  age_seconds: number;
+  debit_l_s: number | null;
+  debit_m3_s: number | null;
+  qualif: string | null;
+}
+
 // Europe étroite (sprint Europe 2026-05-12) — centré ~Allemagne, zoom 4
 // pour couvrir d'Açores à Pologne / Méditerranée à Cap Nord en une vue.
 const INITIAL_CENTER: [number, number] = [10.0, 50.0];
@@ -611,16 +622,20 @@ function toIsoTimestamp(d: Date): string {
             </button>
             @if (catalogSections().hydrology) {
             <div class="catalog-section-body">
-              <!-- Placeholders V2 — sources hydrologiques européennes -->
-              <div class="layer-row layer-soon">
-                <label class="layer-toggle dim">
-                  <input type="checkbox" disabled />
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showHubeau()">
+                  <input type="checkbox" [checked]="showHubeau()" (change)="showHubeau.set($any($event.target).checked)" />
                   <span class="toggle-glyph"><span class="glyph-icon">≈</span></span>
                   <span class="toggle-text">
-                    <span class="toggle-name">Débits rivières <span class="soon-tag">à venir</span></span>
-                    <span class="toggle-count">Hub'eau FR + UK EA + DWD DE</span>
+                    <span class="toggle-name">Débits rivières FR</span>
+                    <span class="toggle-count">{{ hubeauStatus() }}</span>
                   </span>
                 </label>
+                @if (showHubeau()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getOpacity('hubeau')"
+                         (input)="setOpacity('hubeau', +$any($event.target).value)" />
+                }
               </div>
               <div class="layer-row layer-soon">
                 <label class="layer-toggle dim">
@@ -834,6 +849,31 @@ function toIsoTimestamp(d: Date): string {
           @if (a.detail?.distanceM != null) {
             <div class="popup-row"><span>Distance strike</span><strong>{{ a.detail.distanceM | number:'1.0-0' }} m</strong></div>
           }
+        }
+        @if (selectedHubeau(); as h) {
+          <button class="popup-close" type="button" (click)="closePopup()">×</button>
+          <div class="popup-name">💧 Station {{ h.code_station }}</div>
+          <div class="popup-meta">
+            <span class="badge" style="background:#22d3ee;color:#0a0e1a">Hub'eau</span>
+            <span class="popup-flag">il y a {{ formatAge(h.age_seconds) }}</span>
+            @if (h.qualif) { <span class="popup-flag">{{ h.qualif }}</span> }
+          </div>
+          @if (h.debit_m3_s != null) {
+            <div class="popup-row">
+              <span>Débit</span>
+              <strong>
+                {{ h.debit_m3_s | number:'1.2-2' }} m³/s
+                @if (h.debit_l_s != null) {
+                  <span style="color:var(--fg-muted);font-weight:400;font-size:0.7rem"> ({{ h.debit_l_s | number:'1.0-0' }} L/s)</span>
+                }
+              </strong>
+            </div>
+          }
+          <div class="popup-row"><span>Mesure</span><strong class="mono">{{ h.ts | date:'HH:mm':'+0000' }}Z</strong></div>
+          <div class="popup-row" style="flex-direction:column;align-items:flex-start;gap:0.2em">
+            <span>Détails station</span>
+            <a [href]="'https://www.hydro.eaufrance.fr/stationhydro/' + h.code_station + '/synthese'" target="_blank" rel="noopener" class="mono" style="font-size:0.7rem;color:var(--accent-bright)">hydro.eaufrance.fr/{{ h.code_station }} ↗</a>
+          </div>
         }
         @if (selectedMetar(); as m) {
           <button class="popup-close" type="button" (click)="closePopup()">×</button>
@@ -1919,7 +1959,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     || this.selectedLightning() !== null
     || this.selectedAlert() !== null
     || this.selectedBuoy() !== null
-    || this.selectedMetar() !== null,
+    || this.selectedMetar() !== null
+    || this.selectedHubeau() !== null,
   );
   readonly vesselsCount = signal(0);
   readonly tracksCount = signal(0);
@@ -1981,6 +2022,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // par orchestrator (source `metar-fetcher-eu`, NOAA AWC, cron 30min).
   readonly showMetar = signal(false);
   readonly metarStatus = signal('observations aéroports (NOAA)');
+  // ─── V2 Hydrologie #1 (2026-05-12) — Hub'eau débits FR ─────────────
+  // ~500 stations France actives par cycle (sur ~1500 total). Orchestrator
+  // cron 15min, refresh frontend 60s.
+  readonly showHubeau = signal(false);
+  readonly hubeauStatus = signal('débits rivières (Hub\'eau FR)');
 
   // ─── Sprint Layer UX V2 — Phase A : opacity per layer + persist ──────
   //
@@ -1989,7 +2035,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // Defaults : 1.0 pour vector layers (lisibilité), 0.7 pour rasters
   // (SST/vent/vagues — meilleur blend visuel avec le fond carto).
   readonly layerOpacities = signal<Record<string, number>>({
-    vessels: 1, tracks: 1, alerts: 1, buoys: 1, metar: 1,
+    vessels: 1, tracks: 1, alerts: 1, buoys: 1, metar: 1, hubeau: 1,
     sst: 0.7, waves: 0.7, waveArrows: 0.9,
     wind: 0.7, windArrows: 0.9, windParticles: 0.9,
     rain: 0.8, lightning: 0.9,
@@ -2001,7 +2047,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     rain: false, wind: false, waves: false,
     windArrows: false, waveArrows: false,
     lightning: false, alerts: false,
-    windParticles: false, buoys: false, metar: false,
+    windParticles: false, buoys: false, metar: false, hubeau: false,
   };
   private readonly DEFAULT_OPACITIES = { ...this.layerOpacities() };
 
@@ -2034,6 +2080,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       alerts: this.alertsLayer,
       buoys: this.buoysLayer,
       metar: this.metarLayer,
+      hubeau: this.hubeauLayer,
     } as Record<string, { setOpacity: (n: number) => void } | undefined>)[key];
     layer?.setOpacity(value);
     // Wind particles = canvas overlay, opacity réglée via CSS sur le
@@ -2088,6 +2135,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       const flags = [this.showWind(), this.showWindArrows(), this.showWindParticles()];
       return { active: flags.filter(Boolean).length, total: flags.length };
     }
+    if (key === 'hydrology') {
+      const flags = [this.showHubeau()];
+      return { active: flags.filter(Boolean).length, total: flags.length };
+    }
     return { active: 0, total: 0 };
   }
 
@@ -2107,6 +2158,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.showWindParticles.set(this.DEFAULT_VISIBILITY['windParticles']);
     this.showBuoys.set(this.DEFAULT_VISIBILITY['buoys']);
     this.showMetar.set(this.DEFAULT_VISIBILITY['metar']);
+    this.showHubeau.set(this.DEFAULT_VISIBILITY['hubeau']);
     this.layerOpacities.set({ ...this.DEFAULT_OPACITIES });
     this.applyAllLayerOpacities();
     this.applyLayerVisibility();
@@ -2131,6 +2183,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       windParticles: this.showWindParticles(),
       buoys: this.showBuoys(),
       metar: this.showMetar(),
+      hubeau: this.showHubeau(),
     };
     const opacity = this.layerOpacities();
     try {
@@ -2199,6 +2252,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       windParticles: (v) => this.showWindParticles.set(v),
       buoys: (v) => this.showBuoys.set(v),
       metar: (v) => this.showMetar.set(v),
+      hubeau: (v) => this.showHubeau.set(v),
     };
     return map[key] ?? null;
   }
@@ -2223,6 +2277,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       if (typeof vis.windParticles === 'boolean') this.showWindParticles.set(vis.windParticles);
       if (typeof vis.buoys === 'boolean') this.showBuoys.set(vis.buoys);
       if (typeof vis.metar === 'boolean') this.showMetar.set(vis.metar);
+      if (typeof vis.hubeau === 'boolean') this.showHubeau.set(vis.hubeau);
       const op = data?.opacity ?? {};
       this.layerOpacities.update((m) => ({ ...m, ...op }));
     } catch {
@@ -2311,6 +2366,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private metarSource?: VectorSource;
   private metarTimer?: ReturnType<typeof setInterval>;
   readonly selectedMetar = signal<MetarProperties | null>(null);
+  // ─── V2 Hydrologie #1 — Hub'eau débits FR ────────────────────────
+  private hubeauLayer?: VectorLayer<VectorSource>;
+  private hubeauSource?: VectorSource;
+  private hubeauTimer?: ReturnType<typeof setInterval>;
+  readonly selectedHubeau = signal<HubeauProperties | null>(null);
   private buoysRefTimer?: ReturnType<typeof setInterval>;
   private buoysObsTimer?: ReturnType<typeof setInterval>;
   private buoysRefSub?: Subscription;
@@ -2339,7 +2399,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.showRain();    this.showWind();   this.showWaves();
       this.showWindArrows(); this.showWaveArrows();
       this.showLightning(); this.showAlerts(); this.showWindParticles();
-      this.showBuoys(); this.showMetar();
+      this.showBuoys(); this.showMetar(); this.showHubeau();
       // Defer pour s'exécuter après ngAfterViewInit (this.*Layer dispo)
       queueMicrotask(() => {
         this.applyLayerVisibility();
@@ -2496,6 +2556,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.stopAlertsLoop();
     this.stopBuoysLoop();
     this.stopMetarLoop();
+    this.stopHubeauLoop();
     this.particlesEngine?.stop();
     this.map?.setTarget(undefined);
     this.map?.dispose();
@@ -2615,6 +2676,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.metarLayer.setVisible(wanted);
       if (wanted) this.startMetarLoop();
       else this.stopMetarLoop();
+    }
+    // Hub'eau débits FR : visible en mode live, refresh 60s.
+    if (this.hubeauLayer) {
+      const wanted = this.showHubeau() && this.isLive();
+      this.hubeauLayer.setVisible(wanted);
+      if (wanted) this.startHubeauLoop();
+      else this.stopHubeauLoop();
     }
     // Wind particles : engine est démarré au boot, on contrôle juste la
     // visibilité du canvas + la grille. Quand OFF, on stop le rAF pour
@@ -3016,6 +3084,60 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.metarSource?.clear();
   }
 
+  // ─── Hub'eau débits FR (V2 Hydrologie #1) ──────────────────────────
+  /** Style d'un point Hub'eau : cercle cyan, taille selon débit log-scale
+   *  (les débits varient de 0.01 m³/s à 5000+ m³/s sur les grands fleuves,
+   *  log-scale donne un rendu lisible). Stale (>1h) → gris foncé. */
+  private styleHubeau(feat: FeatureLike): Style {
+    const p = feat.getProperties() as HubeauProperties;
+    const debit = p.debit_m3_s ?? 0;
+    // log-scale : 0.1→3px, 1→5px, 10→7px, 100→9px, 1000→11px, 5000+→13px
+    const radius = debit <= 0
+      ? 3
+      : Math.max(3, Math.min(13, 3 + Math.log10(Math.max(0.1, debit)) * 2.5));
+    const stale = p.age_seconds > 3600;
+    return new Style({
+      image: new CircleStyle({
+        radius,
+        fill: new Fill({ color: stale ? '#475569' : '#22d3ee' }),
+        stroke: new Stroke({ color: stale ? '#1e293b' : '#0e7490', width: 1.2 }),
+      }),
+    });
+  }
+
+  /** Fetch /api/hubeau/recent → GeoJSON → features OL. Refresh 60s. */
+  private startHubeauLoop(): void {
+    if (this.hubeauTimer) return;
+    const fetchHubeau = async () => {
+      try {
+        const resp = await fetch('/api/hubeau/recent');
+        if (!resp.ok) return;
+        const fc = await resp.json();
+        if (!this.hubeauSource) return;
+        this.hubeauSource.clear();
+        const features = this.geoJsonFmt.readFeatures(fc, {
+          dataProjection: 'EPSG:4326',
+          featureProjection: this.map?.getView().getProjection() ?? 'EPSG:3857',
+        });
+        this.hubeauSource.addFeatures(features);
+        const count = fc.features?.length ?? 0;
+        this.hubeauStatus.set(`${count} stations FR`);
+      } catch {
+        this.hubeauStatus.set('erreur fetch Hub\'eau');
+      }
+    };
+    fetchHubeau();
+    this.hubeauTimer = setInterval(fetchHubeau, 60_000);
+  }
+
+  private stopHubeauLoop(): void {
+    if (this.hubeauTimer) {
+      clearInterval(this.hubeauTimer);
+      this.hubeauTimer = undefined;
+    }
+    this.hubeauSource?.clear();
+  }
+
   // ─── Alerts (sprint 10) ───────────────────────────────────────────
   private styleAlert(feat: FeatureLike): Style {
     const props = feat.getProperties() as AlertProperties;
@@ -3316,6 +3438,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.selectedBuoy.set(null);
     this.selectedBuoyObs.set(null);
     this.selectedMetar.set(null);
+    this.selectedHubeau.set(null);
     this.popupOverlay?.setPosition(undefined);
   }
 
@@ -3637,6 +3760,18 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       declutter: true,
     });
 
+    // Hub'eau débits (V2 Hydrologie #1) — ~500 stations FR. zIndex 106 =
+    // sous METAR (107) car priorité visuelle moindre (couleur cyan plus
+    // discrète, et debits non-time-critical vs aéro).
+    this.hubeauSource = new VectorSource({ attributions: 'Hub\'eau Eaufrance' });
+    this.hubeauLayer = new VectorLayer({
+      source: this.hubeauSource,
+      style: (feat: FeatureLike) => this.styleHubeau(feat),
+      zIndex: 106,
+      visible: false,
+      declutter: false,  // 500 points, on accepte le chevauchement (cluster pourrait venir plus tard)
+    });
+
     this.trackLayer = new VectorLayer({
       source: this.trackSource,
       style: () => this.styleTrack(),
@@ -3665,6 +3800,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         this.trackLayer,
         this.vesselLayer,
         this.buoysLayer,
+        this.hubeauLayer,
         this.metarLayer,
         this.lightningLayer,
         this.alertsLayer,
@@ -3698,7 +3834,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // forEachFeatureAtPixel passe le layer en 2e arg, ce qui permet de
     // distinguer vessel / lightning / alert sans inspecter les props.
     this.map.on('singleclick', (evt) => {
-      type ClickKind = 'vessel' | 'lightning' | 'alert' | 'buoy' | 'metar';
+      type ClickKind = 'vessel' | 'lightning' | 'alert' | 'buoy' | 'metar' | 'hubeau';
       let matched: { feat: Feature<Geometry>; kind: ClickKind } | null = null;
       this.map!.forEachFeatureAtPixel(
         evt.pixel,
@@ -3709,6 +3845,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
           else if (layer === this.alertsLayer) matched = { feat: f as Feature<Geometry>, kind: 'alert' };
           else if (layer === this.buoysLayer) matched = { feat: f as Feature<Geometry>, kind: 'buoy' };
           else if (layer === this.metarLayer) matched = { feat: f as Feature<Geometry>, kind: 'metar' };
+          else if (layer === this.hubeauLayer) matched = { feat: f as Feature<Geometry>, kind: 'hubeau' };
         },
         { hitTolerance: 4 },
       );
@@ -3758,6 +3895,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
           break;
         }
         case 'metar':    this.selectedMetar.set(props as MetarProperties); break;
+        case 'hubeau':   this.selectedHubeau.set(props as HubeauProperties); break;
       }
       const geom = m.feat.getGeometry();
       if (geom?.getType() === 'Point') {

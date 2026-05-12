@@ -10,6 +10,7 @@ import { GeoServerModule } from './geoserver/geoserver.module';
 import { AdminModule } from './admin/admin.module';
 import { OrchestratorModule } from './orchestrator/orchestrator.module';
 import { MetarModule } from './metar/metar.module';
+import { HubeauModule } from './hubeau/hubeau.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { MetarModule } from './metar/metar.module';
     AdminModule,
     OrchestratorModule,
     MetarModule,
+    HubeauModule,
   ],
 })
 export class AppModule {}
