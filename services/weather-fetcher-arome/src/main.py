@@ -62,8 +62,12 @@ GEOSERVER_URL = os.environ.get('GEOSERVER_URL', 'http://geoserver:8080/geoserver
 GEOSERVER_USER = os.environ.get('GEOSERVER_ADMIN_USER', 'admin')
 GEOSERVER_PASS = os.environ.get('GEOSERVER_ADMIN_PASSWORD', 'geoserver')
 
-# Bbox France métropole — cohérent avec weather-fetcher (GFS) et tous les
-# autres services. AROME couvre nativement cette zone à 0.025°.
+# Sprint Europe 2026-05-12 : AROME reste sur bbox FR métropole, c'est la
+# zone native du modèle (~ [-5.5, 41, 10, 52], 0.025° côtier). Les autres
+# ingesters (ais, sst, gfs, lightning) sont passés en bbox Europe étroite
+# [-15, 35, 30, 65]. AROME devient un "overlay haute-résolution FR" au-dessus
+# du GFS Europe. Migration ARPEGE pour couverture Europe = Chantier #2 du
+# sprint Europe (à venir).
 BBOX_LON = (-6.0, 10.0)
 BBOX_LAT = (41.0, 51.5)
 

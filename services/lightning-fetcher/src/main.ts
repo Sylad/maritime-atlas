@@ -28,11 +28,15 @@ const WS_ENDPOINTS = [
   'wss://ws2.blitzortung.org/',
   'wss://ws3.blitzortung.org/',
 ];
+// Sprint Europe 2026-05-12 : bbox élargi de FR métro à Europe étroite
+// (Açores → Pologne, Méditerranée → Cap Nord). Volume strikes ×10-100×
+// pendant orages — la hypertable lightning_strikes scale OK avec
+// la retention 7j déjà en place.
 const BBOX = {
-  minLon: -6.0,
-  maxLon: 10.0,
-  minLat: 41.0,
-  maxLat: 51.5,
+  minLon: -15.0,
+  maxLon: 30.0,
+  minLat: 35.0,
+  maxLat: 65.0,
 };
 
 const DATABASE_URL = process.env.DATABASE_URL ?? '';
@@ -225,7 +229,7 @@ function connect(): void {
     // Log toutes les 30s : combien de strikes globaux vs en bbox
     const now = Date.now();
     if (now - lastLogAt > 30_000) {
-      console.log(`[lightning] last 30s: ${counter} global, ${counterInBbox} in bbox FR`);
+      console.log(`[lightning] last 30s: ${counter} global, ${counterInBbox} in bbox EU`);
       counter = 0;
       counterInBbox = 0;
       lastLogAt = now;
@@ -247,7 +251,7 @@ function connect(): void {
 
 // ─── Boot ────────────────────────────────────────────────────────────
 async function main(): Promise<void> {
-  console.log('[lightning] Starting (bbox France métropole)');
+  console.log('[lightning] Starting (bbox Europe étroite)');
   await setupPg();
   await setupRmq();
   connect();

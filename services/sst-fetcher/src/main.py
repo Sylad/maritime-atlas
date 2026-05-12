@@ -47,9 +47,11 @@ GEOSERVER_URL = os.environ.get('GEOSERVER_URL', 'http://geoserver:8080/geoserver
 GEOSERVER_USER = os.environ.get('GEOSERVER_ADMIN_USER', 'admin')
 GEOSERVER_PASS = os.environ.get('GEOSERVER_ADMIN_PASSWORD', 'geoserver')
 
-# Bbox France métropole (matche ais-ingester pour cohérence visu).
-BBOX_LON = (-6.0, 10.0)
-BBOX_LAT = (41.0, 51.5)
+# Bbox Europe étroite (sprint Europe 2026-05-12) — matche ais-ingester +
+# weather-fetcher + lightning-fetcher pour cohérence visu cross-layers.
+# NOAA OISST grid 0.25° global, le subset xarray gère la bbox sans souci.
+BBOX_LON = (-15.0, 30.0)
+BBOX_LAT = (35.0, 65.0)
 
 # OISST v2.1 : URL pattern par date.
 NCEI_BASE = 'https://www.ncei.noaa.gov/data/sea-surface-temperature-optimum-interpolation/v2.1/access/avhrr'

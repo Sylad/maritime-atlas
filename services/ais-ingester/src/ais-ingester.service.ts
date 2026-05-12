@@ -54,10 +54,12 @@ export class AisIngesterService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const swLat = parseFloat(this.config.get<string>('AIS_BBOX_SW_LAT') ?? '46.0');
-    const swLon = parseFloat(this.config.get<string>('AIS_BBOX_SW_LON') ?? '-6.5');
-    const neLat = parseFloat(this.config.get<string>('AIS_BBOX_NE_LAT') ?? '49.0');
-    const neLon = parseFloat(this.config.get<string>('AIS_BBOX_NE_LON') ?? '-1.0');
+    // Defaults Europe étroite (sprint Europe 2026-05-12). Override via
+    // AIS_BBOX_* env vars dans .env si besoin de zoom local.
+    const swLat = parseFloat(this.config.get<string>('AIS_BBOX_SW_LAT') ?? '35.0');
+    const swLon = parseFloat(this.config.get<string>('AIS_BBOX_SW_LON') ?? '-15.0');
+    const neLat = parseFloat(this.config.get<string>('AIS_BBOX_NE_LAT') ?? '65.0');
+    const neLon = parseFloat(this.config.get<string>('AIS_BBOX_NE_LON') ?? '30.0');
 
     this.logger.log(`Connecting to aisstream.io with bbox SW=(${swLat},${swLon}) NE=(${neLat},${neLon})`);
     this.ws = new WebSocket('wss://stream.aisstream.io/v0/stream');

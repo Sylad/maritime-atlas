@@ -113,10 +113,10 @@ publish_feature() {
     "title": "${title}",
     "srs": "EPSG:4326",
     "nativeBoundingBox": {
-      "minx": -6.0, "maxx": 10.0, "miny": 41.0, "maxy": 51.5, "crs": "EPSG:4326"
+      "minx": -15.0, "maxx": 30.0, "miny": 35.0, "maxy": 65.0, "crs": "EPSG:4326"
     },
     "latLonBoundingBox": {
-      "minx": -6.0, "maxx": 10.0, "miny": 41.0, "maxy": 51.5, "crs": "EPSG:4326"
+      "minx": -15.0, "maxx": 30.0, "miny": 35.0, "maxy": 65.0, "crs": "EPSG:4326"
     },
     "enabled": true
   }
@@ -158,11 +158,11 @@ publish_sql_view() {
   <title>Vessels at specific time (parameterized)</title>
   <srs>EPSG:4326</srs>
   <nativeBoundingBox>
-    <minx>-6.0</minx><maxx>10.0</maxx><miny>41.0</miny><maxy>51.5</maxy>
+    <minx>-15.0</minx><maxx>30.0</maxx><miny>35.0</miny><maxy>65.0</maxy>
     <crs>EPSG:4326</crs>
   </nativeBoundingBox>
   <latLonBoundingBox>
-    <minx>-6.0</minx><maxx>10.0</maxx><miny>41.0</miny><maxy>51.5</maxy>
+    <minx>-15.0</minx><maxx>30.0</maxx><miny>35.0</miny><maxy>65.0</maxy>
     <crs>EPSG:4326</crs>
   </latLonBoundingBox>
   <metadata>

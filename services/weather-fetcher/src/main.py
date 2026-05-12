@@ -62,9 +62,11 @@ GEOSERVER_URL = os.environ.get('GEOSERVER_URL', 'http://geoserver:8080/geoserver
 GEOSERVER_USER = os.environ.get('GEOSERVER_ADMIN_USER', 'admin')
 GEOSERVER_PASS = os.environ.get('GEOSERVER_ADMIN_PASSWORD', 'geoserver')
 
-# Bbox France métropole — cohérence avec sst + ais.
-BBOX_LON = (-6.0, 10.0)
-BBOX_LAT = (41.0, 51.5)
+# Bbox Europe étroite (sprint Europe 2026-05-12) — cohérence avec sst + ais.
+# Açores → Pologne, Méditerranée → Cap Nord. GFS 0.25° couvre toute la Terre,
+# le subset NOMADS gère la bbox sans souci de coverage.
+BBOX_LON = (-15.0, 30.0)
+BBOX_LAT = (35.0, 65.0)
 
 # Forecast horizon. 72h × pas 6h = 13 timesteps. Ajustable via env.
 FORECAST_HOURS = int(os.environ.get('FORECAST_HOURS', '72'))

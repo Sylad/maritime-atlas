@@ -45,9 +45,10 @@ import { AlertsService, type AlertProperties, type AlertSeverity } from '../../s
 import { BuoysService, type BuoyProperties, type BuoyObservationProperties } from '../../services/buoys.service';
 import { WindParticleEngine, speedDirToUv, type WindPoint as WindParticlePoint } from '../../components/wind-particles/wind-particles';
 
-// France métropole — centré sur l'hexagone, zoom large.
-const INITIAL_CENTER: [number, number] = [3.0, 46.5];
-const INITIAL_ZOOM = 6;
+// Europe étroite (sprint Europe 2026-05-12) — centré ~Allemagne, zoom 4
+// pour couvrir d'Açores à Pologne / Méditerranée à Cap Nord en une vue.
+const INITIAL_CENTER: [number, number] = [10.0, 50.0];
+const INITIAL_ZOOM = 4;
 const REFRESH_INTERVAL_MS = 30_000;
 const LIVE_THRESHOLD_MS = 5 * 60_000; // ±5min = considéré live
 /** localStorage key pour les prefs layers (visibility + opacity). Phase A
@@ -2761,7 +2762,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       view: new View({
         center: fromLonLat(INITIAL_CENTER),
         zoom: INITIAL_ZOOM,
-        minZoom: 4,
+        // Sprint Europe : minZoom 3 pour permettre zoom out sur tout
+        // l'Atlantique-NE + Méditerranée + Baltique en une vue.
+        minZoom: 3,
         maxZoom: 14,
       }),
     });
