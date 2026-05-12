@@ -3,9 +3,25 @@ import { ConfigService } from '@nestjs/config';
 import { CronJob } from 'cron';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { eq } from 'drizzle-orm';
+import { Subject } from 'rxjs';
 import { DB_TOKEN, type Db } from '../db/db.module';
 import { dataSources, dataJobs, type DataSource } from '../db/schema';
 import { connect, type Channel, type ChannelModel } from 'amqplib';
+
+/** Event poussé sur le bus SSE quand un job est persisté (runner OU
+ *  POST /admin/jobs/log depuis les ingesters externes). Format minimal
+ *  pour ne pas inflate le payload SSE — le client refetch le détail
+ *  si besoin. */
+export interface JobStreamEvent {
+  type: 'job.completed';
+  sourceName: string;
+  status: 'ok' | 'partial' | 'error';
+  startedAt: string;        // ISO
+  finishedAt: string;       // ISO
+  durationMs: number | null;
+  recordsOut: number | null;
+  errorMsg: string | null;
+}
 
 /**
  * Sprint N2 (2026-05-12) — exécution dynamique des sources `enabled=true`.
@@ -43,12 +59,22 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
   private rmqChannel: Channel | null = null;
   private rmqConn: ChannelModel | null = null;
   private registered: Map<number, RegisteredJob> = new Map();
+  /** Bus d'events pour SSE — exposé via .events() pour le controller SSE.
+   *  Push par runCycle() ET par JobsController.log() (ingesters externes). */
+  readonly events$ = new Subject<JobStreamEvent>();
 
   constructor(
     @Inject(DB_TOKEN) private readonly db: Db,
     private readonly config: ConfigService,
     private readonly scheduler: SchedulerRegistry,
   ) {}
+
+  /** Pousse un event sur le bus SSE. Appelé par runCycle() après l'insert
+   *  data_jobs ET par JobsController.log() pour les ingesters externes
+   *  (sst/weather/buoy/track-builder qui reportent via HTTP). */
+  emitJobCompleted(ev: JobStreamEvent): void {
+    this.events$.next(ev);
+  }
 
   async onModuleInit(): Promise<void> {
     // Connect RMQ best-effort (le sink rmq_publish en dépend).
@@ -175,12 +201,13 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
       this.logger.warn(`Cycle ${src.name} failed: ${errorMsg}`);
     } finally {
       const finishedAt = new Date();
+      const durationMs = finishedAt.getTime() - startedAt.getTime();
       await this.db.insert(dataJobs).values({
         sourceName: src.name,
         status,
         startedAt,
         finishedAt,
-        durationMs: finishedAt.getTime() - startedAt.getTime(),
+        durationMs,
         recordsIn, recordsOut, bytesIn,
         errorKind, errorMsg,
         meta,
@@ -188,6 +215,18 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
       await this.db.update(dataSources)
         .set({ lastRunAt: finishedAt, lastStatus: status })
         .where(eq(dataSources.id, src.id));
+      // SSE event après commit pour qu'un client qui refetch après reçoit
+      // bien le nouveau row.
+      this.emitJobCompleted({
+        type: 'job.completed',
+        sourceName: src.name,
+        status,
+        startedAt: startedAt.toISOString(),
+        finishedAt: finishedAt.toISOString(),
+        durationMs,
+        recordsOut,
+        errorMsg: errorMsg ?? null,
+      });
     }
   }
 

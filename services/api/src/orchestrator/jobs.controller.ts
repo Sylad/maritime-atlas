@@ -6,6 +6,7 @@ import { DB_TOKEN, type Db } from '../db/db.module';
 import { dataJobs, dataSources, VALID_JOB_STATUS, type JobStatus } from '../db/schema';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Roles, RolesGuard } from '../auth/roles.guard';
+import { OrchestratorRunnerService } from './orchestrator-runner.service';
 
 /**
  * Payload envoyé par les ingesters à chaque fin de cycle (cron tick ou
@@ -55,6 +56,7 @@ export class JobsController {
   constructor(
     @Inject(DB_TOKEN) private readonly db: Db,
     private readonly config: ConfigService,
+    private readonly runner: OrchestratorRunnerService,
   ) {}
 
   /**
@@ -109,6 +111,19 @@ export class JobsController {
       .update(dataSources)
       .set({ lastRunAt: finishedAt, lastStatus: body.status })
       .where(eq(dataSources.name, body.sourceName));
+
+    // Push SSE event pour que les clients connectés voient l'update live
+    // (sans avoir à attendre le refetch 60s).
+    this.runner.emitJobCompleted({
+      type: 'job.completed',
+      sourceName: body.sourceName,
+      status: body.status,
+      startedAt: startedAt.toISOString(),
+      finishedAt: finishedAt.toISOString(),
+      durationMs,
+      recordsOut: body.recordsOut ?? null,
+      errorMsg: body.errorMsg ?? null,
+    });
 
     return { ok: true };
   }

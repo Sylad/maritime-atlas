@@ -3,6 +3,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { SourcesController } from './sources.controller';
 import { JobsController } from './jobs.controller';
 import { PublicOrchestratorController } from './public-orchestrator.controller';
+import { OrchestratorStreamController } from './orchestrator-stream.controller';
 import { OrchestratorRunnerService } from './orchestrator-runner.service';
 
 /**
@@ -27,7 +28,7 @@ import { OrchestratorRunnerService } from './orchestrator-runner.service';
  */
 @Module({
   imports: [ScheduleModule],
-  controllers: [SourcesController, JobsController, PublicOrchestratorController],
+  controllers: [SourcesController, JobsController, PublicOrchestratorController, OrchestratorStreamController],
   providers: [OrchestratorRunnerService],
   exports: [OrchestratorRunnerService],
 })

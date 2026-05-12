@@ -1,8 +1,9 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { OrchestratorService, type DataJob, type DataSource, type UpsertSourceInput } from '../../services/orchestrator.service';
+import { AuthService } from '../../services/auth.service';
 
 /**
  * Data Orchestrator MVP S1 (2026-05-12) — admin page.
@@ -35,6 +36,10 @@ interface HourBucket {
           <a routerLink="/admin/users" routerLinkActive="active" class="orch-tab">Utilisateurs</a>
           <a routerLink="/admin/orchestrator" routerLinkActive="active" class="orch-tab">Data Orchestrator</a>
         </nav>
+        <span class="orch-stream" [class.connected]="svc.streamConnected()"
+              [title]="svc.streamConnected() ? 'Stream SSE connecté · refresh live' : 'Stream SSE déconnecté · auto-reconnect'">
+          @if (svc.streamConnected()) {● LIVE} @else {◌ off}
+        </span>
         <a routerLink="/" class="orch-back">← Carte</a>
       </header>
 
@@ -326,6 +331,20 @@ interface HourBucket {
     }
     .orch-tab:hover { color: #e5e7eb; border-color: #60a5fa; }
     .orch-tab.active { background: #fbbf24; color: #0f172a; border-color: #fbbf24; font-weight: 600; }
+    .orch-stream {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      letter-spacing: 0.08em;
+      padding: 3px 9px;
+      border-radius: 4px;
+      background: rgba(148, 163, 184, 0.12);
+      color: #94a3b8;
+      cursor: help;
+    }
+    .orch-stream.connected {
+      background: rgba(22, 163, 74, 0.18);
+      color: #4ade80;
+    }
     .orch-back {
       color: #93c5fd;
       text-decoration: none;
@@ -592,8 +611,9 @@ interface HourBucket {
   // OnPush désactivé : la modale utilise ngModel two-way binding (form
   // mutable), incompatible avec OnPush sans wrapper signal par champ.
 })
-export class AdminOrchestratorComponent implements OnInit {
+export class AdminOrchestratorComponent implements OnInit, OnDestroy {
   readonly svc = inject(OrchestratorService);
+  private readonly auth = inject(AuthService);
 
   // ─── Chart layout constants ────────────────────────────────────────
   readonly chartWidth = 600;
@@ -654,9 +674,21 @@ export class AdminOrchestratorComponent implements OnInit {
 
   ngOnInit(): void {
     this.svc.loadAll();
-    // Auto-refresh toutes les 60s pour suivre les jobs cron qui arrivent.
-    setInterval(() => this.svc.loadAll(), 60_000);
+    // SSE live stream — chaque job persisté arrive en <1s côté UI sans
+    // refetch. Si stream tombe, le service auto-reconnect avec backoff.
+    const token = this.auth.getToken();
+    if (token) this.svc.connectStream(token);
+    // Backup refetch toutes les 5 min — couvre les cas où le stream
+    // aurait raté un event (rare, mais safety net).
+    this.refreshTimer = setInterval(() => this.svc.loadAll(), 5 * 60_000);
   }
+
+  ngOnDestroy(): void {
+    this.svc.disconnectStream();
+    if (this.refreshTimer) clearInterval(this.refreshTimer);
+  }
+
+  private refreshTimer?: ReturnType<typeof setInterval>;
 
   reload(): void {
     this.svc.loadAll();
