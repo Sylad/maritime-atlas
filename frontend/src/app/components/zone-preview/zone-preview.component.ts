@@ -61,8 +61,10 @@ export class ZonePreviewComponent {
       controls: defaultControls({ attribution: false, zoom: false, rotate: false }),
       layers: [
         new TileLayer({
+          // Phase C.5 : passe par notre proxy_cache nginx (mêmes tiles
+          // CARTO, mais cachées 30j localement).
           source: new XYZ({
-            url: 'https://{a-d}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',
+            url: '/carto-tiles/dark_nolabels/{z}/{x}/{y}.png',
             attributions: '',
           }),
         }),

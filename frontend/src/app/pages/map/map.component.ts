@@ -2718,9 +2718,14 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.vesselSource = new VectorSource({ attributions: ATTRIB_AIS });
     this.trackSource = new VectorSource({ attributions: ATTRIB_AIS });
 
+    // Phase C.5 (2026-05-12) : on passe par notre nginx proxy_cache
+    // (`/carto-tiles/<style>/{z}/{x}/{y}.png`) au lieu de taper direct
+    // cartocdn.com — réduit le traffic + cache local 30j + résilience
+    // si CARTO down. Note : pas de `{a-d}` sharding side OL puisque le
+    // cache est unifié côté serveur.
     const baseTile = new TileLayer({
       source: new XYZ({
-        url: 'https://{a-d}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',
+        url: '/carto-tiles/dark_nolabels/{z}/{x}/{y}.png',
         attributions: '© OpenStreetMap, © CARTO',
         maxZoom: 19,
       }),
@@ -2728,7 +2733,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
     const labelsTile = new TileLayer({
       source: new XYZ({
-        url: 'https://{a-d}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png',
+        url: '/carto-tiles/dark_only_labels/{z}/{x}/{y}.png',
         attributions: '',
         maxZoom: 19,
       }),

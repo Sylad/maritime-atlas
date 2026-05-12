@@ -16,6 +16,13 @@ FROM nginx:alpine AS runtime
 
 COPY --from=builder /app/dist/maritime-frontend/browser /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Phase C.5 (2026-05-12) : cache local des tiles fond de carte CARTO.
+# Le fichier doit être lu AVANT default.conf (qui utilise proxy_cache
+# `carto_cache`) — le préfixe `0-` garantit l'ordre alphabétique.
+COPY nginx-cache.conf /etc/nginx/conf.d/0-cache.conf
+
+# Cache dir pour les tiles (LRU, capé à 2 GB).
+RUN mkdir -p /var/cache/nginx/carto && chown -R nginx:nginx /var/cache/nginx/carto
 
 EXPOSE 80
 
