@@ -3,24 +3,34 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 /**
- * CANDHIS (CEREMA) wave buoys — référentiel statique (~118 stations
- * France métropole + Outre-Mer) et observations les plus récentes.
+ * Plateformes vagues in-situ EMODnet Physics (sprint Europe Chantier #3,
+ * remplace l'ancien référentiel CANDHIS FR-only). Layer EMODnet WFS
+ * `ERD_EP_WAVES_INSITU` — ~28 plateformes bbox Europe étroite, agrégées
+ * depuis les owners nationaux (CEREMA, MeteoFrance, Puertos del Estado,
+ * UK Met Office, …).
  *
- * Source : https://candhis.cerema.fr/ (Licence Ouverte Etalab 2.0).
+ * Deux endpoints WFS côté GeoServer maritime :
+ *  - maritime:buoys                       → toutes les plateformes + métadonnées
+ *  - maritime:v_buoy_observations_recent  → idem + dernières mesures (vide en
+ *    MVP — pas d'ingest NetCDF temps réel, Chantier optionnel post-sprint).
  *
- * Deux endpoints WFS :
- *  - maritime:buoys                       → tous les points (nom + id)
- *  - maritime:v_buoy_observations_recent  → idem + dernières mesures (Hm0, Tp...)
- *
- * Si CANDHIS_API_KEY est absente côté backend, v_buoy_observations_recent
- * renverra 0 features (la couche buoys est seule peuplée). Le frontend
- * sait gérer ce cas — pas d'erreur, juste pas de métrique sur le popup.
+ * ⚠ La colonne PK garde son nom historique `candhis_id` côté backend (et donc
+ * côté API GeoServer / frontend). Sa valeur est désormais PLATFORMCODE
+ * EMODnet — c'est de la dette technique calculée pour minimiser le churn
+ * (cf provisioner GeoServer + nom GeoServer maritime:buoys).
  */
 
 export interface BuoyProperties {
-  candhis_id: string;
-  name: string;
-  buoy_type: string | null;
+  candhis_id: string;         // = EMODnet PLATFORMCODE
+  name: string;               // call_name
+  buoy_type: string | null;   // alias platform_type via la vue (compat legacy)
+  platform_type?: string | null;
+  owner?: string | null;
+  country?: string | null;
+  wmo?: string | null;
+  parameters_group?: string | null;
+  data_link?: string | null;
+  last_obs_at?: string | null;
   source: string | null;
 }
 

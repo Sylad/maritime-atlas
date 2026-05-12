@@ -1,7 +1,7 @@
 [project]
-name = "candhis-fetcher"
+name = "buoy-fetcher"
 version = "0.1.0"
-description = "Fetch CANDHIS (CEREMA) wave buoy referential + real-time obs (Hm0, Tp, peak dir) → PostGIS"
+description = "Fetch EMODnet Physics wave platform referential (Europe-wide) → PostGIS"
 requires-python = ">=3.12"
 dependencies = [
     "requests>=2.32.0",

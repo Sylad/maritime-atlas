@@ -152,8 +152,8 @@ function toIsoTimestamp(d: Date): string {
               <span><a href="https://www.blitzortung.org" target="_blank" rel="noopener">Blitzortung</a> (community)</span>
             </div>
             <div class="attribution-row">
-              <span class="attribution-label">Bouées</span>
-              <span><a href="https://candhis.cerema.fr" target="_blank" rel="noopener">CANDHIS</a> · CEREMA (Etalab)</span>
+              <span class="attribution-label">Plateformes vagues</span>
+              <span><a href="https://emodnet.ec.europa.eu/en/physics" target="_blank" rel="noopener">EMODnet Physics</a> (CC-BY)</span>
             </div>
           </div>
         }
@@ -243,7 +243,7 @@ function toIsoTimestamp(d: Date): string {
                   <span class="glyph-buoy">⚓</span>
                 </span>
                 <span class="toggle-text">
-                  <span class="toggle-name">Bouées CANDHIS</span>
+                  <span class="toggle-name">Plateformes vagues</span>
                   <span class="toggle-count">{{ buoysStatus() }}</span>
                 </span>
               </label>
@@ -570,11 +570,26 @@ function toIsoTimestamp(d: Date): string {
           <button class="popup-close" type="button" (click)="closePopup()">×</button>
           <div class="popup-name">⚓ {{ b.name }}</div>
           <div class="popup-meta">
-            <span class="badge" style="background:#1e88e5;color:#fff">CANDHIS</span>
+            <span class="badge" style="background:#1e88e5;color:#fff">EMODnet</span>
             <span class="popup-flag">{{ b.candhis_id }}</span>
+            @if (b.wmo) {
+              <span class="popup-flag mono">WMO {{ b.wmo }}</span>
+            }
           </div>
-          @if (b.buoy_type) {
-            <div class="popup-row"><span>Type</span><strong>{{ b.buoy_type }}</strong></div>
+          @if (b.platform_type || b.buoy_type) {
+            <div class="popup-row"><span>Type</span><strong>{{ b.platform_type ?? b.buoy_type }}</strong></div>
+          }
+          @if (b.owner) {
+            <div class="popup-row"><span>Owner</span><strong>{{ b.owner }}</strong></div>
+          }
+          @if (b.country) {
+            <div class="popup-row"><span>Pays</span><strong>{{ b.country }}</strong></div>
+          }
+          @if (b.last_obs_at) {
+            <div class="popup-row"><span>Dernière obs</span><strong class="mono">{{ b.last_obs_at | date:'dd/MM/yy HH:mm' }}</strong></div>
+          }
+          @if (b.parameters_group) {
+            <div class="popup-row"><span>Params</span><strong>{{ b.parameters_group }}</strong></div>
           }
           @if (selectedBuoyObs(); as o) {
             @if (o.ts) {
@@ -593,17 +608,15 @@ function toIsoTimestamp(d: Date): string {
             } @else if (o.th13 != null) {
               <div class="popup-row"><span>TH1/3</span><strong>{{ o.th13 | number:'1.1-1' }} s</strong></div>
             }
-            @if (o.t02 != null) {
-              <div class="popup-row"><span>T02</span><strong>{{ o.t02 | number:'1.1-1' }} s</strong></div>
-            }
             @if (o.peak_dir != null) {
               <div class="popup-row"><span>Dir. pic</span><strong>{{ o.peak_dir | number:'1.0-0' }}°</strong></div>
             }
-            @if (o.temp_water != null) {
-              <div class="popup-row"><span>Temp. mer</span><strong>{{ o.temp_water | number:'1.1-1' }} °C</strong></div>
-            }
-          } @else {
-            <div class="popup-row"><span>Mesure</span><strong>pas de donnée TR</strong></div>
+          }
+          @if (b.data_link) {
+            <div class="popup-row">
+              <span>Source</span>
+              <a class="mono" [href]="b.data_link" target="_blank" rel="noopener">NetCDF ⤤</a>
+            </div>
           }
         }
       </div>
@@ -1418,10 +1431,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly alertsList = this.alertsSvc.latestAlerts;
   readonly showWindParticles = signal(false);
   readonly windParticlesStatus = signal('animation flux vent');
-  // Bouées CANDHIS (CEREMA) — référentiel statique 118 stations + obs TR
-  // si CANDHIS_API_KEY définie côté backend.
+  // Plateformes vagues EMODnet Physics (Chantier Europe #3) — référentiel
+  // WFS Europe-wide (~28 plateformes bbox étroite, agrégées via les data
+  // owners nationaux). Pas d'obs temps réel dans le MVP — popup expose les
+  // métadonnées + lien NetCDF source.
   readonly showBuoys = signal(false);
-  readonly buoysStatus = signal('houlographes (Etalab)');
+  readonly buoysStatus = signal('plateformes vagues (EMODnet)');
 
   // ─── Sprint Layer UX V2 — Phase A : opacity per layer + persist ──────
   //

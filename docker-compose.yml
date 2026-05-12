@@ -369,31 +369,31 @@ services:
       - geoserver
     restart: unless-stopped
 
-  # ─── Worker : candhis-fetcher (sprint CANDHIS) ────────────────────
-  # Cron horaire (CANDHIS_FETCH_INTERVAL_MIN, default 60) qui pull les
-  # observations temps réel des bouées houlographes CEREMA via l'API
-  # publique https://candhis.cerema.fr/API/v1/ (Licence Etalab 2.0).
+  # ─── Worker : buoy-fetcher (sprint Europe Chantier #3) ────────────
+  # Migration CANDHIS → EMODnet Physics 2026-05-12. L'ancien
+  # `candhis-fetcher` couvrait 118 bouées houlographes FR (CEREMA, métro
+  # + outre-mer) + une API obs TR optionnelle (clé sur demande email).
+  # EMODnet Physics publie un WFS public agrégeant les plateformes vagues
+  # in-situ Europe-wide (layer `EMODnet:ERD_EP_WAVES_INSITU`, ~28 plateformes
+  # bbox Europe étroite). Pas de clé, attribution open data requise.
   #
-  # Référentiel des 118 bouées seedé au boot + refresh quotidien à 04:30 UTC
-  # depuis le GeoPackage public data.gouv.fr (aucune clé requise).
+  # MVP : seul le référentiel (positions + métadonnées + last obs date) est
+  # ingéré. Les obs temps réel détaillées vivent dans des NetCDF par
+  # plateforme — hors-scope Chantier #3.
   #
-  # Observations temps réel : CANDHIS_API_KEY requis (demande email à
-  # candhis@cerema.fr — délai usuel 24-48h). Si la clé est absente, le
-  # service tourne quand même et publie le seul référentiel — la couche
-  # maritime:buoys est toujours affichable, juste sans métrique.
-  #
-  # Variables stockées : Hm0, H1/3, Hmax, Tp, T02, direction au pic,
-  # étalement au pic, température mer. Schema géré par le service lui-même
-  # (pas de migration Drizzle — table buoys / buoy_observations + vue
-  # v_buoy_observations_recent isolée du reste de la stack).
-  candhis-fetcher:
-    build: ./services/candhis-fetcher
-    container_name: maritime-candhis-fetcher
+  # Schema géré par le service lui-même (table buoys + hypertable
+  # buoy_observations conservée vide pour évolution future, vue
+  # v_buoy_observations_recent). PK candhis_id gardée pour minimiser le
+  # churn provisioner GeoServer + frontend — sa valeur est désormais
+  # PLATFORMCODE EMODnet.
+  buoy-fetcher:
+    build: ./services/buoy-fetcher
+    container_name: maritime-buoy-fetcher
     env_file: .env
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-maritime}:${POSTGRES_PASSWORD:-maritime}@postgres:5432/${POSTGRES_DB:-maritime}
-      CANDHIS_API_KEY: ${CANDHIS_API_KEY:-}
-      CANDHIS_FETCH_INTERVAL_MIN: "60"
+      # Re-seed quotidien (1440 min). EMODnet bouge rarement.
+      BUOY_FETCH_INTERVAL_MIN: "1440"
     depends_on:
       postgres:
         condition: service_healthy

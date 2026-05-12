@@ -109,6 +109,7 @@ https://github.com/Sylad/maritime-atlas/raw/main/docs/screenshots/07-particles.m
 | `sst-fetcher` | Python (xarray + rioxarray) | — | Cron quotidien 06:00 UTC, NOAA OISST → GeoTIFF mosaic store |
 | `weather-fetcher` | Python (cfgrib + xarray) | — | Cron 4×/jour, GFS (vent 10m) + WW3 (HTSGW + DIRPW), forecasts +72h, GeoTIFF + GeoJSON arrows |
 | `weather-fetcher-arpege` | Python (cfgrib + xarray) | — | **Sprint Europe Chantier #2** (remplace l'ex-`weather-fetcher-arome` FR-only). Cron 4×/jour, Météo-France ARPEGE 0.1° (~11km) sur Europe étroite en parallèle du GFS 25km, forecasts +48h, layer `wind-speed-arpege` |
+| `buoy-fetcher` | Python (requests + psycopg) | — | **Sprint Europe Chantier #3** (remplace l'ex-`candhis-fetcher` 118 bouées FR/CEREMA). Re-seed quotidien, EMODnet Physics WFS `ERD_EP_WAVES_INSITU` → ~28 plateformes vagues Europe (bbox étroite), UPSERT dans `buoys` (PK héritée `candhis_id` = PLATFORMCODE EMODnet) |
 | `api` | NestJS 11 + Drizzle | — | Auth JWT 24h · CRUD palettes (max 5/user) · vérif email Resend · Google OAuth (`/auth/google`) · RBAC admin (`/admin/users` list/promote/delete) · cron dormants 03:00 Europe/Paris |
 | `frontend` | Angular 19 + nginx | 4204 | UI map, nginx proxy `/api/` et `/geoserver/` (CORS-free) |
 
@@ -122,7 +123,7 @@ https://github.com/Sylad/maritime-atlas/raw/main/docs/screenshots/07-particles.m
 | Backend | NestJS 11 + TypeScript 5, Drizzle ORM (api), amqplib (ais), node-cron (track-builder) |
 | Raster pipeline | Python 3 + xarray + rioxarray + cfgrib + gdal natif |
 | Frontend | Angular 19 + OpenLayers 10 + nginx alpine |
-| Sources externes | aisstream.io · NOAA OISST · NOAA GFS · NOAA WaveWatch III · Météo-France ARPEGE (data.gouv.fr) · RainViewer |
+| Sources externes | aisstream.io · NOAA OISST · NOAA GFS · NOAA WaveWatch III · Météo-France ARPEGE (data.gouv.fr) · RainViewer · EMODnet Physics (WFS public) |
 | Auth | JWT (`@nestjs/jwt`) 24h · bcrypt · vérification email via **Resend SDK** · Google OAuth 2.0 (`passport-google-oauth20`) · RBAC 2 rôles (`user` / `admin`) · cron dormants 90j (`DormantCleanupService`) |
 | Build | Docker multi-stage par service |
 
@@ -201,6 +202,7 @@ docker compose exec postgres psql -U maritime -d maritime -c \
 | Vagues (Hs + dir) | NOAA WaveWatch III | GRIB → GeoTIFF + GeoJSON | 4×/jour | 4a / 6 |
 | Radar pluie | RainViewer | XYZ tiles | 10 min | 4b |
 | Foudre | Blitzortung WSS (LZW JSON) | event WS → PostGIS | continu | 7 |
+| Plateformes vagues | EMODnet Physics WFS (`ERD_EP_WAVES_INSITU`) | JSON → PostGIS | quotidien | Europe #3 |
 
 ### Pipelines d'ingestion détaillés
 
