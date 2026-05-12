@@ -78,6 +78,17 @@ interface HubeauProperties {
   qualif: string | null;
 }
 
+/** V2 Hydrologie #2 (2026-05-12) — Hub'eau piézomètres feature properties.
+ *  Mirrore l'output de GET /api/hubeau/piezo/recent. */
+interface PiezoProperties {
+  code_bss: string;
+  ts: string;
+  age_seconds: number;
+  niveau_eau_ngf: number | null;     // m NGF
+  profondeur_nappe: number | null;   // m sous sol
+  altitude_station: number | null;
+}
+
 /** V2 Observation #2 (2026-05-12) — USGS Earthquakes feature properties.
  *  Mirrore le feed USGS natif (GeoJSON). On garde les props upstream. */
 interface QuakeProperties {
@@ -667,15 +678,20 @@ function toIsoTimestamp(d: Date): string {
                          (input)="setOpacity('hubeau', +$any($event.target).value)" />
                 }
               </div>
-              <div class="layer-row layer-soon">
-                <label class="layer-toggle dim">
-                  <input type="checkbox" disabled />
-                  <span class="toggle-glyph"><span class="glyph-icon">⇣</span></span>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showPiezo()">
+                  <input type="checkbox" [checked]="showPiezo()" (change)="showPiezo.set($any($event.target).checked)" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🪣</span></span>
                   <span class="toggle-text">
-                    <span class="toggle-name">Niveaux piézo <span class="soon-tag">à venir</span></span>
-                    <span class="toggle-count">nappes souterraines Hub'eau</span>
+                    <span class="toggle-name">Niveaux piézo FR</span>
+                    <span class="toggle-count">{{ piezoStatus() }}</span>
                   </span>
                 </label>
+                @if (showPiezo()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getOpacity('piezo')"
+                         (input)="setOpacity('piezo', +$any($event.target).value)" />
+                }
               </div>
               <div class="layer-row layer-soon">
                 <label class="layer-toggle dim">
@@ -904,6 +920,28 @@ function toIsoTimestamp(d: Date): string {
               <a [href]="q.url" target="_blank" rel="noopener" class="mono" style="font-size:0.7rem;color:var(--accent-bright)">earthquake.usgs.gov ↗</a>
             </div>
           }
+        }
+        @if (selectedPiezo(); as pz) {
+          <button class="popup-close" type="button" (click)="closePopup()">×</button>
+          <div class="popup-name">🪣 Piézomètre {{ pz.code_bss }}</div>
+          <div class="popup-meta">
+            <span class="badge" style="background:#6366f1;color:#fff">Hub'eau</span>
+            <span class="popup-flag">il y a {{ formatAge(pz.age_seconds) }}</span>
+          </div>
+          @if (pz.profondeur_nappe != null) {
+            <div class="popup-row"><span>Profondeur nappe</span><strong>{{ pz.profondeur_nappe | number:'1.2-2' }} m</strong></div>
+          }
+          @if (pz.niveau_eau_ngf != null) {
+            <div class="popup-row"><span>Niveau (NGF)</span><strong>{{ pz.niveau_eau_ngf | number:'1.2-2' }} m</strong></div>
+          }
+          @if (pz.altitude_station != null) {
+            <div class="popup-row"><span>Altitude station</span><strong>{{ pz.altitude_station | number:'1.0-2' }} m</strong></div>
+          }
+          <div class="popup-row"><span>Mesure</span><strong class="mono">{{ pz.ts | date:'dd/MM HH:mm':'+0000' }}Z</strong></div>
+          <div class="popup-row" style="flex-direction:column;align-items:flex-start;gap:0.2em">
+            <span>Détails BSS</span>
+            <a [href]="'https://ades.eaufrance.fr/Fiche/PointEau?code=' + pz.code_bss" target="_blank" rel="noopener" class="mono" style="font-size:0.7rem;color:var(--accent-bright)">ades.eaufrance.fr ↗</a>
+          </div>
         }
         @if (selectedHubeau(); as h) {
           <button class="popup-close" type="button" (click)="closePopup()">×</button>
@@ -2016,7 +2054,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     || this.selectedBuoy() !== null
     || this.selectedMetar() !== null
     || this.selectedHubeau() !== null
-    || this.selectedQuake() !== null,
+    || this.selectedQuake() !== null
+    || this.selectedPiezo() !== null,
   );
   readonly vesselsCount = signal(0);
   readonly tracksCount = signal(0);
@@ -2088,6 +2127,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // Pas d'ingestion DB (data ephemeral 24h, déjà GeoJSON natif).
   readonly showQuakes = signal(false);
   readonly quakesStatus = signal('séismes 24h (USGS)');
+  // ─── V2 Hydrologie #2 — Hub'eau piézomètres (nappes) ───────────────
+  readonly showPiezo = signal(false);
+  readonly piezoStatus = signal('niveaux piézo (Hub\'eau)');
 
   // ─── Sprint Layer UX V2 — Phase A : opacity per layer + persist ──────
   //
@@ -2096,7 +2138,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // Defaults : 1.0 pour vector layers (lisibilité), 0.7 pour rasters
   // (SST/vent/vagues — meilleur blend visuel avec le fond carto).
   readonly layerOpacities = signal<Record<string, number>>({
-    vessels: 1, tracks: 1, alerts: 1, buoys: 1, metar: 1, hubeau: 1, quakes: 1,
+    vessels: 1, tracks: 1, alerts: 1, buoys: 1, metar: 1, hubeau: 1, quakes: 1, piezo: 1,
     sst: 0.7, waves: 0.7, waveArrows: 0.9,
     wind: 0.7, windArrows: 0.9, windParticles: 0.9,
     rain: 0.8, lightning: 0.9,
@@ -2108,7 +2150,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     rain: false, wind: false, waves: false,
     windArrows: false, waveArrows: false,
     lightning: false, alerts: false,
-    windParticles: false, buoys: false, metar: false, hubeau: false, quakes: false,
+    windParticles: false, buoys: false, metar: false, hubeau: false, quakes: false, piezo: false,
   };
   private readonly DEFAULT_OPACITIES = { ...this.layerOpacities() };
 
@@ -2143,6 +2185,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       metar: this.metarLayer,
       hubeau: this.hubeauLayer,
       quakes: this.quakesLayer,
+      piezo: this.piezoLayer,
     } as Record<string, { setOpacity: (n: number) => void } | undefined>)[key];
     layer?.setOpacity(value);
     // Wind particles = canvas overlay, opacity réglée via CSS sur le
@@ -2198,7 +2241,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       return { active: flags.filter(Boolean).length, total: flags.length };
     }
     if (key === 'hydrology') {
-      const flags = [this.showHubeau()];
+      const flags = [this.showHubeau(), this.showPiezo()];
       return { active: flags.filter(Boolean).length, total: flags.length };
     }
     return { active: 0, total: 0 };
@@ -2222,6 +2265,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.showMetar.set(this.DEFAULT_VISIBILITY['metar']);
     this.showHubeau.set(this.DEFAULT_VISIBILITY['hubeau']);
     this.showQuakes.set(this.DEFAULT_VISIBILITY['quakes']);
+    this.showPiezo.set(this.DEFAULT_VISIBILITY['piezo']);
     this.layerOpacities.set({ ...this.DEFAULT_OPACITIES });
     this.applyAllLayerOpacities();
     this.applyLayerVisibility();
@@ -2248,6 +2292,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       metar: this.showMetar(),
       hubeau: this.showHubeau(),
       quakes: this.showQuakes(),
+      piezo: this.showPiezo(),
     };
     const opacity = this.layerOpacities();
     try {
@@ -2318,6 +2363,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       metar: (v) => this.showMetar.set(v),
       hubeau: (v) => this.showHubeau.set(v),
       quakes: (v) => this.showQuakes.set(v),
+      piezo: (v) => this.showPiezo.set(v),
     };
     return map[key] ?? null;
   }
@@ -2344,6 +2390,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       if (typeof vis.metar === 'boolean') this.showMetar.set(vis.metar);
       if (typeof vis.hubeau === 'boolean') this.showHubeau.set(vis.hubeau);
       if (typeof vis.quakes === 'boolean') this.showQuakes.set(vis.quakes);
+      if (typeof vis.piezo === 'boolean') this.showPiezo.set(vis.piezo);
       const op = data?.opacity ?? {};
       this.layerOpacities.update((m) => ({ ...m, ...op }));
     } catch {
@@ -2442,6 +2489,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private quakesSource?: VectorSource;
   private quakesTimer?: ReturnType<typeof setInterval>;
   readonly selectedQuake = signal<(QuakeProperties & { depth_km: number | null }) | null>(null);
+  // ─── V2 Hydrologie #2 — Hub'eau piézomètres FR ────────────────────
+  private piezoLayer?: VectorLayer<VectorSource>;
+  private piezoSource?: VectorSource;
+  private piezoTimer?: ReturnType<typeof setInterval>;
+  readonly selectedPiezo = signal<PiezoProperties | null>(null);
   private buoysRefTimer?: ReturnType<typeof setInterval>;
   private buoysObsTimer?: ReturnType<typeof setInterval>;
   private buoysRefSub?: Subscription;
@@ -2470,7 +2522,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.showRain();    this.showWind();   this.showWaves();
       this.showWindArrows(); this.showWaveArrows();
       this.showLightning(); this.showAlerts(); this.showWindParticles();
-      this.showBuoys(); this.showMetar(); this.showHubeau(); this.showQuakes();
+      this.showBuoys(); this.showMetar(); this.showHubeau(); this.showQuakes(); this.showPiezo();
       // Defer pour s'exécuter après ngAfterViewInit (this.*Layer dispo)
       queueMicrotask(() => {
         this.applyLayerVisibility();
@@ -2629,6 +2681,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.stopMetarLoop();
     this.stopHubeauLoop();
     this.stopQuakesLoop();
+    this.stopPiezoLoop();
     this.particlesEngine?.stop();
     this.map?.setTarget(undefined);
     this.map?.dispose();
@@ -2762,6 +2815,14 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.quakesLayer.setVisible(wanted);
       if (wanted) this.startQuakesLoop();
       else this.stopQuakesLoop();
+    }
+    // Piezo Hub'eau : visible en mode live, refresh 5min (piezo refresh
+    // upstream ~1h, on est large).
+    if (this.piezoLayer) {
+      const wanted = this.showPiezo() && this.isLive();
+      this.piezoLayer.setVisible(wanted);
+      if (wanted) this.startPiezoLoop();
+      else this.stopPiezoLoop();
     }
     // Wind particles : engine est démarré au boot, on contrôle juste la
     // visibilité du canvas + la grille. Quand OFF, on stop le rAF pour
@@ -3280,6 +3341,62 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.quakesSource?.clear();
   }
 
+  // ─── Piezo Hub'eau (V2 Hydrologie #2) ──────────────────────────────
+  /** Style d'un piézomètre : cercle bleu indigo, taille fixe (les niveaux
+   *  varient peu en absolu). Color shift selon profondeur nappe :
+   *  <2m surface, 2-10m subaffleurante, >10m profonde. Stale (>7j) → gris. */
+  private stylePiezo(feat: FeatureLike): Style {
+    const p = feat.getProperties() as PiezoProperties;
+    const depth = p.profondeur_nappe;
+    let fill = '#6366f1';  // indigo défaut
+    if (depth != null) {
+      if (depth < 2)        fill = '#3b82f6';   // bleu (proche surface)
+      else if (depth < 10)  fill = '#6366f1';   // indigo
+      else if (depth < 30)  fill = '#7c3aed';   // violet
+      else                  fill = '#5b21b6';   // violet foncé
+    }
+    const stale = p.age_seconds > 7 * 24 * 3600;
+    return new Style({
+      image: new CircleStyle({
+        radius: 4,
+        fill: new Fill({ color: stale ? '#475569' : fill }),
+        stroke: new Stroke({ color: stale ? '#1e293b' : '#1e1b4b', width: 1 }),
+      }),
+    });
+  }
+
+  private startPiezoLoop(): void {
+    if (this.piezoTimer) return;
+    const fetchPiezo = async () => {
+      try {
+        const resp = await fetch('/api/hubeau/piezo/recent');
+        if (!resp.ok) return;
+        const fc = await resp.json();
+        if (!this.piezoSource) return;
+        this.piezoSource.clear();
+        const features = this.geoJsonFmt.readFeatures(fc, {
+          dataProjection: 'EPSG:4326',
+          featureProjection: this.map?.getView().getProjection() ?? 'EPSG:3857',
+        });
+        this.piezoSource.addFeatures(features);
+        const count = fc.features?.length ?? 0;
+        this.piezoStatus.set(`${count} piézomètres FR`);
+      } catch {
+        this.piezoStatus.set('erreur fetch Piezo');
+      }
+    };
+    fetchPiezo();
+    this.piezoTimer = setInterval(fetchPiezo, 5 * 60_000);
+  }
+
+  private stopPiezoLoop(): void {
+    if (this.piezoTimer) {
+      clearInterval(this.piezoTimer);
+      this.piezoTimer = undefined;
+    }
+    this.piezoSource?.clear();
+  }
+
   // ─── Alerts (sprint 10) ───────────────────────────────────────────
   private styleAlert(feat: FeatureLike): Style {
     const props = feat.getProperties() as AlertProperties;
@@ -3582,6 +3699,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.selectedMetar.set(null);
     this.selectedHubeau.set(null);
     this.selectedQuake.set(null);
+    this.selectedPiezo.set(null);
     this.popupOverlay?.setPosition(undefined);
   }
 
@@ -3926,6 +4044,18 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       declutter: false,
     });
 
+    // Hub'eau piézomètres (V2 Hydrologie #2) — ~1500 stations FR. zIndex
+    // 104 sous Hub'eau débits (106) car piezo bouge slowly + couleur
+    // plus foncée pour différencier visuellement.
+    this.piezoSource = new VectorSource({ attributions: 'Hub\'eau Eaufrance — nappes' });
+    this.piezoLayer = new VectorLayer({
+      source: this.piezoSource,
+      style: (feat: FeatureLike) => this.stylePiezo(feat),
+      zIndex: 104,
+      visible: false,
+      declutter: false,
+    });
+
     this.trackLayer = new VectorLayer({
       source: this.trackSource,
       style: () => this.styleTrack(),
@@ -3954,6 +4084,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         this.trackLayer,
         this.vesselLayer,
         this.buoysLayer,
+        this.piezoLayer,
         this.hubeauLayer,
         this.metarLayer,
         this.quakesLayer,
@@ -3989,7 +4120,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // forEachFeatureAtPixel passe le layer en 2e arg, ce qui permet de
     // distinguer vessel / lightning / alert sans inspecter les props.
     this.map.on('singleclick', (evt) => {
-      type ClickKind = 'vessel' | 'lightning' | 'alert' | 'buoy' | 'metar' | 'hubeau' | 'quake';
+      type ClickKind = 'vessel' | 'lightning' | 'alert' | 'buoy' | 'metar' | 'hubeau' | 'quake' | 'piezo';
       let matched: { feat: Feature<Geometry>; kind: ClickKind } | null = null;
       this.map!.forEachFeatureAtPixel(
         evt.pixel,
@@ -4002,6 +4133,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
           else if (layer === this.metarLayer) matched = { feat: f as Feature<Geometry>, kind: 'metar' };
           else if (layer === this.hubeauLayer) matched = { feat: f as Feature<Geometry>, kind: 'hubeau' };
           else if (layer === this.quakesLayer) matched = { feat: f as Feature<Geometry>, kind: 'quake' };
+          else if (layer === this.piezoLayer) matched = { feat: f as Feature<Geometry>, kind: 'piezo' };
         },
         { hitTolerance: 4 },
       );
@@ -4052,6 +4184,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         }
         case 'metar':    this.selectedMetar.set(props as MetarProperties); break;
         case 'hubeau':   this.selectedHubeau.set(props as HubeauProperties); break;
+        case 'piezo':    this.selectedPiezo.set(props as PiezoProperties); break;
         case 'quake': {
           // Le feed USGS encode la profondeur (km) dans la 3ème dim de la
           // geometry. On l'extrait avant de set le selectedQuake.

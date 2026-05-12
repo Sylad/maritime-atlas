@@ -435,6 +435,37 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
       const path = cfg.extractPath ?? '$';
       return this.applyJsonPath(body, path);
     }
+    if (kind === 'geojson_features') {
+      // V2 (2026-05-12) : flatten un GeoJSON FeatureCollection en records
+      // plats. Extract `geometry.coordinates[0..2]` → lon, lat, depth.
+      // Spread tous les `properties` au top-level + ajoute `id` depuis
+      // feature.id. Réutilisable pour tout feed GeoJSON natif (USGS,
+      // NOAA, EMSC, etc.).
+      //
+      // Optionnel : `parser_config.epochMsFields: ['time', 'updated']`
+      // convertit ces champs (epoch ms number) en ISO string acceptée
+      // par PostgreSQL TIMESTAMPTZ.
+      const cfg = (src.parserConfig ?? {}) as { epochMsFields?: string[] };
+      const epochFields = new Set(cfg.epochMsFields ?? []);
+      const fc = body as { features?: Array<{ id?: string; geometry?: { coordinates?: number[] }; properties?: Record<string, unknown> }> };
+      const features = fc?.features ?? [];
+      return features.map((f) => {
+        const coords = f.geometry?.coordinates ?? [];
+        const props = f.properties ?? {};
+        const record: Record<string, unknown> = {
+          id: f.id ?? null,
+          lon: coords[0] ?? null,
+          lat: coords[1] ?? null,
+          depth: coords[2] ?? null,
+        };
+        for (const [k, v] of Object.entries(props)) {
+          record[k] = (epochFields.has(k) && typeof v === 'number')
+            ? new Date(v).toISOString()
+            : v;
+        }
+        return record;
+      });
+    }
     throw new Error(`Unsupported parser kind: ${kind}`);
   }
 

@@ -9,7 +9,7 @@ import { OrchestratorRunnerService } from './orchestrator-runner.service';
 
 const VALID_KINDS = ['http_json', 'http_grib', 'http_wfs', 'http_netcdf', 'websocket', 'rmq_consumer', 'sql_aggregate'] as const;
 const VALID_SCHEDULE_KINDS = ['cron', 'interval', 'once'] as const;
-const VALID_PARSER_KINDS = ['identity', 'json_path', 'grib_wind10m', 'grib_wave', 'netcdf_sst', 'grib_gfs_multi'] as const;
+const VALID_PARSER_KINDS = ['identity', 'json_path', 'grib_wind10m', 'grib_wave', 'netcdf_sst', 'grib_gfs_multi', 'geojson_features'] as const;
 const VALID_SINK_KINDS = ['pg_insert', 'rmq_publish', 'geotiff_volume'] as const;
 
 export class ToggleEnabledDto {

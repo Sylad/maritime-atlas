@@ -22,6 +22,41 @@ import { DB_TOKEN, type Db } from '../db/db.module';
 export class HubeauController {
   constructor(@Inject(DB_TOKEN) private readonly db: Db) {}
 
+  @Get('piezo/recent')
+  async piezoRecent() {
+    const rows = await this.db.execute(sql`
+      SELECT
+        code_bss,
+        ts::text AS ts,
+        age_seconds,
+        niveau_eau_ngf,
+        profondeur_nappe,
+        altitude_station,
+        ST_X(geom) AS lon,
+        ST_Y(geom) AS lat
+      FROM v_hubeau_piezo_recent
+      ORDER BY code_bss
+    `);
+    const features = (rows as unknown as Array<{
+      code_bss: string; ts: string; age_seconds: number;
+      niveau_eau_ngf: number | null; profondeur_nappe: number | null;
+      altitude_station: number | null;
+      lon: number; lat: number;
+    }>).map((r) => ({
+      type: 'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [r.lon, r.lat] },
+      properties: {
+        code_bss: r.code_bss,
+        ts: r.ts,
+        age_seconds: r.age_seconds,
+        niveau_eau_ngf: r.niveau_eau_ngf,
+        profondeur_nappe: r.profondeur_nappe,
+        altitude_station: r.altitude_station,
+      },
+    }));
+    return { type: 'FeatureCollection' as const, features };
+  }
+
   @Get('recent')
   async recent() {
     const rows = await this.db.execute(sql`

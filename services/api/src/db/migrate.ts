@@ -366,6 +366,151 @@ INSERT INTO data_sources (
   true
 )
 ON CONFLICT (name) DO NOTHING;
+
+-- ─── V2 Hydrologie #2 — Niveaux piézométriques Hub'eau (2026-05-12) ─
+-- Source : Hub'eau API v1 niveaux_nappes/chroniques_tr → ~1500 piézomètres
+-- France, niveau eau (m NGF) + profondeur nappe (m sous sol).
+-- Cron 1h via orchestrator (piezo bouge slowly vs débit). Même pattern
+-- que hubeau-debits-fr mais URL + colonnes différentes.
+CREATE TABLE IF NOT EXISTS hubeau_piezo (
+  ts                TIMESTAMPTZ NOT NULL,
+  code_bss          TEXT NOT NULL,
+  lat               REAL,
+  lon               REAL,
+  niveau_eau_ngf    REAL,   -- m NGF (Nivellement Général Français)
+  profondeur_nappe  REAL,   -- m sous le sol (utile pour suivi)
+  altitude_station  REAL,
+  source            TEXT NOT NULL DEFAULT 'hubeau-piezo-fr'
+);
+CREATE UNIQUE INDEX IF NOT EXISTS hubeau_piezo_ts_bss_uidx
+  ON hubeau_piezo (ts, code_bss);
+SELECT create_hypertable(
+  'hubeau_piezo', 'ts',
+  chunk_time_interval => INTERVAL '30 days',
+  if_not_exists => TRUE
+);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM timescaledb_information.jobs
+    WHERE proc_name = 'policy_retention' AND hypertable_name = 'hubeau_piezo'
+  ) THEN
+    PERFORM add_retention_policy('hubeau_piezo', INTERVAL '90 days');
+  END IF;
+END $$;
+
+-- Vue : dernière obs par station ≤7j (piezo refresh lentement, parfois 1/jour).
+CREATE OR REPLACE VIEW v_hubeau_piezo_recent AS
+SELECT DISTINCT ON (code_bss)
+  code_bss,
+  ts,
+  EXTRACT(EPOCH FROM (now() - ts))::INTEGER AS age_seconds,
+  niveau_eau_ngf,
+  profondeur_nappe,
+  altitude_station,
+  ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom
+FROM hubeau_piezo
+WHERE ts > now() - INTERVAL '7 days'
+ORDER BY code_bss, ts DESC;
+
+INSERT INTO data_sources (
+  name, kind, url, schedule_kind, schedule_expr,
+  parser_kind, parser_config,
+  sink_kind, sink_config, sink_label, bbox, enabled
+) VALUES (
+  'hubeau-piezo-fr',
+  'http_json',
+  'https://hubeau.eaufrance.fr/api/v1/niveaux_nappes/chroniques_tr?size=2000&sort=desc',
+  'cron',
+  '5 */1 * * *',
+  'json_path',
+  '{"extractPath": "$.data[*]"}',
+  'pg_insert',
+  '{"table": "hubeau_piezo", "onConflict": "(ts, code_bss) DO NOTHING", "columns": {"date_mesure": "ts", "code_bss": "code_bss", "latitude": "lat", "longitude": "lon", "niveau_eau_ngf": "niveau_eau_ngf", "profondeur_nappe": "profondeur_nappe", "altitude_station": "altitude_station"}}',
+  -- NOTE 2026-05-12 : disabled par défaut. L''API Hub''eau v1
+  -- niveaux_nappes/chroniques_tr ne supporte pas le "latest par station"
+  -- via un simple bulk query — chaque page liste les obs d''UNE seule
+  -- station triées par date. Pour avoir un overview, il faudra paginer
+  -- par bbox ou par département. À reprendre dans un sprint dédié.
+  'PostGIS hubeau_piezo — DISABLED (per-station pagination needed)',
+  '[-5,41,10,51.5]',
+  false
+)
+ON CONFLICT (name) DO NOTHING;
+
+-- ─── V2 Observation #2 — Séismes USGS (orchestrator + DB, 2026-05-12) ─
+-- Migration : on remplace le proxy NestJS cache-only par un vrai
+-- pipeline orchestrator. Avantage : visibility dans data_jobs +
+-- possibilité de navigation temporelle (à terme on supportera ts=NOW
+-- vs ts=AT_TIME dans le endpoint).
+--
+-- Parser_kind geojson_features flatten les FeatureCollection USGS
+-- (coords + properties) en records plats pour le pg_insert.
+CREATE TABLE IF NOT EXISTS earthquakes (
+  ts          TIMESTAMPTZ NOT NULL,
+  id          TEXT NOT NULL,             -- USGS event id (eg "nc75359521")
+  mag         REAL,
+  place       TEXT,
+  lat         REAL,
+  lon         REAL,
+  depth_km    REAL,
+  alert       TEXT,                       -- green/yellow/orange/red ou NULL
+  tsunami     INTEGER,                    -- 0|1
+  sig         INTEGER,                    -- significance 0-1000
+  url         TEXT,
+  detail_url  TEXT,
+  type        TEXT,                       -- earthquake / explosion / ...
+  source      TEXT NOT NULL DEFAULT 'usgs'
+);
+CREATE UNIQUE INDEX IF NOT EXISTS earthquakes_id_ts_uidx
+  ON earthquakes (id, ts);
+SELECT create_hypertable(
+  'earthquakes', 'ts',
+  chunk_time_interval => INTERVAL '7 days',
+  if_not_exists => TRUE
+);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM timescaledb_information.jobs
+    WHERE proc_name = 'policy_retention' AND hypertable_name = 'earthquakes'
+  ) THEN
+    PERFORM add_retention_policy('earthquakes', INTERVAL '90 days');
+  END IF;
+END $$;
+
+-- Vue séismes 24h glissantes avec géom. À terme, l'endpoint
+-- /api/earthquakes/recent?at=ISO pourra filtrer sur ts proche d'un
+-- instant donné (navigation time slider).
+CREATE OR REPLACE VIEW v_earthquakes_recent AS
+SELECT
+  id, ts,
+  EXTRACT(EPOCH FROM (now() - ts))::INTEGER AS age_seconds,
+  mag, place, depth_km, alert, tsunami, sig, url, detail_url, type,
+  ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom
+FROM earthquakes
+WHERE ts > now() - INTERVAL '24 hours'
+ORDER BY ts DESC;
+
+INSERT INTO data_sources (
+  name, kind, url, schedule_kind, schedule_expr,
+  parser_kind, parser_config,
+  sink_kind, sink_config, sink_label, bbox, enabled
+) VALUES (
+  'usgs-earthquakes-day',
+  'http_json',
+  'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson',
+  'cron',
+  '*/5 * * * *',
+  'geojson_features',
+  '{"epochMsFields": ["time", "updated"]}',
+  'pg_insert',
+  '{"table": "earthquakes", "onConflict": "(id, ts) DO NOTHING", "columns": {"time": "ts", "id": "id", "mag": "mag", "place": "place", "lat": "lat", "lon": "lon", "depth": "depth_km", "alert": "alert", "tsunami": "tsunami", "sig": "sig", "url": "url", "detail": "detail_url", "type": "type"}}',
+  'PostGIS earthquakes (USGS all_day feed)',
+  '[-180,-90,180,90]',
+  true
+)
+ON CONFLICT (name) DO NOTHING;
 `;
 
 export async function runMigrations(databaseUrl: string): Promise<void> {

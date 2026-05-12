@@ -1,45 +1,60 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Inject } from '@nestjs/common';
+import { sql } from 'drizzle-orm';
+import { DB_TOKEN, type Db } from '../db/db.module';
 
 /**
- * V2 Observation #2 (2026-05-12) — Séismes USGS Earthquakes.
+ * V2 Observation #2 (2026-05-12) — Séismes USGS Earthquakes (DB-backed).
  *
- * USGS expose un GeoJSON natif via leur feed public — pas besoin
- * d'ingestion DB. On fait juste un proxy avec cache mémoire 5min
- * pour éviter de spammer leur endpoint (TTL = leur refresh rate
- * environ).
+ * Migration : on est passé du proxy direct cache 5min à une ingestion
+ * orchestrator + DB. Avantage : visibility dans data_jobs + (à terme)
+ * navigation temporelle via ?at=ISO.
  *
  *   GET /api/earthquakes/recent
- *     → GeoJSON FeatureCollection des séismes des dernières 24h
- *       (~50-200 séismes monde, on bbox EU côté frontend).
+ *     → GeoJSON FeatureCollection des séismes des dernières 24h.
  *
- * Pas d'auth — feed USGS public. Pas de DB.
+ * Pas d'auth — donnée publique USGS.
  */
 @Controller('earthquakes')
 export class EarthquakesController {
-  /** Cache mémoire process-level. 5min TTL aligné sur le refresh
-   *  côté USGS. */
-  private cache: { ts: number; data: unknown } | null = null;
-  private readonly CACHE_TTL_MS = 5 * 60_000;
+  constructor(@Inject(DB_TOKEN) private readonly db: Db) {}
 
   @Get('recent')
   async recent() {
-    const now = Date.now();
-    if (this.cache && now - this.cache.ts < this.CACHE_TTL_MS) {
-      return this.cache.data;
-    }
-    try {
-      const resp = await fetch(
-        'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson',
-        { signal: AbortSignal.timeout(15_000) },
-      );
-      if (!resp.ok) throw new Error(`USGS HTTP ${resp.status}`);
-      const data = await resp.json();
-      this.cache = { ts: now, data };
-      return data;
-    } catch (err) {
-      // Renvoie le cache stale plutôt que rien, sinon FeatureCollection vide.
-      if (this.cache) return this.cache.data;
-      return { type: 'FeatureCollection', features: [], error: (err as Error).message };
-    }
+    const rows = await this.db.execute(sql`
+      SELECT
+        id,
+        ts::text AS ts,
+        age_seconds,
+        mag, place, depth_km, alert, tsunami, sig, url, detail_url, type,
+        ST_X(geom) AS lon,
+        ST_Y(geom) AS lat
+      FROM v_earthquakes_recent
+      ORDER BY mag DESC NULLS LAST
+    `);
+
+    const features = (rows as unknown as Array<{
+      id: string; ts: string; age_seconds: number;
+      mag: number | null; place: string | null; depth_km: number | null;
+      alert: string | null; tsunami: number | null; sig: number | null;
+      url: string | null; detail_url: string | null; type: string | null;
+      lon: number; lat: number;
+    }>).map((r) => ({
+      type: 'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [r.lon, r.lat, r.depth_km ?? 0] },
+      id: r.id,
+      properties: {
+        mag: r.mag,
+        place: r.place,
+        time: new Date(r.ts).getTime(),  // epoch ms côté frontend (compat USGS)
+        tsunami: r.tsunami ?? 0,
+        alert: r.alert,
+        sig: r.sig,
+        url: r.url,
+        type: r.type,
+        age_seconds: r.age_seconds,
+      },
+    }));
+
+    return { type: 'FeatureCollection' as const, features };
   }
 }
