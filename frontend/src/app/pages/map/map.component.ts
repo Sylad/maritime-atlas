@@ -3751,8 +3751,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       numParticles: 1500,
       maxTtl: 200,
       advectScale: 0.0035,    // ~4× plus lent que sprint 8 v1 (feedback user)
-      fadeAlpha: 0.5,         // dash court "no limace" (cf wind-particles.ts)
-      lineWidth: 1.2,
+      // V2 (2026-05-12) refactor polyline-history : trail dessiné comme
+      // polyline depuis N frames d'historique au lieu de fade-cumul.
+      // Bénéfice : couleur consistante par particule (pas de cumul qui
+      // devient blanchâtre sur fond sombre). trailLength 32 frames =
+      // ~535ms à 60fps → trail bien visible mais propre.
+      trailLength: 32,
+      lineWidth: 1.6,
     });
 
     // Resize observer pour suivre les changements de taille du conteneur

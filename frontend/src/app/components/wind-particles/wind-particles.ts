@@ -33,6 +33,11 @@ interface Particle {
   prevLat: number;
   ttl: number;       // frames remaining
   maxTtl: number;
+  /** Historique des N dernières positions (lon, lat) pour dessiner une
+   *  traînée polyline propre, sans cumul de fade qui parasite la couleur.
+   *  Permet de remplacer le `destination-in fadeAlpha` (qui produisait
+   *  des trails pâles "blanchâtres" sur fond sombre). */
+  history: Array<[number, number]>;
 }
 
 export interface WindParticlesOptions {
@@ -42,8 +47,13 @@ export interface WindParticlesOptions {
   maxTtl?: number;
   /** Multiplier applied to U/V before advecting (lon/lat per frame). ~0.015 default. */
   advectScale?: number;
-  /** Fade factor applied to canvas each frame (1.0 = no trails, 0.95 = long trails). ~0.97. */
+  /** Legacy : ignoré depuis V2 polyline-history refactor. Garde la propriété
+   *  pour compat avec les call sites existants. */
   fadeAlpha?: number;
+  /** V2 (2026-05-12) : longueur de la traînée par particule (en frames).
+   *  Default 28 (~470ms à 60fps). Plus court = particules quasi-points.
+   *  Plus long = trails plus visibles mais "salissent" map au pan/zoom. */
+  trailLength?: number;
   /** Line width (px). ~1.2. */
   lineWidth?: number;
 }
@@ -80,17 +90,12 @@ export class WindParticleEngine {
       numParticles: opts.numParticles ?? 1500,
       maxTtl: opts.maxTtl ?? 200,        // ↑ pour compenser advectScale réduit (sprint 8b)
       advectScale: opts.advectScale ?? 0.0035,  // ↓ ~4× plus lent, plus lisible (sprint 8b)
-      // Iteration trails (2026-05-12) :
-      //   0.97 → ~0.37s à 60fps : trop long, "salit" pan/zoom
-      //   0.92 → 50% en 0.13s mais 10% en 0.45s : encore "limaces"
-      //   0.85 → 10% en 0.23s, 2% en 0.4s : encore visible Sylvain
-      //   0.50 (actuel) → 12.5% en 3 frames (50ms), invisible en 5 frames
-      //          (~80ms). Dash net qui suit la particule, pas de
-      //          traînées persistantes.
-      // Override possible via WindParticlesOptions.fadeAlpha si besoin
-      // d'un mode démo avec trails plus longs pour screenshots.
-      fadeAlpha: opts.fadeAlpha ?? 0.5,
-      lineWidth: opts.lineWidth ?? 1.2,
+      // Legacy fadeAlpha ignoré depuis V2 (refactor polyline-history).
+      fadeAlpha: opts.fadeAlpha ?? 0,
+      // V2 trail length en frames d'historique. 28 frames ≈ 470ms à 60fps
+      // → trails bien visibles, sans cumul blanchâtre parasite.
+      trailLength: opts.trailLength ?? 28,
+      lineWidth: opts.lineWidth ?? 1.5,
     };
   }
 
@@ -135,13 +140,14 @@ export class WindParticleEngine {
   }
 
   private spawn(): Particle {
-    if (!this.bbox) return { lon: 0, lat: 0, prevLon: 0, prevLat: 0, ttl: 0, maxTtl: 1 };
+    if (!this.bbox) return { lon: 0, lat: 0, prevLon: 0, prevLat: 0, ttl: 0, maxTtl: 1, history: [] };
     const lon = this.bbox.minLon + Math.random() * (this.bbox.maxLon - this.bbox.minLon);
     const lat = this.bbox.minLat + Math.random() * (this.bbox.maxLat - this.bbox.minLat);
     return {
       lon, lat, prevLon: lon, prevLat: lat,
       ttl: Math.floor(Math.random() * this.opts.maxTtl),
       maxTtl: this.opts.maxTtl,
+      history: [],
     };
   }
 
@@ -198,22 +204,29 @@ export class WindParticleEngine {
     return 'rgba(220, 38, 38, 0.9)';
   }
 
+  /** Longueur d'historique (frames) gardée par particule pour dessiner
+   *  la traînée. Configurable via opts.trailLength. */
+  private get trailLength(): number {
+    return Math.max(2, Math.min(60, this.opts.trailLength));
+  }
+
   private step(): void {
     const ctx = this.ctx;
     const w = ctx.canvas.width;
     const h = ctx.canvas.height;
 
-    // Fade existing trails by drawing a semi-transparent black rect
-    ctx.save();
-    ctx.globalCompositeOperation = 'destination-in';
-    ctx.fillStyle = `rgba(0, 0, 0, ${this.opts.fadeAlpha})`;
-    ctx.fillRect(0, 0, w, h);
-    ctx.restore();
+    // V2 (2026-05-12) : clear net chaque frame. Plus de fade-cumul
+    // (qui produisait des trails blanchâtres/grisées sur fond sombre).
+    // À la place, chaque particule garde un `history[]` de N positions
+    // qu'on dessine en polyline → trail nette, colorée, sans bave.
+    ctx.clearRect(0, 0, w, h);
 
     if (this.grid.length === 0 || !this.bbox) return;
 
     ctx.lineWidth = this.opts.lineWidth;
     ctx.lineCap = 'round';
+
+    const trailLen = this.trailLength;
 
     for (const p of this.particles) {
       const wind = this.interpolateWind(p.lon, p.lat);
@@ -227,21 +240,32 @@ export class WindParticleEngine {
       p.lon += wind.u * this.opts.advectScale;
       p.lat += wind.v * this.opts.advectScale;
       p.ttl--;
+      // Push current position dans history + trim
+      p.history.push([p.lon, p.lat]);
+      if (p.history.length > trailLen) p.history.shift();
 
-      const pPrev = this.project(p.prevLon, p.prevLat);
-      const pCurr = this.project(p.lon, p.lat);
-      if (!pPrev || !pCurr) continue;
+      if (p.history.length < 2) continue;
 
-      // Skip if both points outside viewport (cheap cull)
-      if ((pCurr[0] < 0 || pCurr[0] > w || pCurr[1] < 0 || pCurr[1] > h) &&
-          (pPrev[0] < 0 || pPrev[0] > w || pPrev[1] < 0 || pPrev[1] > h)) {
-        continue;
+      // Project all history points + draw polyline. On skip si TOUS les
+      // points sont hors viewport (cull pas-cher).
+      const pts: Array<[number, number]> = [];
+      let allOutside = true;
+      for (const [hLon, hLat] of p.history) {
+        const px = this.project(hLon, hLat);
+        if (!px) continue;
+        pts.push(px);
+        if (px[0] >= 0 && px[0] <= w && px[1] >= 0 && px[1] <= h) {
+          allOutside = false;
+        }
       }
+      if (pts.length < 2 || allOutside) continue;
 
       ctx.strokeStyle = this.colorForSpeed(wind.speed);
       ctx.beginPath();
-      ctx.moveTo(pPrev[0], pPrev[1]);
-      ctx.lineTo(pCurr[0], pCurr[1]);
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) {
+        ctx.lineTo(pts[i][0], pts[i][1]);
+      }
       ctx.stroke();
     }
   }
