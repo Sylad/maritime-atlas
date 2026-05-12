@@ -20,12 +20,13 @@ import View from 'ol/View';
 import TileLayer from 'ol/layer/Tile';
 import VectorLayer from 'ol/layer/Vector';
 import VectorSource from 'ol/source/Vector';
+import Cluster from 'ol/source/Cluster';
 import XYZ from 'ol/source/XYZ';
 import TileWMS from 'ol/source/TileWMS';
 import GeoJSON from 'ol/format/GeoJSON';
 import Overlay from 'ol/Overlay';
 import { fromLonLat } from 'ol/proj';
-import { Style, Circle as CircleStyle, Fill, Stroke, Icon } from 'ol/style';
+import { Style, Circle as CircleStyle, Fill, Stroke, Icon, Text as TextStyle } from 'ol/style';
 import { defaults as defaultControls, ScaleLine, MousePosition, Zoom } from 'ol/control';
 import { toStringHDMS } from 'ol/coordinate';
 import type { Feature } from 'ol';
@@ -1611,8 +1612,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
   private map?: Map;
   private vesselSource?: VectorSource;
+  // Sprint Europe #4 : layer Vessels pointe sur `vesselClusterSource` (wrap
+  // OL Cluster autour de vesselSource). vesselSource reste la source de
+  // vérité alimentée par les services AIS, le Cluster source écoute ses
+  // events et agrège automatiquement.
+  private vesselClusterSource?: Cluster;
   private trackSource?: VectorSource;
-  private vesselLayer?: VectorLayer<VectorSource>;
+  private vesselLayer?: VectorLayer<Cluster>;
   private trackLayer?: VectorLayer<VectorSource>;
   private sstLayer?: TileLayer<TileWMS>;
   private sstSource?: TileWMS;
@@ -2705,8 +2711,26 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       visible: false,
     });
 
-    this.vesselLayer = new VectorLayer({
+    // Sprint Europe Chantier #4 : clustering vessels.
+    // Bbox Europe étroite → 10k-30k vessels live en pic, le rendu OL freeze
+    // la carte si on peint chaque navire individuellement à grand zoom-out.
+    // On wrap le `vesselSource` (qui reste la "vérité" alimentée par les
+    // services AIS) dans un `Cluster` OL natif. La VectorLayer affiche le
+    // cluster source ; à grand zoom, les vessels sont agrégés en disques
+    // numérotés ; à zoom rapproché (pixelDistance reste constant mais
+    // l'écart pixel entre navires augmente), les clusters se dissocient
+    // naturellement pour révéler chaque silhouette individuelle.
+    //
+    // pixelDistance=55 : compromis lisibilité — assez fin pour distinguer
+    // des hot-spots (Manche, Méditerranée orientale) tout en gardant un
+    // count cluster utile.
+    this.vesselClusterSource = new Cluster({
       source: this.vesselSource,
+      distance: 55,
+      minDistance: 28,
+    });
+    this.vesselLayer = new VectorLayer({
+      source: this.vesselClusterSource,
       style: (feature: FeatureLike) => this.styleVessel(feature),
       zIndex: 100,
       visible: true,
@@ -2812,6 +2836,31 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       }
       this.closePopup();      // reset les signals avant le set
       const m = matched as { feat: Feature<Geometry>; kind: ClickKind };
+      // Sprint Europe #4 : cluster handling. Si on a cliqué un cluster
+      // vessels (m.feat.get('features').length > 1), on zoom-in à la place
+      // d'ouvrir une popup. Le cluster va naturellement se dissocier quand
+      // pixelDistance > écart entre features.
+      if (m.kind === 'vessel') {
+        const clusterFeats = m.feat.get('features') as Feature[] | undefined;
+        if (Array.isArray(clusterFeats) && clusterFeats.length > 1) {
+          const view = this.map!.getView();
+          const currentZoom = view.getZoom() ?? INITIAL_ZOOM;
+          const geom = m.feat.getGeometry();
+          if (geom?.getType() === 'Point') {
+            view.animate({
+              center: (geom as Point).getCoordinates(),
+              zoom: Math.min(currentZoom + 2, 14),
+              duration: 350,
+            });
+          }
+          return;
+        }
+        // Cluster size = 1 : on déréférence pour récupérer la vraie feature
+        // vessel (sinon les `properties` sont celles du cluster wrapper).
+        if (Array.isArray(clusterFeats) && clusterFeats.length === 1) {
+          m.feat = clusterFeats[0] as Feature<Geometry>;
+        }
+      }
       const props = m.feat.getProperties() as any;
       delete props.geometry;
       switch (m.kind) {
@@ -2872,7 +2921,19 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     return url;
   }
   private styleVessel(feature: FeatureLike): Style {
-    const props = feature.getProperties() as VesselProperties;
+    // Sprint Europe #4 : la layer vessels pointe sur un Cluster source.
+    // Chaque "feature" reçue par cette fonction est soit un cluster
+    // (props.features = Feature[] de size ≥ 1) soit une feature seule
+    // (back-compat — Cluster wrap toujours, mais une feature seule au
+    // milieu de rien aura un cluster de size 1).
+    const clusterFeats = feature.get('features') as Feature[] | undefined;
+    if (Array.isArray(clusterFeats) && clusterFeats.length > 1) {
+      return this.styleVesselCluster(clusterFeats.length);
+    }
+    const innerFeat = (Array.isArray(clusterFeats) && clusterFeats.length === 1)
+      ? clusterFeats[0]
+      : (feature as Feature);
+    const props = innerFeat.getProperties() as VesselProperties;
     const cat = categoryOf(props.ship_type);
     const colors = CATEGORY_COLOR[cat];
     const cog = typeof (props as any).cog === 'number' ? (props as any).cog : 0;
@@ -2885,6 +2946,50 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         anchor: [0.5, 0.5],
       }),
     });
+  }
+
+  /** Cache des styles cluster par "bucket" de count (1-2, 3-9, 10-99,
+   *  100-999, 1000+). Évite de re-créer un Style + Circle + Text à chaque
+   *  tick de rendu pour les 12000+ clusters quand on zoom-out Europe. */
+  private vesselClusterStyleCache: globalThis.Map<string, Style> =
+    new (globalThis as any).Map();
+
+  private styleVesselCluster(count: number): Style {
+    // Bucketing pour clamper la cardinalité du cache (~5 entrées max).
+    const bucket = count < 10 ? '1' : count < 100 ? '2' : count < 1000 ? '3' : '4';
+    const cached = this.vesselClusterStyleCache.get(bucket);
+    if (cached) {
+      // Rebadge à chaque hit (le count change même si le bucket est stable).
+      // C'est cheap : on mute juste le Text du Style cached.
+      cached.getText()?.setText(this.formatClusterCount(count));
+      return cached;
+    }
+    const radius = bucket === '1' ? 12 : bucket === '2' ? 17 : bucket === '3' ? 23 : 30;
+    const fill = bucket === '1' ? '#1e88e5'
+              : bucket === '2' ? '#0d47a1'
+              : bucket === '3' ? '#7b1fa2'
+                               : '#b91c1c';
+    const style = new Style({
+      image: new CircleStyle({
+        radius,
+        fill: new Fill({ color: fill }),
+        stroke: new Stroke({ color: 'rgba(255,255,255,0.85)', width: 2 }),
+      }),
+      text: new TextStyle({
+        text: this.formatClusterCount(count),
+        fill: new Fill({ color: '#ffffff' }),
+        font: 'bold 11px Inter, sans-serif',
+      }),
+    });
+    this.vesselClusterStyleCache.set(bucket, style);
+    return style;
+  }
+
+  /** "1.2k" pour 1234, "12k" pour 12345, sinon "47" pour <1000. */
+  private formatClusterCount(n: number): string {
+    if (n < 1000) return String(n);
+    if (n < 10000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+    return Math.round(n / 1000) + 'k';
   }
 
   private styleTrack(): Style {
