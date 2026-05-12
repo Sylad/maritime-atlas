@@ -303,7 +303,10 @@ def latest_arpege_run() -> datetime | None:
     du run. On scanne les 24 dernières heures et on retient le run le plus
     récent qui a au moins 1 bundle SP1 01 dispo."""
     now = datetime.now(timezone.utc)
-    for hours_back in range(0, 30, 6):
+    # Range 48h plutôt que 24h pour absorber les périodes où Météo-France
+    # n'a pas publié récemment (bucket S3 publish peut retarder, observé
+    # 2026-05-12 avec aucun run récent disponible côté serveur).
+    for hours_back in range(0, 48, 6):
         candidate = (now - timedelta(hours=hours_back)).replace(minute=0, second=0, microsecond=0)
         run_hour = (candidate.hour // 6) * 6
         run = candidate.replace(hour=run_hour)
@@ -313,7 +316,7 @@ def latest_arpege_run() -> datetime | None:
         if len(keys) >= 1:
             log.info('Latest ARPEGE run = %s (%d SP1 bundles)', run_iso, len(keys))
             return run
-    log.warning('No ARPEGE run found in last 30h')
+    log.warning('No ARPEGE run found in last 48h')
     return None
 
 

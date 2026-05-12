@@ -304,10 +304,14 @@ def s3_list_keys(prefix: str, max_pages: int = 5) -> list[str]:
 
 def latest_arome_run() -> datetime | None:
     """AROME runs 8×/jour (00, 03, 06, 09, 12, 15, 18, 21 UTC). Mise à dispo
-    ~2h après l'heure du run. On scanne les 24 dernières heures et on retient
-    le run le plus récent qui a au moins 1 bundle SP1 0025 dispo."""
+    ~2h après l'heure du run. On scanne les 48 dernières heures et on retient
+    le run le plus récent qui a au moins 1 bundle SP1 0025 dispo.
+
+    Range 48h plutôt que 24h pour absorber les périodes où Météo-France
+    n'a pas publié récemment (bucket S3 publish peut retarder de 24-36h
+    selon la charge serveur, observé 2026-05-12)."""
     now = datetime.now(timezone.utc)
-    for hours_back in range(0, 30, 3):
+    for hours_back in range(0, 48, 3):
         candidate = (now - timedelta(hours=hours_back)).replace(minute=0, second=0, microsecond=0)
         run_hour = (candidate.hour // 3) * 3
         run = candidate.replace(hour=run_hour)
@@ -317,7 +321,7 @@ def latest_arome_run() -> datetime | None:
         if len(keys) >= 1:
             log.info('Latest AROME run = %s (%d SP1 bundles)', run_iso, len(keys))
             return run
-    log.warning('No AROME run found in last 30h')
+    log.warning('No AROME run found in last 48h')
     return None
 
 
@@ -325,17 +329,17 @@ def fetch_object(url: str, dest: Path) -> bool:
     try:
         with requests.get(url, stream=True, timeout=300) as r:
             if r.status_code != 200:
-                log.info('ARPEGE fetch %s → HTTP %d (skip)', url[-80:], r.status_code)
+                log.info('AROME fetch %s → HTTP %d (skip)', url[-80:], r.status_code)
                 return False
             dest.parent.mkdir(parents=True, exist_ok=True)
             with open(dest, 'wb') as f:
                 for chunk in r.iter_content(chunk_size=256 * 1024):
                     f.write(chunk)
         size = dest.stat().st_size
-        log.info('ARPEGE fetched %s (%.1f MB)', dest.name, size / 1e6)
+        log.info('AROME fetched %s (%.1f MB)', dest.name, size / 1e6)
         return size > 1000
     except Exception as exc:
-        log.warning('ARPEGE fetch failed: %s', exc)
+        log.warning('AROME fetch failed: %s', exc)
         return False
 
 
