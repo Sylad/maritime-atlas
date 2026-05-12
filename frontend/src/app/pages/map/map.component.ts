@@ -2304,7 +2304,16 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       const raw = localStorage.getItem('maritime.catalog-sections-v1');
       if (!raw) return defaults;
       const parsed = JSON.parse(raw) as Partial<typeof defaults>;
-      return { ...defaults, ...parsed };
+      // V2 (2026-05-12) strict accordion : force 1 tiroir max ouvert.
+      // Si le localStorage a plusieurs `true` (legacy state), on garde le
+      // 1er trouvé selon l'ordre canonique et on ferme tous les autres.
+      const order: Array<keyof typeof defaults> = ['maritime', 'observation', 'forecast', 'hydrology', 'sources'];
+      const merged = { ...defaults, ...parsed };
+      const firstOpen = order.find((k) => merged[k]);
+      const next = { maritime: false, observation: false, forecast: false, hydrology: false, sources: false };
+      if (firstOpen) next[firstOpen] = true;
+      else next.maritime = true;
+      return next;
     } catch {
       return defaults;
     }
@@ -3742,7 +3751,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       numParticles: 1500,
       maxTtl: 200,
       advectScale: 0.0035,    // ~4× plus lent que sprint 8 v1 (feedback user)
-      fadeAlpha: 0.97,        // trails légèrement plus longs pour compenser
+      fadeAlpha: 0.5,         // dash court "no limace" (cf wind-particles.ts)
       lineWidth: 1.2,
     });
 
