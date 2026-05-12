@@ -83,19 +83,17 @@ interface HourBucket {
                 }
               </g>
             }
-            <!-- Labels heures (tous les 3h) -->
+          </svg>
+          <!-- Axe X en HTML pour ne pas être déformé par preserveAspectRatio
+               sur le SVG (font-size SVG explose horizontalement quand on
+               étire le viewBox au-delà du CSS width). -->
+          <div class="orch-xaxis">
             @for (b of buckets24h(); track b.hour) {
               @if (b.hour % 3 === 0) {
-                <text [attr.x]="barX(b.hour) + barWidth/2"
-                      [attr.y]="chartHeight - 2"
-                      text-anchor="middle"
-                      font-size="6" fill="rgba(255,255,255,0.45)"
-                      font-family="JetBrains Mono, monospace">
-                  -{{ b.hour }}h
-                </text>
+                <span class="orch-xlabel" [style.left.%]="xLabelPct(b.hour)">-{{ b.hour }}h</span>
               }
             }
-          </svg>
+          </div>
         </div>
       </section>
 
@@ -364,11 +362,30 @@ interface HourBucket {
     .orch-error { color: #fca5a5; }
     .orch-chart-wrap {
       background: rgba(15, 23, 42, 0.6);
-      padding: 12px;
+      padding: 12px 12px 8px;
       border-radius: 6px;
       border: 1px solid rgba(255,255,255,0.06);
     }
     .orch-chart { width: 100%; height: 180px; display: block; }
+    /* Axe X rendu en HTML pour ne pas être déformé par preserveAspectRatio
+       sur le SVG (le viewBox étire les unités, font-size SVG devient
+       énorme horizontalement quand le canvas est large). En HTML, le
+       texte garde sa taille réelle quelle que soit la largeur. */
+    .orch-xaxis {
+      position: relative;
+      width: 100%;
+      height: 16px;
+      margin-top: 4px;
+    }
+    .orch-xlabel {
+      position: absolute;
+      top: 0;
+      transform: translateX(-50%);
+      font-size: 0.7rem;
+      color: rgba(255, 255, 255, 0.45);
+      font-family: 'JetBrains Mono', monospace;
+      white-space: nowrap;
+    }
     .orch-table-wrap {
       background: rgba(15, 23, 42, 0.6);
       border-radius: 6px;
@@ -581,7 +598,7 @@ export class AdminOrchestratorComponent implements OnInit {
   // ─── Chart layout constants ────────────────────────────────────────
   readonly chartWidth = 600;
   readonly chartHeight = 180;
-  readonly chartMaxH = 155; // height reserved for bars (chartHeight - 25 pour labels)
+  readonly chartMaxH = 180; // height totale = barres (axe X rendu en HTML, hors viewBox)
   readonly barWidth = (this.chartWidth / 24) - 1;
   readonly sparkW = 110;
   readonly sparkH = 28;
@@ -761,6 +778,13 @@ export class AdminOrchestratorComponent implements OnInit {
   barX(hour: number): number {
     // hour=0 (récent) à droite ; hour=23 (vieux) à gauche.
     return (23 - hour) * (this.chartWidth / 24) + 0.5;
+  }
+
+  /** Position du label axe X en % du wrapper (HTML, pas SVG) — centré
+   *  sur le milieu de la barre correspondante. */
+  xLabelPct(hour: number): number {
+    const barCenterUnits = (23 - hour) * (this.chartWidth / 24) + this.barWidth / 2 + 0.5;
+    return (barCenterUnits / this.chartWidth) * 100;
   }
   barY(value: number): number {
     const max = this.maxBucketTotal();
