@@ -11,6 +11,7 @@ import { AdminModule } from './admin/admin.module';
 import { OrchestratorModule } from './orchestrator/orchestrator.module';
 import { MetarModule } from './metar/metar.module';
 import { HubeauModule } from './hubeau/hubeau.module';
+import { EarthquakesModule } from './earthquakes/earthquakes.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { HubeauModule } from './hubeau/hubeau.module';
     OrchestratorModule,
     MetarModule,
     HubeauModule,
+    EarthquakesModule,
   ],
 })
 export class AppModule {}

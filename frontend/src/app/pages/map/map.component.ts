@@ -78,6 +78,21 @@ interface HubeauProperties {
   qualif: string | null;
 }
 
+/** V2 Observation #2 (2026-05-12) — USGS Earthquakes feature properties.
+ *  Mirrore le feed USGS natif (GeoJSON). On garde les props upstream. */
+interface QuakeProperties {
+  mag: number | null;
+  place: string | null;
+  time: number;        // epoch ms
+  updated: number;
+  tsunami: number;     // 0|1
+  alert: string | null; // 'green'|'yellow'|'orange'|'red'
+  url: string;
+  sig: number;          // significance score 0-1000
+  type: string;         // earthquake / explosion / ...
+  // Geometry inclut depth (3rd dim) — on l'extrait au render.
+}
+
 // Europe étroite (sprint Europe 2026-05-12) — centré ~Allemagne, zoom 4
 // pour couvrir d'Açores à Pologne / Méditerranée à Cap Nord en une vue.
 const INITIAL_CENTER: [number, number] = [10.0, 50.0];
@@ -430,6 +445,21 @@ function toIsoTimestamp(d: Date): string {
                   <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
                          [value]="getOpacity('metar')"
                          (input)="setOpacity('metar', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showQuakes()">
+                  <input type="checkbox" [checked]="showQuakes()" (change)="showQuakes.set($any($event.target).checked)" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🌋</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Séismes USGS</span>
+                    <span class="toggle-count">{{ quakesStatus() }}</span>
+                  </span>
+                </label>
+                @if (showQuakes()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getOpacity('quakes')"
+                         (input)="setOpacity('quakes', +$any($event.target).value)" />
                 }
               </div>
               <div class="layer-row layer-soon">
@@ -848,6 +878,31 @@ function toIsoTimestamp(d: Date): string {
           }
           @if (a.detail?.distanceM != null) {
             <div class="popup-row"><span>Distance strike</span><strong>{{ a.detail.distanceM | number:'1.0-0' }} m</strong></div>
+          }
+        }
+        @if (selectedQuake(); as q) {
+          <button class="popup-close" type="button" (click)="closePopup()">×</button>
+          <div class="popup-name">🌋 {{ q.place || 'Séisme' }}</div>
+          <div class="popup-meta">
+            <span class="badge" [style.background]="q.mag != null && q.mag >= 6 ? '#dc2626' : q.mag != null && q.mag >= 5 ? '#ea580c' : q.mag != null && q.mag >= 4 ? '#fbbf24' : '#84cc16'" [style.color]="(q.mag ?? 0) >= 5 ? '#fff' : '#0a0e1a'">
+              M {{ q.mag != null ? (q.mag | number:'1.1-1') : '?' }}
+            </span>
+            <span class="popup-flag">USGS</span>
+            @if (q.tsunami) { <span class="popup-flag" style="color:#dc2626">⚠ Tsunami</span> }
+            @if (q.alert) { <span class="popup-flag" style="text-transform:uppercase" [style.color]="q.alert === 'red' ? '#dc2626' : q.alert === 'orange' ? '#ea580c' : q.alert === 'yellow' ? '#fbbf24' : '#84cc16'">{{ q.alert }}</span> }
+          </div>
+          <div class="popup-row"><span>Heure</span><strong class="mono">{{ q.time | date:'dd/MM HH:mm:ss' }}</strong></div>
+          @if (q.depth_km != null) {
+            <div class="popup-row"><span>Profondeur</span><strong>{{ q.depth_km | number:'1.0-1' }} km</strong></div>
+          }
+          @if (q.sig != null) {
+            <div class="popup-row"><span>Significance</span><strong>{{ q.sig }}/1000</strong></div>
+          }
+          @if (q.url) {
+            <div class="popup-row" style="flex-direction:column;align-items:flex-start;gap:0.2em">
+              <span>Détails</span>
+              <a [href]="q.url" target="_blank" rel="noopener" class="mono" style="font-size:0.7rem;color:var(--accent-bright)">earthquake.usgs.gov ↗</a>
+            </div>
           }
         }
         @if (selectedHubeau(); as h) {
@@ -1960,7 +2015,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     || this.selectedAlert() !== null
     || this.selectedBuoy() !== null
     || this.selectedMetar() !== null
-    || this.selectedHubeau() !== null,
+    || this.selectedHubeau() !== null
+    || this.selectedQuake() !== null,
   );
   readonly vesselsCount = signal(0);
   readonly tracksCount = signal(0);
@@ -2027,6 +2083,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // cron 15min, refresh frontend 60s.
   readonly showHubeau = signal(false);
   readonly hubeauStatus = signal('débits rivières (Hub\'eau FR)');
+  // ─── V2 Observation #2 (2026-05-12) — Séismes USGS ─────────────────
+  // Feed all_day USGS, proxy NestJS cache 5min, refresh frontend 5min.
+  // Pas d'ingestion DB (data ephemeral 24h, déjà GeoJSON natif).
+  readonly showQuakes = signal(false);
+  readonly quakesStatus = signal('séismes 24h (USGS)');
 
   // ─── Sprint Layer UX V2 — Phase A : opacity per layer + persist ──────
   //
@@ -2035,7 +2096,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // Defaults : 1.0 pour vector layers (lisibilité), 0.7 pour rasters
   // (SST/vent/vagues — meilleur blend visuel avec le fond carto).
   readonly layerOpacities = signal<Record<string, number>>({
-    vessels: 1, tracks: 1, alerts: 1, buoys: 1, metar: 1, hubeau: 1,
+    vessels: 1, tracks: 1, alerts: 1, buoys: 1, metar: 1, hubeau: 1, quakes: 1,
     sst: 0.7, waves: 0.7, waveArrows: 0.9,
     wind: 0.7, windArrows: 0.9, windParticles: 0.9,
     rain: 0.8, lightning: 0.9,
@@ -2047,7 +2108,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     rain: false, wind: false, waves: false,
     windArrows: false, waveArrows: false,
     lightning: false, alerts: false,
-    windParticles: false, buoys: false, metar: false, hubeau: false,
+    windParticles: false, buoys: false, metar: false, hubeau: false, quakes: false,
   };
   private readonly DEFAULT_OPACITIES = { ...this.layerOpacities() };
 
@@ -2081,6 +2142,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       buoys: this.buoysLayer,
       metar: this.metarLayer,
       hubeau: this.hubeauLayer,
+      quakes: this.quakesLayer,
     } as Record<string, { setOpacity: (n: number) => void } | undefined>)[key];
     layer?.setOpacity(value);
     // Wind particles = canvas overlay, opacity réglée via CSS sur le
@@ -2128,7 +2190,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       return { active: flags.filter(Boolean).length, total: flags.length };
     }
     if (key === 'observation') {
-      const flags = [this.showLightning(), this.showRain(), this.showMetar()];
+      const flags = [this.showLightning(), this.showRain(), this.showMetar(), this.showQuakes()];
       return { active: flags.filter(Boolean).length, total: flags.length };
     }
     if (key === 'forecast') {
@@ -2159,6 +2221,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.showBuoys.set(this.DEFAULT_VISIBILITY['buoys']);
     this.showMetar.set(this.DEFAULT_VISIBILITY['metar']);
     this.showHubeau.set(this.DEFAULT_VISIBILITY['hubeau']);
+    this.showQuakes.set(this.DEFAULT_VISIBILITY['quakes']);
     this.layerOpacities.set({ ...this.DEFAULT_OPACITIES });
     this.applyAllLayerOpacities();
     this.applyLayerVisibility();
@@ -2184,6 +2247,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       buoys: this.showBuoys(),
       metar: this.showMetar(),
       hubeau: this.showHubeau(),
+      quakes: this.showQuakes(),
     };
     const opacity = this.layerOpacities();
     try {
@@ -2253,6 +2317,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       buoys: (v) => this.showBuoys.set(v),
       metar: (v) => this.showMetar.set(v),
       hubeau: (v) => this.showHubeau.set(v),
+      quakes: (v) => this.showQuakes.set(v),
     };
     return map[key] ?? null;
   }
@@ -2278,6 +2343,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       if (typeof vis.buoys === 'boolean') this.showBuoys.set(vis.buoys);
       if (typeof vis.metar === 'boolean') this.showMetar.set(vis.metar);
       if (typeof vis.hubeau === 'boolean') this.showHubeau.set(vis.hubeau);
+      if (typeof vis.quakes === 'boolean') this.showQuakes.set(vis.quakes);
       const op = data?.opacity ?? {};
       this.layerOpacities.update((m) => ({ ...m, ...op }));
     } catch {
@@ -2371,6 +2437,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private hubeauSource?: VectorSource;
   private hubeauTimer?: ReturnType<typeof setInterval>;
   readonly selectedHubeau = signal<HubeauProperties | null>(null);
+  // ─── V2 Observation #2 — Séismes USGS ────────────────────────────
+  private quakesLayer?: VectorLayer<VectorSource>;
+  private quakesSource?: VectorSource;
+  private quakesTimer?: ReturnType<typeof setInterval>;
+  readonly selectedQuake = signal<(QuakeProperties & { depth_km: number | null }) | null>(null);
   private buoysRefTimer?: ReturnType<typeof setInterval>;
   private buoysObsTimer?: ReturnType<typeof setInterval>;
   private buoysRefSub?: Subscription;
@@ -2399,7 +2470,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.showRain();    this.showWind();   this.showWaves();
       this.showWindArrows(); this.showWaveArrows();
       this.showLightning(); this.showAlerts(); this.showWindParticles();
-      this.showBuoys(); this.showMetar(); this.showHubeau();
+      this.showBuoys(); this.showMetar(); this.showHubeau(); this.showQuakes();
       // Defer pour s'exécuter après ngAfterViewInit (this.*Layer dispo)
       queueMicrotask(() => {
         this.applyLayerVisibility();
@@ -2557,6 +2628,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.stopBuoysLoop();
     this.stopMetarLoop();
     this.stopHubeauLoop();
+    this.stopQuakesLoop();
     this.particlesEngine?.stop();
     this.map?.setTarget(undefined);
     this.map?.dispose();
@@ -2683,6 +2755,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.hubeauLayer.setVisible(wanted);
       if (wanted) this.startHubeauLoop();
       else this.stopHubeauLoop();
+    }
+    // Séismes USGS : visible en mode live, refresh 5min (TTL cache proxy).
+    if (this.quakesLayer) {
+      const wanted = this.showQuakes() && this.isLive();
+      this.quakesLayer.setVisible(wanted);
+      if (wanted) this.startQuakesLoop();
+      else this.stopQuakesLoop();
     }
     // Wind particles : engine est démarré au boot, on contrôle juste la
     // visibilité du canvas + la grille. Quand OFF, on stop le rAF pour
@@ -3138,6 +3217,69 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.hubeauSource?.clear();
   }
 
+  // ─── Séismes USGS (V2 Observation #2) ──────────────────────────────
+  /** Style d'un séisme : cercle rouge/orange/jaune selon magnitude, taille
+   *  exponentielle de magnitude (les mag-5 dominent visuellement). Halo
+   *  jaune si tsunami flag. Alerte rouge si alert='red'/'orange'. */
+  private styleQuake(feat: FeatureLike): Style {
+    const p = feat.getProperties() as QuakeProperties;
+    const mag = p.mag ?? 0;
+    // Magnitudes : <2.5 gris, 2.5-4 vert, 4-5 jaune, 5-6 orange, 6+ rouge
+    let fill = '#94a3b8';
+    if (mag >= 6)      fill = '#dc2626';
+    else if (mag >= 5) fill = '#ea580c';
+    else if (mag >= 4) fill = '#fbbf24';
+    else if (mag >= 2.5) fill = '#84cc16';
+    // Rayon exponentiel : magnitude 1 → 4px, 5 → 11px, 7 → 18px
+    const radius = Math.max(3, Math.min(20, 3 + Math.pow(Math.max(0, mag), 1.5) * 1.2));
+    const stroke = (p.alert === 'red' || p.alert === 'orange')
+      ? new Stroke({ color: '#dc2626', width: 2.5 })
+      : new Stroke({ color: '#0f172a', width: 1 });
+    return new Style({
+      image: new CircleStyle({
+        radius,
+        fill: new Fill({ color: fill }),
+        stroke,
+      }),
+    });
+  }
+
+  /** Fetch /api/earthquakes/recent → GeoJSON. Refresh 5min côté UI
+   *  (le proxy NestJS cache 5min lui aussi, donc on s'aligne). */
+  private startQuakesLoop(): void {
+    if (this.quakesTimer) return;
+    const fetchQuakes = async () => {
+      try {
+        const resp = await fetch('/api/earthquakes/recent');
+        if (!resp.ok) return;
+        const fc = await resp.json();
+        if (!this.quakesSource) return;
+        this.quakesSource.clear();
+        const features = this.geoJsonFmt.readFeatures(fc, {
+          dataProjection: 'EPSG:4326',
+          featureProjection: this.map?.getView().getProjection() ?? 'EPSG:3857',
+        });
+        this.quakesSource.addFeatures(features);
+        const count = fc.features?.length ?? 0;
+        const sig = (fc.features as Array<{ properties: QuakeProperties }>)
+          .filter((f) => (f.properties.mag ?? 0) >= 4.5).length;
+        this.quakesStatus.set(sig > 0 ? `${count} séismes 24h (${sig} ≥4.5)` : `${count} séismes 24h`);
+      } catch {
+        this.quakesStatus.set('erreur fetch USGS');
+      }
+    };
+    fetchQuakes();
+    this.quakesTimer = setInterval(fetchQuakes, 5 * 60_000);
+  }
+
+  private stopQuakesLoop(): void {
+    if (this.quakesTimer) {
+      clearInterval(this.quakesTimer);
+      this.quakesTimer = undefined;
+    }
+    this.quakesSource?.clear();
+  }
+
   // ─── Alerts (sprint 10) ───────────────────────────────────────────
   private styleAlert(feat: FeatureLike): Style {
     const props = feat.getProperties() as AlertProperties;
@@ -3439,6 +3581,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.selectedBuoyObs.set(null);
     this.selectedMetar.set(null);
     this.selectedHubeau.set(null);
+    this.selectedQuake.set(null);
     this.popupOverlay?.setPosition(undefined);
   }
 
@@ -3772,6 +3915,17 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       declutter: false,  // 500 points, on accepte le chevauchement (cluster pourrait venir plus tard)
     });
 
+    // Séismes USGS (V2 Observation #2) — feed mondial all_day. zIndex 108
+    // (au-dessus de METAR, sous lightning) pour visibilité des gros mags.
+    this.quakesSource = new VectorSource({ attributions: 'USGS Earthquakes' });
+    this.quakesLayer = new VectorLayer({
+      source: this.quakesSource,
+      style: (feat: FeatureLike) => this.styleQuake(feat),
+      zIndex: 108,
+      visible: false,
+      declutter: false,
+    });
+
     this.trackLayer = new VectorLayer({
       source: this.trackSource,
       style: () => this.styleTrack(),
@@ -3802,6 +3956,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         this.buoysLayer,
         this.hubeauLayer,
         this.metarLayer,
+        this.quakesLayer,
         this.lightningLayer,
         this.alertsLayer,
       ],
@@ -3834,7 +3989,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // forEachFeatureAtPixel passe le layer en 2e arg, ce qui permet de
     // distinguer vessel / lightning / alert sans inspecter les props.
     this.map.on('singleclick', (evt) => {
-      type ClickKind = 'vessel' | 'lightning' | 'alert' | 'buoy' | 'metar' | 'hubeau';
+      type ClickKind = 'vessel' | 'lightning' | 'alert' | 'buoy' | 'metar' | 'hubeau' | 'quake';
       let matched: { feat: Feature<Geometry>; kind: ClickKind } | null = null;
       this.map!.forEachFeatureAtPixel(
         evt.pixel,
@@ -3846,6 +4001,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
           else if (layer === this.buoysLayer) matched = { feat: f as Feature<Geometry>, kind: 'buoy' };
           else if (layer === this.metarLayer) matched = { feat: f as Feature<Geometry>, kind: 'metar' };
           else if (layer === this.hubeauLayer) matched = { feat: f as Feature<Geometry>, kind: 'hubeau' };
+          else if (layer === this.quakesLayer) matched = { feat: f as Feature<Geometry>, kind: 'quake' };
         },
         { hitTolerance: 4 },
       );
@@ -3896,6 +4052,18 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         }
         case 'metar':    this.selectedMetar.set(props as MetarProperties); break;
         case 'hubeau':   this.selectedHubeau.set(props as HubeauProperties); break;
+        case 'quake': {
+          // Le feed USGS encode la profondeur (km) dans la 3ème dim de la
+          // geometry. On l'extrait avant de set le selectedQuake.
+          const geom = m.feat.getGeometry();
+          let depth_km: number | null = null;
+          if (geom?.getType() === 'Point') {
+            const coord = (geom as Point).getCoordinates();
+            if (coord.length >= 3) depth_km = coord[2];
+          }
+          this.selectedQuake.set({ ...(props as QuakeProperties), depth_km });
+          break;
+        }
       }
       const geom = m.feat.getGeometry();
       if (geom?.getType() === 'Point') {
