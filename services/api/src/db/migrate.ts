@@ -511,6 +511,74 @@ INSERT INTO data_sources (
   true
 )
 ON CONFLICT (name) DO NOTHING;
+
+-- ─── V2 Observation #3 — Feux FIRMS NASA MODIS (2026-05-12) ─────────
+-- Source : FIRMS NASA CSV public (pas de clé API), MODIS C6.1 NRT 24h.
+-- ~3500 hotspots monde/24h, on bbox EU large → ~50-200 hotspots/cycle.
+-- Cron 1h. Parser csv (nouveau kind) avec bboxFilter + compositeTime
+-- pour combiner acq_date + acq_time (HHMM) → ts ISO.
+CREATE TABLE IF NOT EXISTS firms_observations (
+  ts          TIMESTAMPTZ NOT NULL,
+  lat         REAL NOT NULL,
+  lon         REAL NOT NULL,
+  brightness  REAL,    -- K (température brillance)
+  bright_t31  REAL,
+  frp         REAL,    -- Fire Radiative Power (MW)
+  confidence  INTEGER, -- 0-100
+  satellite   TEXT,    -- T (Terra) ou A (Aqua)
+  daynight    TEXT,    -- D ou N
+  scan        REAL,
+  track       REAL,
+  source      TEXT NOT NULL DEFAULT 'firms-modis-c6.1'
+);
+CREATE UNIQUE INDEX IF NOT EXISTS firms_obs_ts_loc_uidx
+  ON firms_observations (ts, lat, lon);
+SELECT create_hypertable(
+  'firms_observations', 'ts',
+  chunk_time_interval => INTERVAL '7 days',
+  if_not_exists => TRUE
+);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM timescaledb_information.jobs
+    WHERE proc_name = 'policy_retention' AND hypertable_name = 'firms_observations'
+  ) THEN
+    PERFORM add_retention_policy('firms_observations', INTERVAL '14 days');
+  END IF;
+END $$;
+
+-- Vue 24h glissantes avec géom. À terme, l'endpoint /api/firms/recent?at=ISO
+-- pourra filtrer pour navigation temporelle.
+CREATE OR REPLACE VIEW v_firms_recent AS
+SELECT
+  ts,
+  lat, lon, brightness, bright_t31, frp, confidence, satellite, daynight,
+  EXTRACT(EPOCH FROM (now() - ts))::INTEGER AS age_seconds,
+  ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom
+FROM firms_observations
+WHERE ts > now() - INTERVAL '24 hours'
+ORDER BY ts DESC;
+
+INSERT INTO data_sources (
+  name, kind, url, schedule_kind, schedule_expr,
+  parser_kind, parser_config,
+  sink_kind, sink_config, sink_label, bbox, enabled
+) VALUES (
+  'firms-modis-eu',
+  'http_json',
+  'https://firms.modaps.eosdis.nasa.gov/data/active_fire/modis-c6.1/csv/MODIS_C6_1_Global_24h.csv',
+  'cron',
+  '20 */1 * * *',
+  'csv',
+  '{"bboxFilter": true, "compositeTime": {"dateField": "acq_date", "timeField": "acq_time", "target": "ts"}}',
+  'pg_insert',
+  '{"table": "firms_observations", "onConflict": "(ts, lat, lon) DO NOTHING", "columns": {"ts": "ts", "latitude": "lat", "longitude": "lon", "brightness": "brightness", "bright_t31": "bright_t31", "frp": "frp", "confidence": "confidence", "satellite": "satellite", "daynight": "daynight", "scan": "scan", "track": "track"}}',
+  'PostGIS firms_observations (~150 hotspots/cycle EU bbox)',
+  '[-25,30,40,70]',
+  true
+)
+ON CONFLICT (name) DO NOTHING;
 `;
 
 export async function runMigrations(databaseUrl: string): Promise<void> {

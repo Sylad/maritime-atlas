@@ -435,6 +435,59 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
       const path = cfg.extractPath ?? '$';
       return this.applyJsonPath(body, path);
     }
+    if (kind === 'csv') {
+      // V2 (2026-05-12) : parser CSV simple. Header sur 1ère ligne, valeurs
+      // séparées par virgule (pas de quote handling — KISS pour FIRMS).
+      // Auto-cast les valeurs numériques.
+      //
+      // Options parser_config :
+      //   bboxFilter: true  → filtre les rows aux coords lon/lat dans
+      //                       src.bbox (string JSON "[minLon,minLat,maxLon,maxLat]").
+      //   compositeTime: { dateField, timeField, target } → combine un
+      //                       champ date "2026-05-12" + un champ time "0037"
+      //                       (HHMM) en un ISO timestamp dans target.
+      const cfg = (src.parserConfig ?? {}) as {
+        bboxFilter?: boolean;
+        compositeTime?: { dateField: string; timeField: string; target: string };
+      };
+      const text = body as unknown;
+      if (typeof text !== 'string') return [];
+      const lines = (text as string).trim().split(/\r?\n/);
+      if (lines.length < 2) return [];
+      const headers = lines[0].split(',').map((h) => h.trim());
+      let records = lines.slice(1).map((line) => {
+        const values = line.split(',');
+        const record: Record<string, unknown> = {};
+        headers.forEach((h, i) => {
+          const v = values[i]?.trim() ?? '';
+          record[h] = v !== '' && !isNaN(+v) ? +v : (v === '' ? null : v);
+        });
+        return record;
+      });
+      // Bbox filter
+      if (cfg.bboxFilter && src.bbox) {
+        try {
+          const bbox = JSON.parse(src.bbox) as number[];
+          records = records.filter((r) =>
+            typeof r['longitude'] === 'number' && typeof r['latitude'] === 'number'
+            && (r['longitude'] as number) >= bbox[0] && (r['longitude'] as number) <= bbox[2]
+            && (r['latitude'] as number) >= bbox[1] && (r['latitude'] as number) <= bbox[3]
+          );
+        } catch {}
+      }
+      // Composite time (date + HHMM → ISO)
+      if (cfg.compositeTime) {
+        const { dateField, timeField, target } = cfg.compositeTime;
+        records.forEach((r) => {
+          const d = r[dateField];
+          const t = String(r[timeField] ?? '').padStart(4, '0');
+          if (typeof d === 'string' && t.length === 4 && /^\d{4}$/.test(t)) {
+            r[target] = `${d}T${t.slice(0, 2)}:${t.slice(2, 4)}:00Z`;
+          }
+        });
+      }
+      return records;
+    }
     if (kind === 'geojson_features') {
       // V2 (2026-05-12) : flatten un GeoJSON FeatureCollection en records
       // plats. Extract `geometry.coordinates[0..2]` → lon, lat, depth.

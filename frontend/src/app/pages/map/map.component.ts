@@ -78,6 +78,19 @@ interface HubeauProperties {
   qualif: string | null;
 }
 
+/** V2 Observation #3 (2026-05-12) — FIRMS NASA hotspots feature properties.
+ *  Mirrore l'output de GET /api/firms/recent. */
+interface FirmsProperties {
+  ts: string;
+  age_seconds: number;
+  brightness: number | null;   // K
+  bright_t31: number | null;
+  frp: number | null;          // Fire Radiative Power MW
+  confidence: number | null;   // 0-100
+  satellite: string | null;
+  daynight: string | null;
+}
+
 /** V2 Hydrologie #2 (2026-05-12) — Hub'eau piézomètres feature properties.
  *  Mirrore l'output de GET /api/hubeau/piezo/recent. */
 interface PiezoProperties {
@@ -493,15 +506,20 @@ function toIsoTimestamp(d: Date): string {
                   </span>
                 </label>
               </div>
-              <div class="layer-row layer-soon">
-                <label class="layer-toggle dim">
-                  <input type="checkbox" disabled />
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showFirms()">
+                  <input type="checkbox" [checked]="showFirms()" (change)="showFirms.set($any($event.target).checked)" />
                   <span class="toggle-glyph"><span class="glyph-icon">🔥</span></span>
                   <span class="toggle-text">
-                    <span class="toggle-name">Feux NASA FIRMS <span class="soon-tag">à venir</span></span>
-                    <span class="toggle-count">détection thermique temps réel</span>
+                    <span class="toggle-name">Feux NASA FIRMS</span>
+                    <span class="toggle-count">{{ firmsStatus() }}</span>
                   </span>
                 </label>
+                @if (showFirms()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getOpacity('firms')"
+                         (input)="setOpacity('firms', +$any($event.target).value)" />
+                }
               </div>
             </div>
             }
@@ -894,6 +912,27 @@ function toIsoTimestamp(d: Date): string {
           }
           @if (a.detail?.distanceM != null) {
             <div class="popup-row"><span>Distance strike</span><strong>{{ a.detail.distanceM | number:'1.0-0' }} m</strong></div>
+          }
+        }
+        @if (selectedFirms(); as fi) {
+          <button class="popup-close" type="button" (click)="closePopup()">×</button>
+          <div class="popup-name">🔥 Hotspot feu</div>
+          <div class="popup-meta">
+            <span class="badge" [style.background]="(fi.frp ?? 0) >= 200 ? '#b91c1c' : (fi.frp ?? 0) >= 50 ? '#dc2626' : (fi.frp ?? 0) >= 10 ? '#f97316' : '#fbbf24'" [style.color]="(fi.frp ?? 0) >= 10 ? '#fff' : '#0a0e1a'">
+              {{ fi.frp != null ? (fi.frp | number:'1.0-1') : '?' }} MW
+            </span>
+            <span class="popup-flag">NASA FIRMS</span>
+            <span class="popup-flag">il y a {{ formatAge(fi.age_seconds) }}</span>
+          </div>
+          <div class="popup-row"><span>Acquisition</span><strong class="mono">{{ fi.ts | date:'dd/MM HH:mm':'+0000' }}Z</strong></div>
+          @if (fi.brightness != null) {
+            <div class="popup-row"><span>Brightness</span><strong>{{ fi.brightness | number:'1.1-1' }} K</strong></div>
+          }
+          @if (fi.confidence != null) {
+            <div class="popup-row"><span>Confiance</span><strong>{{ fi.confidence }}/100</strong></div>
+          }
+          @if (fi.satellite) {
+            <div class="popup-row"><span>Satellite</span><strong>{{ fi.satellite === 'T' ? 'Terra' : fi.satellite === 'A' ? 'Aqua' : fi.satellite }} ({{ fi.daynight === 'D' ? 'jour' : 'nuit' }})</strong></div>
           }
         }
         @if (selectedQuake(); as q) {
@@ -2055,7 +2094,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     || this.selectedMetar() !== null
     || this.selectedHubeau() !== null
     || this.selectedQuake() !== null
-    || this.selectedPiezo() !== null,
+    || this.selectedPiezo() !== null
+    || this.selectedFirms() !== null,
   );
   readonly vesselsCount = signal(0);
   readonly tracksCount = signal(0);
@@ -2130,6 +2170,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // ─── V2 Hydrologie #2 — Hub'eau piézomètres (nappes) ───────────────
   readonly showPiezo = signal(false);
   readonly piezoStatus = signal('niveaux piézo (Hub\'eau)');
+  // ─── V2 Observation #3 (2026-05-12) — Feux NASA FIRMS ──────────────
+  readonly showFirms = signal(false);
+  readonly firmsStatus = signal('feux MODIS 24h (FIRMS)');
 
   // ─── Sprint Layer UX V2 — Phase A : opacity per layer + persist ──────
   //
@@ -2138,7 +2181,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // Defaults : 1.0 pour vector layers (lisibilité), 0.7 pour rasters
   // (SST/vent/vagues — meilleur blend visuel avec le fond carto).
   readonly layerOpacities = signal<Record<string, number>>({
-    vessels: 1, tracks: 1, alerts: 1, buoys: 1, metar: 1, hubeau: 1, quakes: 1, piezo: 1,
+    vessels: 1, tracks: 1, alerts: 1, buoys: 1, metar: 1, hubeau: 1, quakes: 1, piezo: 1, firms: 1,
     sst: 0.7, waves: 0.7, waveArrows: 0.9,
     wind: 0.7, windArrows: 0.9, windParticles: 0.9,
     rain: 0.8, lightning: 0.9,
@@ -2150,7 +2193,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     rain: false, wind: false, waves: false,
     windArrows: false, waveArrows: false,
     lightning: false, alerts: false,
-    windParticles: false, buoys: false, metar: false, hubeau: false, quakes: false, piezo: false,
+    windParticles: false, buoys: false, metar: false, hubeau: false, quakes: false, piezo: false, firms: false,
   };
   private readonly DEFAULT_OPACITIES = { ...this.layerOpacities() };
 
@@ -2186,6 +2229,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       hubeau: this.hubeauLayer,
       quakes: this.quakesLayer,
       piezo: this.piezoLayer,
+      firms: this.firmsLayer,
     } as Record<string, { setOpacity: (n: number) => void } | undefined>)[key];
     layer?.setOpacity(value);
     // Wind particles = canvas overlay, opacity réglée via CSS sur le
@@ -2233,7 +2277,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       return { active: flags.filter(Boolean).length, total: flags.length };
     }
     if (key === 'observation') {
-      const flags = [this.showLightning(), this.showRain(), this.showMetar(), this.showQuakes()];
+      const flags = [this.showLightning(), this.showRain(), this.showMetar(), this.showQuakes(), this.showFirms()];
       return { active: flags.filter(Boolean).length, total: flags.length };
     }
     if (key === 'forecast') {
@@ -2266,6 +2310,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.showHubeau.set(this.DEFAULT_VISIBILITY['hubeau']);
     this.showQuakes.set(this.DEFAULT_VISIBILITY['quakes']);
     this.showPiezo.set(this.DEFAULT_VISIBILITY['piezo']);
+    this.showFirms.set(this.DEFAULT_VISIBILITY['firms']);
     this.layerOpacities.set({ ...this.DEFAULT_OPACITIES });
     this.applyAllLayerOpacities();
     this.applyLayerVisibility();
@@ -2293,6 +2338,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       hubeau: this.showHubeau(),
       quakes: this.showQuakes(),
       piezo: this.showPiezo(),
+      firms: this.showFirms(),
     };
     const opacity = this.layerOpacities();
     try {
@@ -2364,6 +2410,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       hubeau: (v) => this.showHubeau.set(v),
       quakes: (v) => this.showQuakes.set(v),
       piezo: (v) => this.showPiezo.set(v),
+      firms: (v) => this.showFirms.set(v),
     };
     return map[key] ?? null;
   }
@@ -2391,6 +2438,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       if (typeof vis.hubeau === 'boolean') this.showHubeau.set(vis.hubeau);
       if (typeof vis.quakes === 'boolean') this.showQuakes.set(vis.quakes);
       if (typeof vis.piezo === 'boolean') this.showPiezo.set(vis.piezo);
+      if (typeof vis.firms === 'boolean') this.showFirms.set(vis.firms);
       const op = data?.opacity ?? {};
       this.layerOpacities.update((m) => ({ ...m, ...op }));
     } catch {
@@ -2494,6 +2542,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private piezoSource?: VectorSource;
   private piezoTimer?: ReturnType<typeof setInterval>;
   readonly selectedPiezo = signal<PiezoProperties | null>(null);
+  // ─── V2 Observation #3 — Feux NASA FIRMS ────────────────────────
+  private firmsLayer?: VectorLayer<VectorSource>;
+  private firmsSource?: VectorSource;
+  private firmsTimer?: ReturnType<typeof setInterval>;
+  readonly selectedFirms = signal<FirmsProperties | null>(null);
   private buoysRefTimer?: ReturnType<typeof setInterval>;
   private buoysObsTimer?: ReturnType<typeof setInterval>;
   private buoysRefSub?: Subscription;
@@ -2522,7 +2575,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.showRain();    this.showWind();   this.showWaves();
       this.showWindArrows(); this.showWaveArrows();
       this.showLightning(); this.showAlerts(); this.showWindParticles();
-      this.showBuoys(); this.showMetar(); this.showHubeau(); this.showQuakes(); this.showPiezo();
+      this.showBuoys(); this.showMetar(); this.showHubeau(); this.showQuakes(); this.showPiezo(); this.showFirms();
       // Defer pour s'exécuter après ngAfterViewInit (this.*Layer dispo)
       queueMicrotask(() => {
         this.applyLayerVisibility();
@@ -2682,6 +2735,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.stopHubeauLoop();
     this.stopQuakesLoop();
     this.stopPiezoLoop();
+    this.stopFirmsLoop();
     this.particlesEngine?.stop();
     this.map?.setTarget(undefined);
     this.map?.dispose();
@@ -2823,6 +2877,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.piezoLayer.setVisible(wanted);
       if (wanted) this.startPiezoLoop();
       else this.stopPiezoLoop();
+    }
+    // FIRMS NASA feux : visible en mode live, refresh 5min (data NRT ~3h).
+    if (this.firmsLayer) {
+      const wanted = this.showFirms() && this.isLive();
+      this.firmsLayer.setVisible(wanted);
+      if (wanted) this.startFirmsLoop();
+      else this.stopFirmsLoop();
     }
     // Wind particles : engine est démarré au boot, on contrôle juste la
     // visibilité du canvas + la grille. Quand OFF, on stop le rAF pour
@@ -3397,6 +3458,67 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.piezoSource?.clear();
   }
 
+  // ─── FIRMS NASA feux (V2 Observation #3) ──────────────────────────
+  /** Style hotspot feu : cercle rouge/orange selon FRP (Fire Radiative
+   *  Power MW), taille log-scale. Halo orange si confiance haute. */
+  private styleFirms(feat: FeatureLike): Style {
+    const p = feat.getProperties() as FirmsProperties;
+    const frp = p.frp ?? 0;
+    const conf = p.confidence ?? 0;
+    // FRP : <10 jaune, 10-50 orange, 50-200 rouge, 200+ rouge vif
+    let fill = '#fbbf24';
+    if (frp >= 200)     fill = '#b91c1c';
+    else if (frp >= 50) fill = '#dc2626';
+    else if (frp >= 10) fill = '#f97316';
+    // Rayon log-scale : 3px à 12px
+    const radius = Math.max(3, Math.min(12, 3 + Math.log10(Math.max(1, frp)) * 2.5));
+    const stale = p.age_seconds > 12 * 3600;
+    return new Style({
+      image: new CircleStyle({
+        radius,
+        fill: new Fill({ color: stale ? '#78716c' : fill }),
+        stroke: new Stroke({
+          color: conf >= 80 ? '#fbbf24' : '#7c2d12',
+          width: conf >= 80 ? 2 : 1,
+        }),
+      }),
+    });
+  }
+
+  private startFirmsLoop(): void {
+    if (this.firmsTimer) return;
+    const fetchFirms = async () => {
+      try {
+        const resp = await fetch('/api/firms/recent');
+        if (!resp.ok) return;
+        const fc = await resp.json();
+        if (!this.firmsSource) return;
+        this.firmsSource.clear();
+        const features = this.geoJsonFmt.readFeatures(fc, {
+          dataProjection: 'EPSG:4326',
+          featureProjection: this.map?.getView().getProjection() ?? 'EPSG:3857',
+        });
+        this.firmsSource.addFeatures(features);
+        const count = fc.features?.length ?? 0;
+        const high = (fc.features as Array<{ properties: FirmsProperties }>)
+          .filter((f) => (f.properties.frp ?? 0) >= 50).length;
+        this.firmsStatus.set(high > 0 ? `${count} hotspots (${high} >50MW)` : `${count} hotspots 24h`);
+      } catch {
+        this.firmsStatus.set('erreur fetch FIRMS');
+      }
+    };
+    fetchFirms();
+    this.firmsTimer = setInterval(fetchFirms, 5 * 60_000);
+  }
+
+  private stopFirmsLoop(): void {
+    if (this.firmsTimer) {
+      clearInterval(this.firmsTimer);
+      this.firmsTimer = undefined;
+    }
+    this.firmsSource?.clear();
+  }
+
   // ─── Alerts (sprint 10) ───────────────────────────────────────────
   private styleAlert(feat: FeatureLike): Style {
     const props = feat.getProperties() as AlertProperties;
@@ -3700,6 +3822,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.selectedHubeau.set(null);
     this.selectedQuake.set(null);
     this.selectedPiezo.set(null);
+    this.selectedFirms.set(null);
     this.popupOverlay?.setPosition(undefined);
   }
 
@@ -4056,6 +4179,18 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       declutter: false,
     });
 
+    // FIRMS NASA hotspots (V2 Observation #3) — feux 24h EU. zIndex 109
+    // (au-dessus de quakes, sous lightning) pour visibilité sur de gros
+    // feux. Couleurs rouge-orange-jaune par FRP.
+    this.firmsSource = new VectorSource({ attributions: 'NASA FIRMS MODIS C6.1' });
+    this.firmsLayer = new VectorLayer({
+      source: this.firmsSource,
+      style: (feat: FeatureLike) => this.styleFirms(feat),
+      zIndex: 109,
+      visible: false,
+      declutter: false,
+    });
+
     this.trackLayer = new VectorLayer({
       source: this.trackSource,
       style: () => this.styleTrack(),
@@ -4088,6 +4223,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         this.hubeauLayer,
         this.metarLayer,
         this.quakesLayer,
+        this.firmsLayer,
         this.lightningLayer,
         this.alertsLayer,
       ],
@@ -4120,7 +4256,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // forEachFeatureAtPixel passe le layer en 2e arg, ce qui permet de
     // distinguer vessel / lightning / alert sans inspecter les props.
     this.map.on('singleclick', (evt) => {
-      type ClickKind = 'vessel' | 'lightning' | 'alert' | 'buoy' | 'metar' | 'hubeau' | 'quake' | 'piezo';
+      type ClickKind = 'vessel' | 'lightning' | 'alert' | 'buoy' | 'metar' | 'hubeau' | 'quake' | 'piezo' | 'firms';
       let matched: { feat: Feature<Geometry>; kind: ClickKind } | null = null;
       this.map!.forEachFeatureAtPixel(
         evt.pixel,
@@ -4134,6 +4270,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
           else if (layer === this.hubeauLayer) matched = { feat: f as Feature<Geometry>, kind: 'hubeau' };
           else if (layer === this.quakesLayer) matched = { feat: f as Feature<Geometry>, kind: 'quake' };
           else if (layer === this.piezoLayer) matched = { feat: f as Feature<Geometry>, kind: 'piezo' };
+          else if (layer === this.firmsLayer) matched = { feat: f as Feature<Geometry>, kind: 'firms' };
         },
         { hitTolerance: 4 },
       );
@@ -4185,6 +4322,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         case 'metar':    this.selectedMetar.set(props as MetarProperties); break;
         case 'hubeau':   this.selectedHubeau.set(props as HubeauProperties); break;
         case 'piezo':    this.selectedPiezo.set(props as PiezoProperties); break;
+        case 'firms':    this.selectedFirms.set(props as FirmsProperties); break;
         case 'quake': {
           // Le feed USGS encode la profondeur (km) dans la 3ème dim de la
           // geometry. On l'extrait avant de set le selectedQuake.
