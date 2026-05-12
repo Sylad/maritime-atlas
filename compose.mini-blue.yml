@@ -1,0 +1,99 @@
+# ════════════════════════════════════════════════════════════════════
+# compose.mini-blue.yml — déport du grib-parser sur MINI-BLUE
+# ════════════════════════════════════════════════════════════════════
+#
+# Ce compose est destiné à être lancé sur MINI-BLUE (PC Windows 11 +
+# WSL2 Ubuntu + Docker Desktop) pour faire tourner le sidecar Python
+# grib-parser en remote, soulageant le NAS lors des cycles GRIB/NetCDF
+# (xarray + cfgrib peuvent peaker à 400 MB RAM par cycle).
+#
+# Le service s'expose sur le port 8500 du LAN — l'API NestJS du NAS
+# l'appelle via `GRIB_PARSER_URL=http://mini-blue:8500` à configurer dans
+# le .env du NAS (cf section "Côté NAS" ci-dessous).
+#
+# ─── Côté MINI-BLUE (à exécuter dans WSL Ubuntu) ────────────────────
+#
+#   git clone https://github.com/Sylad/maritime-atlas.git
+#   cd maritime-atlas
+#   # Installe nfs-common si pas déjà fait
+#   sudo apt update && sudo apt install -y nfs-common
+#   # Monte le partage NFS coverage du NAS (étape 1 ci-dessous)
+#   sudo mkdir -p /mnt/maritime-coverage
+#   sudo mount -t nfs -o vers=3,nolock 192.168.1.17:/volume2/@docker/volumes/maritime-atlas_coverage-data/_data /mnt/maritime-coverage
+#   # Lance le sidecar
+#   docker compose -f compose.mini-blue.yml up -d --build
+#
+#   # Health check après ~20s :
+#   curl http://localhost:8500/health
+#   # → {"ok":true,"service":"grib-parser","version":"0.1.0"}
+#
+#   # Test depuis le NAS (vérifie que le port 8500 est bien exposé sur le LAN) :
+#   ssh -p 622 nas "curl -s http://192.168.1.26:8500/health"
+#
+# ─── Étape 1 — Activer NFS sur Synology (à faire 1 fois) ────────────
+#
+#   DSM Control Panel → File Services → NFS → "Enable NFS service"
+#   Shared Folder (volume2/@docker/volumes/maritime-atlas_coverage-data)
+#   → Edit → NFS Permissions → Create rule:
+#     Hostname/IP : 192.168.1.0/24
+#     Privilege : Read/Write
+#     Squash : Map all users to admin (ou no_root_squash si besoin)
+#     Asynchronous : checked
+#     Allow non-privileged ports : checked
+#
+# ─── Côté NAS — bascule l'URL grib-parser ───────────────────────────
+#
+#   Dans /volume2/docker/developpeur/maritime-atlas/.env, ajouter/modifier :
+#     GRIB_PARSER_URL=http://192.168.1.26:8500
+#
+#   Puis recreate l'api (docker-compose.yml doit lire la var d'env, c'est
+#   déjà le cas via configuration.ts → process.env.GRIB_PARSER_URL) :
+#     docker compose -f /volume2/docker/developpeur/maritime-atlas/docker-compose.yml \
+#       up -d --force-recreate --no-deps api
+#
+#   Et optionnellement stop le grib-parser local (économise ~200 MB RAM) :
+#     docker compose -f /volume2/docker/developpeur/maritime-atlas/docker-compose.yml \
+#       stop grib-parser
+#
+# ─── Activer OpenSSH server sur Windows 11 (recommandé) ─────────────
+#
+#   Pour les déploiements futurs (push de code depuis Big-Blue):
+#   Settings → Apps → Optional features → Add → "OpenSSH server" → Install
+#   Puis PowerShell admin :
+#     Start-Service sshd
+#     Set-Service sshd -StartupType Automatic
+#     New-NetFirewallRule -DisplayName "OpenSSH" -Direction Inbound `
+#       -LocalPort 22 -Protocol TCP -Action Allow
+#
+# ════════════════════════════════════════════════════════════════════
+
+services:
+  grib-parser:
+    build: ./services/grib-parser
+    container_name: maritime-grib-parser-remote
+    environment:
+      PYTHONUNBUFFERED: "1"
+      # URL GeoServer du NAS (le sidecar trigge les reindex via REST). Pas
+      # exposé publique sur le NAS, on passe par le LAN. Le password est
+      # dans le .env aussi côté mini-blue.
+      GEOSERVER_URL: ${GEOSERVER_URL:-http://192.168.1.17:8580/geoserver}
+      GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
+      GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}
+    volumes:
+      # NFS-monted du NAS : /mnt/maritime-coverage côté hôte WSL → /coverage
+      # dans le container. Path identique au NAS local (/coverage) pour que
+      # GeoServer puisse lire les GeoTIFFs sans mapping de chemin.
+      - /mnt/maritime-coverage:/coverage
+    ports:
+      # Expose 8500 sur le LAN. Docker Desktop forward depuis Windows host
+      # automatiquement. Le firewall Windows doit autoriser inbound 8500
+      # (Docker Desktop le fait à l'install si "Allow incoming connections"
+      # est coché).
+      - "8500:8500"
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8500/health', timeout=2)\" || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped

@@ -514,7 +514,9 @@ services:
       # Sprint N2 orchestrator runner : RMQ pour le sink rmq_publish.
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-maritime}:${RABBITMQ_PASSWORD:-maritime}@rabbitmq:5672
       # Sprint N4 orchestrator : sidecar Python grib-parser.
-      GRIB_PARSER_URL: http://grib-parser:8500
+      # Override via .env GRIB_PARSER_URL=http://192.168.1.26:8500 pour
+      # déporter le sidecar sur MINI-BLUE (cf compose.mini-blue.yml).
+      GRIB_PARSER_URL: ${GRIB_PARSER_URL:-http://grib-parser:8500}
       GEOSERVER_URL: http://geoserver:8080/geoserver
       GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
       GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}
