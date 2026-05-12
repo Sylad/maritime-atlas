@@ -12,6 +12,11 @@ export interface AuthUser {
   email: string;
   username: string;
   role: Role;
+  /** Phase C.3 (2026-05-12) : zone d'arrivée préférée — slug ∈ MAP_ZONES.
+   *  NULL = jamais choisi → fallback 'france'. */
+  defaultZone?: string | null;
+  /** Phase C.4 (2026-05-12) : projection préférée OL — code EPSG. */
+  preferredProjection?: string | null;
 }
 
 interface LoginResponse {

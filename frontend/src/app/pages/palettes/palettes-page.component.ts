@@ -3,10 +3,13 @@ import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../services/auth.service';
 import { PalettesService, type Palette, type PaletteStop, type LayerKind } from '../../services/palettes.service';
 import { PaletteEditorComponent } from '../../components/palette-editor/palette-editor.component';
+import { ZonePreviewComponent } from '../../components/zone-preview/zone-preview.component';
+import { MAP_ZONES, findZone, DEFAULT_ZONE_ID } from '../../services/map-zones';
+import { MAP_PROJECTIONS, DEFAULT_PROJECTION } from '../../services/map-projections';
 
 @Component({
   selector: 'app-palettes-page',
-  imports: [RouterLink, PaletteEditorComponent],
+  imports: [RouterLink, PaletteEditorComponent, ZonePreviewComponent],
   template: `
     <div class="page-shell">
       <header class="page-header">
@@ -19,6 +22,64 @@ import { PaletteEditorComponent } from '../../components/palette-editor/palette-
       </header>
 
       <main class="page-main">
+        <!-- Phase C.3 (2026-05-12) : zone d'arrivée. Sauvegardée en DB,
+             utilisée au boot de la carte (DB > localStorage > 'france'). -->
+        <section class="zone-section">
+          <h2>Zone d'arrivée par défaut</h2>
+          <p class="zone-hint">Quand tu ouvres la carte, voici la zone sur laquelle tu atterris. Modifiable à tout moment.</p>
+          <div class="zone-layout">
+            <ul class="zone-list">
+              @for (z of zones; track z.id) {
+                <li>
+                  <button type="button"
+                          class="zone-btn"
+                          [class.active]="selectedZoneId() === z.id"
+                          (click)="selectZone(z.id)">
+                    {{ z.label }}
+                  </button>
+                </li>
+              }
+            </ul>
+            <div class="zone-preview-wrap">
+              <app-zone-preview [zoneId]="selectedZoneId()" />
+              @if (zoneSaveMsg()) {
+                <div class="zone-save-msg" [class.error]="zoneSaveError()">{{ zoneSaveMsg() }}</div>
+              }
+            </div>
+          </div>
+        </section>
+
+        <!-- Phase C.4 (2026-05-12) : projection OL. Sauvegardée en DB.
+             Le changement nécessite un reload de la page (la map ne se
+             reconstruit pas en runtime). -->
+        <section class="projection-section">
+          <h2>Projection cartographique</h2>
+          <p class="projection-hint">Type de projection utilisé pour le rendu de la carte. Le changement nécessite un reload de la page.</p>
+          <div class="projection-radios">
+            @for (p of projections; track p.code) {
+              <label class="projection-radio" [class.active]="selectedProjection() === p.code">
+                <input type="radio" name="projection"
+                       [value]="p.code"
+                       [checked]="selectedProjection() === p.code"
+                       (change)="selectProjection(p.code)" />
+                <div>
+                  <div class="proj-label">{{ p.label }}</div>
+                  <div class="proj-desc">{{ p.desc }}</div>
+                </div>
+              </label>
+            }
+          </div>
+          <div class="projection-warning">
+            ⚠ Les particules de vent et les flèches sont calculées en lon/lat puis projetées par OL.
+            Le rendu reste correct quelle que soit la projection, mais l'orientation visuelle des vents
+            peut paraître différente selon la projection choisie (les méridiens sont parallèles en Mercator,
+            convergents en Lambert).
+          </div>
+          @if (projectionSaveMsg()) {
+            <div class="projection-save-msg" [class.error]="projectionSaveError()">{{ projectionSaveMsg() }}</div>
+          }
+        </section>
+
         <section class="palettes-list">
           <div class="palettes-meta">
             <strong>{{ palettes().length }}</strong> / {{ MAX }} palettes
@@ -75,8 +136,53 @@ export class PalettesPageComponent {
 
   readonly canCreate = computed(() => this.palettes().length < this.MAX && !this.editing());
 
+  // ─── Phase C.3 : zone d'arrivée ─────────────────────────────────────
+  readonly zones = MAP_ZONES;
+  readonly selectedZoneId = signal<string>(DEFAULT_ZONE_ID);
+  readonly zoneSaveMsg = signal<string | null>(null);
+  readonly zoneSaveError = signal<boolean>(false);
+
+  // ─── Phase C.4 : projection ─────────────────────────────────────────
+  readonly projections = MAP_PROJECTIONS;
+  readonly selectedProjection = signal<string>(DEFAULT_PROJECTION);
+  readonly projectionSaveMsg = signal<string | null>(null);
+  readonly projectionSaveError = signal<boolean>(false);
+
   ngOnInit(): void {
     this.palettesSvc.loadMyContext().catch((e) => this.errorMsg.set(`Chargement: ${e?.message ?? e}`));
+    // Hydrate depuis le user actuel (UserPublic returned by /auth/me).
+    const u = this.user();
+    if (u?.defaultZone) this.selectedZoneId.set(u.defaultZone);
+    if (u?.preferredProjection) this.selectedProjection.set(u.preferredProjection);
+  }
+
+  async selectZone(id: string): Promise<void> {
+    this.selectedZoneId.set(id);
+    this.zoneSaveMsg.set(null);
+    this.zoneSaveError.set(false);
+    try {
+      await this.palettesSvc.setDefaultZone(id);
+      const z = findZone(id);
+      this.zoneSaveMsg.set(`Zone enregistrée : ${z.label}`);
+      setTimeout(() => this.zoneSaveMsg.set(null), 3000);
+    } catch (err: any) {
+      this.zoneSaveError.set(true);
+      this.zoneSaveMsg.set(`Erreur : ${err?.error?.message ?? err?.message ?? err}`);
+    }
+  }
+
+  async selectProjection(code: string): Promise<void> {
+    this.selectedProjection.set(code);
+    this.projectionSaveMsg.set(null);
+    this.projectionSaveError.set(false);
+    try {
+      await this.palettesSvc.setPreferredProjection(code);
+      this.projectionSaveMsg.set('Projection enregistrée. Recharge la carte pour l\'appliquer.');
+      setTimeout(() => this.projectionSaveMsg.set(null), 5000);
+    } catch (err: any) {
+      this.projectionSaveError.set(true);
+      this.projectionSaveMsg.set(`Erreur : ${err?.error?.message ?? err?.message ?? err}`);
+    }
   }
 
   layerLabel(k: LayerKind): string {

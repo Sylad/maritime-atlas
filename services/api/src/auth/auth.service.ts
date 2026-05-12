@@ -315,6 +315,8 @@ export class AuthService {
       emailVerifiedAt: u.emailVerifiedAt,
       lastLoginAt: u.lastLoginAt,
       createdAt: u.createdAt,
+      defaultZone: u.defaultZone ?? null,
+      preferredProjection: u.preferredProjection ?? null,
     };
   }
 }

@@ -50,4 +50,10 @@ export interface UserPublic {
   emailVerifiedAt: Date | null;
   lastLoginAt: Date | null;
   createdAt: Date;
+  /** Phase C.3 (2026-05-12) : slug de zone d'arrivée préférée. NULL =
+   *  fallback 'france' au boot de la carte. */
+  defaultZone: string | null;
+  /** Phase C.4 (2026-05-12) : projection OL préférée — code EPSG.
+   *  NULL = fallback 'EPSG:3857'. */
+  preferredProjection: string | null;
 }

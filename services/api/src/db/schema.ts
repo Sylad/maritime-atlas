@@ -30,6 +30,14 @@ export const users = pgTable('users', {
       Phase B Auth refonte (2026-05-11). TTL 1h. */
   passwordResetToken: text('password_reset_token'),
   passwordResetExpiresAt: timestamp('password_reset_expires_at', { withTimezone: true }),
+  /** Zone d'arrivée préférée — slug ∈ MAP_ZONES (`france`, `europe`,
+   *  `bulgarie`, …). NULL = jamais choisi → fallback 'france' au boot
+   *  (Phase C.3 — 2026-05-12). */
+  defaultZone: text('default_zone'),
+  /** Projection OL préférée — code EPSG : 'EPSG:3857' (Web Mercator
+   *  défaut), 'EPSG:4326' (lat/lon), 'EPSG:3035' (Lambert LAEA Europe).
+   *  NULL = fallback EPSG:3857 (Phase C.4 — 2026-05-12). */
+  preferredProjection: text('preferred_projection'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({
   emailIdx: uniqueIndex('users_email_idx').on(t.email),

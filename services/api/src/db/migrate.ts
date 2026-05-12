@@ -60,6 +60,13 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token_expires_at TIMESTA
 -- Sprint Auth refonte Phase B (2026-05-11) : forgot password / reset
 ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_token TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_expires_at TIMESTAMPTZ;
+-- Phase C.3 (2026-05-12) : zone d'arrivée préférée, slug parmi MAP_ZONES
+-- (france, europe, europe-west, europe-east, mediterranee, manche,
+-- atlantique, baltique, suisse, bulgarie). NULL = fallback 'france'.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS default_zone TEXT;
+-- Phase C.4 (2026-05-12) : projection OL préférée — 'EPSG:3857' (défaut),
+-- 'EPSG:4326', 'EPSG:3035' (Lambert LAEA Europe).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_projection TEXT;
 
 -- Backfill username + email_verified_at pour les users existants
 -- (créés avant la refonte). username dérivé du local-part email avec

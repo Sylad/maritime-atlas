@@ -82,6 +82,16 @@ export class PalettesService {
     await this.loadMyContext();
   }
 
+  /** Phase C.3 : set la zone d'arrivée préférée. Backend valide le slug. */
+  async setDefaultZone(zone: string): Promise<void> {
+    await firstValueFrom(this.http.put('/api/me/default-zone', { zone }));
+  }
+
+  /** Phase C.4 : set la projection OL préférée. Code EPSG. */
+  async setPreferredProjection(projection: string): Promise<void> {
+    await firstValueFrom(this.http.put('/api/me/preferred-projection', { projection }));
+  }
+
   /** Reset state on logout. */
   clear(): void {
     this.myPalettes.set([]);

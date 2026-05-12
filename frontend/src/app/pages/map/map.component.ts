@@ -41,6 +41,8 @@ import { VesselsService, type VesselProperties } from '../../services/vessels.se
 import { RainviewerService, type RainViewerSnapshot } from '../../services/rainviewer.service';
 import { AuthService } from '../../services/auth.service';
 import { PreferencesSyncService } from '../../services/preferences-sync.service';
+import { findZone, DEFAULT_ZONE_ID } from '../../services/map-zones';
+import { registerCustomProjections, findProjection, DEFAULT_PROJECTION } from '../../services/map-projections';
 import { PalettesService } from '../../services/palettes.service';
 import { ArrowsService, type ArrowsKind } from '../../services/arrows.service';
 import { LightningService, type LightningProperties } from '../../services/lightning.service';
@@ -2660,6 +2662,48 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   }
 
   // ─── Map init ───────────────────────────────────────────────────────
+
+  /** Phase C.3 + C.4 (2026-05-12) : construit la View initiale avec la
+   *  zone d'arrivée + projection préférée du user (DB pour connectés,
+   *  localStorage sinon, fallback 'france' + EPSG:3857).
+   *
+   *  Les particules de vent et flèches sont stockées en lon/lat et
+   *  reprojetées par OL au moment du draw → le rendu reste correct
+   *  quelle que soit la projection (l'orientation visuelle change
+   *  seulement parce que les méridiens convergent en Lambert vs
+   *  parallèles en Mercator). */
+  private buildInitialView(): View {
+    // 1. Résoudre la projection. EPSG:3857 fonctionne nativement, les
+    //    autres requièrent proj4 register fait par registerCustomProjections().
+    const u = this.currentUser();
+    const projectionCode =
+      u?.preferredProjection ||
+      localStorage.getItem('maritime.preferred-projection') ||
+      DEFAULT_PROJECTION;
+    if (projectionCode !== 'EPSG:3857' && projectionCode !== 'EPSG:4326') {
+      registerCustomProjections();
+    }
+    // 2. Résoudre la zone (slug → bbox/center/zoom).
+    const zoneId =
+      u?.defaultZone ||
+      localStorage.getItem('maritime.default-zone') ||
+      DEFAULT_ZONE_ID;
+    const zone = findZone(zoneId);
+    // 3. Convertir le center lon/lat vers la projection cible.
+    //    fromLonLat() supporte un 2e arg = target projection.
+    const center = fromLonLat(zone.center, projectionCode);
+    return new View({
+      projection: projectionCode,
+      center,
+      zoom: zone.zoom,
+      // minZoom 3 (sprint Europe) pour vue d'ensemble Atlantique + Méditerranée.
+      // En projection non-Mercator, les zooms ne s'alignent pas 1:1 — on garde
+      // les mêmes bornes ; OL gère le clamp.
+      minZoom: 3,
+      maxZoom: 14,
+    });
+  }
+
   private initMap(): void {
     // Attributions exposées via le contrôle Attribution OpenLayers (icône
     // (i) bas-droite). Chaque source déclare sa propre attribution → l'icône
@@ -2907,14 +2951,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
           placeholder: '—',
         }),
       ]),
-      view: new View({
-        center: fromLonLat(INITIAL_CENTER),
-        zoom: INITIAL_ZOOM,
-        // Sprint Europe : minZoom 3 pour permettre zoom out sur tout
-        // l'Atlantique-NE + Méditerranée + Baltique en une vue.
-        minZoom: 3,
-        maxZoom: 14,
-      }),
+      view: this.buildInitialView(),
     });
 
     // Click handler — route le popup selon la layer source de la feature.
