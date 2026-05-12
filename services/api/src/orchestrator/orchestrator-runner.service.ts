@@ -281,18 +281,34 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
     const sinkCfg = (src.sinkConfig ?? {}) as {
       output_dir?: string; output_prefix?: string;
       geoserver_store?: string; geoserver_workspace?: string;
+      geoserver_coverage?: string; geoserver_title?: string;
+      geoserver_create_if_missing?: boolean;
       valid_time?: string; bbox?: number[];
     };
     if (!sinkCfg.output_dir) throw new Error('sink_config.output_dir required');
     const baseUrl = this.config.get<string>('gribParserUrl') ?? 'http://grib-parser:8500';
 
+    // Expand URL templating ({{today:YYYYMMDD}}, {{today_offset:-2,YYYYMM}}…).
+    // Permet aux sources d'avoir une URL stable côté DB malgré une date
+    // qui change chaque jour (typique des datasets quotidiens OISST,
+    // ARPEGE runs, etc.).
+    const expandedUrl = this.expandUrlTemplate(src.url, new Date());
+
     const payload = {
-      url: src.url,
+      url: expandedUrl,
       kind: src.parserKind,
       output_dir: sinkCfg.output_dir,
       output_prefix: sinkCfg.output_prefix ?? src.name,
       valid_time: sinkCfg.valid_time,
       bbox: sinkCfg.bbox,
+      // Sprint N4 Phase 2 : auto-create du coveragestore GeoServer au 1er
+      // cycle, idempotent les fois suivantes (le sidecar check d'abord
+      // l'existence via REST).
+      geoserver_create_if_missing: sinkCfg.geoserver_create_if_missing,
+      geoserver_workspace: sinkCfg.geoserver_workspace ?? 'maritime',
+      geoserver_store: sinkCfg.geoserver_store,
+      geoserver_coverage: sinkCfg.geoserver_coverage,
+      geoserver_title: sinkCfg.geoserver_title,
     };
     const resp = await fetch(`${baseUrl}/parse`, {
       method: 'POST',
@@ -308,21 +324,12 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
       ok: boolean; paths: string[]; records_out: number; bytes_in: number; error?: string;
     };
 
-    let status: 'ok' | 'partial' | 'error' = result.ok ? 'ok' : 'error';
+    const status: 'ok' | 'partial' | 'error' = result.ok ? 'ok' : 'error';
     const errorMsg = result.error;
 
-    // Optionnel : trigger reindex GeoServer si le sink précise un store.
-    if (result.ok && sinkCfg.geoserver_store && this.config.get<string>('geoserverUrl')) {
-      try {
-        await this.triggerGeoServerReindex(
-          sinkCfg.geoserver_workspace ?? 'maritime',
-          sinkCfg.geoserver_store,
-          sinkCfg.output_dir,
-        );
-      } catch (err) {
-        status = 'partial';
-      }
-    }
+    // Sprint N4 Phase 2 : le sidecar Python gère lui-même la création
+    // du store + reindex GeoServer (passé via geoserver_create_if_missing
+    // dans le payload). Pas besoin de double-job côté runner.
 
     return {
       bytesIn: result.bytes_in,
@@ -332,6 +339,41 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
       errorMsg,
       paths: result.paths,
     };
+  }
+
+  /** Sprint N4 Phase 2 : expand URL template avec dates relatives.
+   *
+   *  Tokens supportés :
+   *    {{today:YYYYMMDD}}            → "20260512" (UTC)
+   *    {{today:YYYY-MM-DD}}          → "2026-05-12"
+   *    {{today:YYYYMM}}              → "202605"
+   *    {{today_offset:N,FORMAT}}     → today + N days (peut être négatif)
+   *    {{today_offset:-2,YYYYMMDD}}  → "20260510"
+   *
+   *  Tout segment qui n'est pas un token reconnu reste tel quel.
+   *  L'URL non-templatée passe through (back-compat avec sources
+   *  N4 Phase 1 qui ont des URL absolues fixes). */
+  private expandUrlTemplate(template: string, now: Date): string {
+    return template.replace(/\{\{(today|today_offset):([^}]+)\}\}/g, (_, type, arg) => {
+      let date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      let fmt = arg as string;
+      if (type === 'today_offset') {
+        const [offsetStr, ...fmtParts] = arg.split(',');
+        const offset = parseInt(offsetStr, 10);
+        if (!isNaN(offset)) date.setUTCDate(date.getUTCDate() + offset);
+        fmt = fmtParts.join(',');
+      }
+      return this.formatDate(date, fmt);
+    });
+  }
+
+  private formatDate(d: Date, fmt: string): string {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return fmt
+      .replace('YYYY', String(d.getUTCFullYear()))
+      .replace('MM', pad(d.getUTCMonth() + 1))
+      .replace('DD', pad(d.getUTCDate()))
+      .replace('HH', pad(d.getUTCHours()));
   }
 
   /** POST external.imagemosaic au GeoServer REST pour qu'il indexe le

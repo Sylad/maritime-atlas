@@ -38,6 +38,7 @@ from typing import Literal, Optional
 import numpy as np
 import requests
 import xarray as xr
+import rioxarray  # noqa: F401  — registers xr.DataArray.rio accessor
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
@@ -67,6 +68,12 @@ class ParseRequest(BaseModel):
     output_prefix: str = Field('output', description='Préfixe nom de fichier (ex: arpege_wind_speed)')
     valid_time: Optional[str] = Field(None, description='ISO datetime pour le nom de fichier')
     bbox: Optional[list[float]] = Field(None, description='[minLon, minLat, maxLon, maxLat] EPSG:4326')
+    # ─── Sprint N4 Phase 2 : auto-create GeoServer store ───
+    geoserver_create_if_missing: Optional[bool] = Field(False)
+    geoserver_workspace: Optional[str] = Field('maritime')
+    geoserver_store: Optional[str] = Field(None)
+    geoserver_coverage: Optional[str] = Field(None, description='Nom de la coverage (= basename output_dir)')
+    geoserver_title: Optional[str] = Field(None)
 
 
 class ParseResponse(BaseModel):
@@ -109,14 +116,17 @@ def parse(req: ParseRequest) -> ParseResponse:
 
         if req.kind == 'grib_wind10m':
             path = _parse_grib_wind10m(tmp_path, out_dir, req.output_prefix, ts_str, req.bbox)
+            _maybe_geoserver(req, out_dir)
             return ParseResponse(ok=True, paths=[str(path)], records_out=1, bytes_in=bytes_in)
 
         if req.kind == 'grib_wave':
             path = _parse_grib_wave(tmp_path, out_dir, req.output_prefix, ts_str, req.bbox)
+            _maybe_geoserver(req, out_dir)
             return ParseResponse(ok=True, paths=[str(path)], records_out=1, bytes_in=bytes_in)
 
         if req.kind == 'netcdf_sst':
             path = _parse_netcdf_sst(tmp_path, out_dir, req.output_prefix, ts_str, req.bbox)
+            _maybe_geoserver(req, out_dir)
             return ParseResponse(ok=True, paths=[str(path)], records_out=1, bytes_in=bytes_in)
 
         raise HTTPException(status_code=400, detail=f'Unknown kind: {req.kind}')
@@ -132,6 +142,135 @@ def parse(req: ParseRequest) -> ParseResponse:
             (tmp_path.with_suffix('.grib2.idx')).unlink(missing_ok=True)
         except Exception:
             pass
+
+
+# ─── GeoServer auto-create + reindex (Sprint N4 Phase 2) ─────────────
+GEOSERVER_URL = os.environ.get('GEOSERVER_URL', 'http://geoserver:8080/geoserver')
+GEOSERVER_USER = os.environ.get('GEOSERVER_ADMIN_USER', 'admin')
+GEOSERVER_PASS = os.environ.get('GEOSERVER_ADMIN_PASSWORD', 'geoserver')
+
+INDEXER_PROPERTIES = """\
+TimeAttribute=time
+Schema=*the_geom:Polygon,location:String,time:java.util.Date
+PropertyCollectors=TimestampFileNameExtractorSPI[timeregex](time)
+Caching=false
+LooseBBox=true
+Heterogeneous=false
+"""
+TIMEREGEX_PROPERTIES = """\
+regex=[0-9]{8}T[0-9]{6}Z,format=yyyyMMdd'T'HHmmss'Z'
+"""
+
+
+def _maybe_geoserver(req: ParseRequest, out_dir: Path) -> None:
+    """Si geoserver_create_if_missing=True : crée le coveragestore si
+    manquant, ou trigger un reindex external.imagemosaic sinon. Best
+    effort — n'échoue pas la requête si GeoServer est down."""
+    if not req.geoserver_create_if_missing:
+        return
+    if not req.geoserver_store or not req.geoserver_coverage:
+        log.warning('geoserver_create_if_missing=True but store/coverage missing — skip')
+        return
+    try:
+        _ensure_indexer_props(out_dir)
+        if _coverage_store_exists(req.geoserver_workspace, req.geoserver_store):
+            _trigger_reindex(req.geoserver_workspace, req.geoserver_store, out_dir)
+        else:
+            _create_mosaic_store(
+                req.geoserver_workspace, req.geoserver_store,
+                req.geoserver_coverage, out_dir,
+                req.geoserver_title or f'{req.geoserver_coverage}',
+            )
+    except Exception as exc:
+        log.warning('GeoServer step failed: %s', exc)
+
+
+def _ensure_indexer_props(coverage_dir: Path) -> None:
+    coverage_dir.mkdir(parents=True, exist_ok=True)
+    (coverage_dir / 'indexer.properties').write_text(INDEXER_PROPERTIES)
+    (coverage_dir / 'timeregex.properties').write_text(TIMEREGEX_PROPERTIES)
+
+
+def _coverage_store_exists(workspace: str, store: str) -> bool:
+    try:
+        r = requests.get(
+            f'{GEOSERVER_URL}/rest/workspaces/{workspace}/coveragestores/{store}.json',
+            auth=(GEOSERVER_USER, GEOSERVER_PASS), timeout=10,
+        )
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+def _trigger_reindex(workspace: str, store: str, coverage_dir: Path) -> None:
+    r = requests.post(
+        f'{GEOSERVER_URL}/rest/workspaces/{workspace}/coveragestores/{store}/external.imagemosaic',
+        data=str(coverage_dir),
+        headers={'Content-Type': 'text/plain'},
+        auth=(GEOSERVER_USER, GEOSERVER_PASS), timeout=30,
+    )
+    if r.status_code in (200, 201, 202):
+        log.info('Reindex %s OK', store)
+    else:
+        log.warning('Reindex %s HTTP %d: %s', store, r.status_code, r.text[:200])
+
+
+def _create_mosaic_store(workspace: str, store: str, coverage: str,
+                          coverage_dir: Path, title: str) -> None:
+    """3 steps : create store, harvest external.imagemosaic, publish
+    coverage avec time dimension MAXIMUM. Pattern identique aux services
+    historiques weather-fetcher / sst-fetcher."""
+    log.info('Creating ImageMosaic %s/%s', workspace, store)
+    # Step 1 : create coveragestore
+    r1 = requests.post(
+        f'{GEOSERVER_URL}/rest/workspaces/{workspace}/coveragestores',
+        json={'coverageStore': {
+            'name': store, 'type': 'ImageMosaic', 'enabled': True,
+            'workspace': {'name': workspace},
+            'url': f'file://{coverage_dir}',
+        }},
+        auth=(GEOSERVER_USER, GEOSERVER_PASS), timeout=60,
+    )
+    if r1.status_code not in (200, 201):
+        log.warning('Store create HTTP %d: %s', r1.status_code, r1.text[:200])
+        return
+    # Step 2 : harvest les GeoTIFFs existants
+    r2 = requests.post(
+        f'{GEOSERVER_URL}/rest/workspaces/{workspace}/coveragestores/{store}/external.imagemosaic',
+        data=str(coverage_dir),
+        headers={'Content-Type': 'text/plain'},
+        auth=(GEOSERVER_USER, GEOSERVER_PASS), timeout=60,
+    )
+    if r2.status_code not in (200, 201, 202):
+        log.warning('Harvest HTTP %d: %s', r2.status_code, r2.text[:200])
+        return
+    # Step 3 : publish coverage avec time dim
+    coverage_xml = f"""<coverage>
+  <name>{coverage}</name>
+  <nativeName>{coverage}</nativeName>
+  <title>{title}</title>
+  <enabled>true</enabled>
+  <metadata>
+    <entry key="time">
+      <dimensionInfo>
+        <enabled>true</enabled>
+        <presentation>LIST</presentation>
+        <units>ISO8601</units>
+        <defaultValue><strategy>MAXIMUM</strategy></defaultValue>
+      </dimensionInfo>
+    </entry>
+  </metadata>
+</coverage>"""
+    r3 = requests.post(
+        f'{GEOSERVER_URL}/rest/workspaces/{workspace}/coveragestores/{store}/coverages',
+        data=coverage_xml,
+        headers={'Content-Type': 'text/xml'},
+        auth=(GEOSERVER_USER, GEOSERVER_PASS), timeout=30,
+    )
+    if r3.status_code in (200, 201):
+        log.info('Mosaic %s published with time dim', store)
+    else:
+        log.warning('Coverage publish HTTP %d: %s', r3.status_code, r3.text[:200])
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────
