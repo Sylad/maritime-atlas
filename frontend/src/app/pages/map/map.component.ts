@@ -178,7 +178,6 @@ function toIsoTimestamp(d: Date): string {
       <div class="legend" [class.legend--closed]="!legendOpen()">
         <div class="legend-title">MARITIME ATLAS</div>
         <div class="legend-subtitle">Europe étroite</div>
-        <app-ingestion-mini-chart />
 
 
         <div class="layer-toggles">
@@ -503,6 +502,10 @@ function toIsoTimestamp(d: Date): string {
             <div class="legend-error">{{ errorMsg() }}</div>
           }
         </div>
+
+        <!-- Mini-graph ingestion 24h — info secondaire, en bas. -->
+        <div class="legend-section-title legend-ingestion-title">Ingestion 24h</div>
+        <app-ingestion-mini-chart />
       </div>
 
       <!-- Popup overlay (positionné par OL via Overlay). Templates par
@@ -1043,6 +1046,13 @@ function toIsoTimestamp(d: Date): string {
       color: var(--fg-dim);
       text-transform: uppercase;
       margin: 0 0 0.3em;
+    }
+    /* Bloc ingestion en bas : marqué visuellement comme info secondaire,
+       séparé des stats LIVE/REPLAY par une marge dédiée. */
+    .legend-ingestion-title {
+      margin-top: 1em;
+      border-top: 1px solid var(--border);
+      padding-top: 0.6em;
     }
     .legend-item {
       display: flex;
