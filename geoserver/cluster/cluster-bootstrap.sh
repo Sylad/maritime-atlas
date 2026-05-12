@@ -95,6 +95,14 @@ envsubst < /cluster-config/jdbcstore.properties \
   | sed -E "s/^initdb=true/${JDBCSTORE_INIT_FLAGS}/" \
   > "${GEOSERVER_DATA_DIR}/jdbcstore/jdbcstore.properties"
 
+# Control-Flow extension config : limites concurrent requests par service.
+# Copié direct (pas de templating, valeurs hardcodées calibrées NAS quad-core).
+# Idempotent : 3 replicas écrivent le même fichier.
+if [ -f /cluster-config/controlflow.properties ]; then
+  cp /cluster-config/controlflow.properties "${GEOSERVER_DATA_DIR}/controlflow.properties"
+  echo "[cluster-bootstrap] control-flow config installed"
+fi
+
 # Marqueur d'identité pour debug — visible dans les logs Docker via
 # l'env CLUSTER_NODE_ID que chaque replica expose.
 echo "${NODE_ID}" > "${GEOSERVER_DATA_DIR}/node-id-${NODE_ID}"

@@ -1,23 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Plugin GeoServer custom — IDW Interpolation Process.
-
-  Implémente un WPS process `ras:IDW` qui interpole un GridCoverage2D
-  via Inverse Distance Weighting avant le rendu. Chainable dans les
-  SLD `<Transformation>` :
-
-      <ogc:Function name="ras:IDW">
-        <ogc:Function name="parameter"><ogc:Literal>data</ogc:Literal></ogc:Function>
-        <ogc:Function name="parameter"><ogc:Literal>factor</ogc:Literal><ogc:Literal>4</ogc:Literal></ogc:Function>
-      </ogc:Function>
-
-  Build :
-    docker run --rm -v $(pwd):/build -w /build maven:3.9-eclipse-temurin-17 \
-      mvn package -DskipTests
-
-  Deploy : copier target/gs-idw-process-*.jar dans le container GeoServer
-    /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/
-    puis restart GeoServer.
+  Plugin GeoServer custom : IDW Interpolation Process.
+  Voir README.md pour build + deploy instructions.
 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
