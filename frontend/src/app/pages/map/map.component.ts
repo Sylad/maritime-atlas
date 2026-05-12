@@ -40,6 +40,7 @@ import { IngestionMiniChartComponent } from '../../components/ingestion-mini-cha
 import { VesselsService, type VesselProperties } from '../../services/vessels.service';
 import { RainviewerService, type RainViewerSnapshot } from '../../services/rainviewer.service';
 import { AuthService } from '../../services/auth.service';
+import { PreferencesSyncService } from '../../services/preferences-sync.service';
 import { PalettesService } from '../../services/palettes.service';
 import { ArrowsService, type ArrowsKind } from '../../services/arrows.service';
 import { LightningService, type LightningProperties } from '../../services/lightning.service';
@@ -1381,6 +1382,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private readonly buoys = inject(BuoysService);
   private readonly auth = inject(AuthService);
   private readonly palettesSvc = inject(PalettesService);
+  private readonly prefsSync = inject(PreferencesSyncService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -1540,30 +1542,92 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     try { localStorage.removeItem(LAYER_PREFS_KEY); } catch {}
   }
 
-  /** Persist current layer prefs to localStorage (Phase A — backend en Phase C). */
+  /** Persist current layer prefs to localStorage. Phase C.2 (2026-05-12) :
+      si user connecté, push aussi vers DB (debounced 500ms). LocalStorage
+      reste la source canonique pour les anonymes + le boot. */
   private persistLayerPrefs(): void {
+    const visibility = {
+      vessels: this.showVessels(),
+      tracks: this.showTracks(),
+      sst: this.showSST(),
+      rain: this.showRain(),
+      wind: this.showWind(),
+      waves: this.showWaves(),
+      windArrows: this.showWindArrows(),
+      waveArrows: this.showWaveArrows(),
+      lightning: this.showLightning(),
+      alerts: this.showAlerts(),
+      windParticles: this.showWindParticles(),
+      buoys: this.showBuoys(),
+    };
+    const opacity = this.layerOpacities();
     try {
-      const payload = {
-        visibility: {
-          vessels: this.showVessels(),
-          tracks: this.showTracks(),
-          sst: this.showSST(),
-          rain: this.showRain(),
-          wind: this.showWind(),
-          waves: this.showWaves(),
-          windArrows: this.showWindArrows(),
-          waveArrows: this.showWaveArrows(),
-          lightning: this.showLightning(),
-          alerts: this.showAlerts(),
-          windParticles: this.showWindParticles(),
-          buoys: this.showBuoys(),
-        },
-        opacity: this.layerOpacities(),
-      };
-      localStorage.setItem(LAYER_PREFS_KEY, JSON.stringify(payload));
+      localStorage.setItem(LAYER_PREFS_KEY, JSON.stringify({ visibility, opacity }));
     } catch {
       // localStorage full / disabled — ignore, user reverra son default au reload
     }
+    // Phase C.2 : sync DB debounced si connecté + fini de bootstrap.
+    if (this.auth.isAuthenticated() && this.prefsBootstrapped) {
+      const batch: Array<{ layerKind: string; visible: boolean; opacity: number }> = [];
+      for (const [k, v] of Object.entries(visibility)) {
+        batch.push({ layerKind: k, visible: v, opacity: opacity[k] ?? 1 });
+      }
+      this.prefsSync.schedulePushBatch(batch);
+    }
+  }
+
+  /** Phase C.2 : merge DB prefs avec localStorage au boot/login. DB wins
+   *  pour les layers où elle a une valeur ; localStorage en fallback. */
+  private async mergePrefsFromDb(): Promise<void> {
+    if (!this.auth.isAuthenticated()) return;
+    const dbPrefs = await this.prefsSync.fetchMyPrefs();
+    if (dbPrefs.length === 0) {
+      // User connecté mais aucune pref DB → upload localStorage maintenant
+      // pour qu'il retrouve son setup sur un autre device.
+      this.prefsBootstrapped = true;
+      this.persistLayerPrefs();
+      return;
+    }
+    for (const p of dbPrefs) {
+      if (p.visible !== null) {
+        const setter = this.visibilitySetterFor(p.layerKind);
+        if (setter) setter(p.visible);
+      }
+      if (p.opacity !== null) {
+        this.layerOpacities.update((m) => ({ ...m, [p.layerKind]: p.opacity! }));
+        // Apply à la layer OL (sinon le state signal change mais le layer reste).
+        this.applyLayerOpacity(p.layerKind, p.opacity);
+      }
+    }
+    this.prefsBootstrapped = true;
+  }
+
+  /** Flag : true après mergePrefsFromDb() ou si pas connecté. Évite de
+   *  push vers DB pendant le restore initial (sinon on overwrite la DB
+   *  avec les defaults pendant qu'on était en train de la lire). */
+  private prefsBootstrapped = false;
+  /** Flag : true après le 1er tick de l'effect auth (le 1er tick fire au
+   *  boot du component, on doit le skipper pour pas re-déclencher
+   *  mergePrefsFromDb() qui est déjà appelé par ngAfterViewInit). */
+  private prefsAuthInitialized = false;
+
+  /** Map layerKind → fonction setter de visibility signal. */
+  private visibilitySetterFor(key: string): ((v: boolean) => void) | null {
+    const map: Record<string, (v: boolean) => void> = {
+      vessels: (v) => this.showVessels.set(v),
+      tracks: (v) => this.showTracks.set(v),
+      sst: (v) => this.showSST.set(v),
+      rain: (v) => this.showRain.set(v),
+      wind: (v) => this.showWind.set(v),
+      waves: (v) => this.showWaves.set(v),
+      windArrows: (v) => this.showWindArrows.set(v),
+      waveArrows: (v) => this.showWaveArrows.set(v),
+      lightning: (v) => this.showLightning.set(v),
+      alerts: (v) => this.showAlerts.set(v),
+      windParticles: (v) => this.showWindParticles.set(v),
+      buoys: (v) => this.showBuoys.set(v),
+    };
+    return map[key] ?? null;
   }
 
   /** Restore layer prefs from localStorage. Called at component init. */
@@ -1707,8 +1771,26 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         // Phase A : persiste les toggles à chaque changement (debounce
         // implicite via microtask). Au boot, ngAfterViewInit appelle
         // restoreLayerPrefs() AVANT cet effect, donc pas de race.
+        // Phase C.2 : si user connecté, push aussi vers DB (debounced).
         this.persistLayerPrefs();
       });
+    });
+
+    // Phase C.2 (2026-05-12) : watch auth state pour login/logout in-session.
+    // - Login → fetch DB prefs et merge (override les defaults localStorage)
+    // - Logout → cancel les push DB pending, mode anonyme reprend.
+    effect(() => {
+      const authed = this.auth.isAuthenticated();
+      // 1er tick : skip (boot initial déjà géré par ngAfterViewInit).
+      if (!this.prefsAuthInitialized) {
+        this.prefsAuthInitialized = true;
+        return;
+      }
+      if (authed) {
+        this.mergePrefsFromDb().catch(() => {/* network — silence */});
+      } else {
+        this.prefsSync.cancel();
+      }
     });
 
     // Sprint 11 + Europe Chantier #2 : effet dédié pour le switch GFS↔ARPEGE.
@@ -1795,6 +1877,15 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // Phase A : restore layer prefs (visibility + opacity) depuis localStorage
     // AVANT applyLayerVisibility pour éviter un flash defaults → restored.
     this.restoreLayerPrefs();
+    // Phase C.2 (2026-05-12) : si user connecté, merge avec les prefs DB.
+    // DB wins ; localStorage en fallback. La méthode est async mais on
+    // ne block pas le boot — l'apply visuelle suit au prochain effect tick.
+    if (this.auth.isAuthenticated()) {
+      this.mergePrefsFromDb().catch(() => {/* network error — localStorage source */});
+    } else {
+      // Pas connecté → on est déjà "bootstrapped" (rien à attendre de la DB).
+      this.prefsBootstrapped = true;
+    }
     this.applyAllLayerOpacities();
     // Démarre en mode live
     this.applyLayerVisibility();
