@@ -400,6 +400,19 @@ function toIsoTimestamp(d: Date): string {
                   <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
                          [value]="getOpacity('waves')"
                          (input)="setOpacity('waves', +$any($event.target).value)" />
+                  <div class="contour-control">
+                    <label class="contour-toggle">
+                      <input type="checkbox" [checked]="showWaveContours()" (change)="showWaveContours.set($any($event.target).checked)" />
+                      <span>Isolignes</span>
+                    </label>
+                    @if (showWaveContours()) {
+                      <input type="range" min="0.25" max="2" step="0.25"
+                             [value]="waveContourInterval()"
+                             (input)="waveContourInterval.set(+$any($event.target).value)"
+                             title="Intervalle isolignes" />
+                      <span class="contour-value">{{ waveContourInterval() }} m</span>
+                    }
+                  </div>
                 }
               </div>
               <div class="layer-row">
@@ -591,6 +604,19 @@ function toIsoTimestamp(d: Date): string {
                   <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
                          [value]="getOpacity('wind')"
                          (input)="setOpacity('wind', +$any($event.target).value)" />
+                  <div class="contour-control">
+                    <label class="contour-toggle">
+                      <input type="checkbox" [checked]="showWindContours()" (change)="showWindContours.set($any($event.target).checked)" />
+                      <span>Isolignes</span>
+                    </label>
+                    @if (showWindContours()) {
+                      <input type="range" min="1" max="10" step="1"
+                             [value]="windContourInterval()"
+                             (input)="windContourInterval.set(+$any($event.target).value)"
+                             title="Intervalle isolignes" />
+                      <span class="contour-value">{{ windContourInterval() }} m/s</span>
+                    }
+                  </div>
                 }
               </div>
               <div class="layer-row">
@@ -2840,7 +2866,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // V2 Isolignes (2026-05-12) : effect qui swap STYLES + env vars
     // selon les signaux showSstContours / sstContourInterval.
     effect(() => {
+      // Lecture des 6 signaux contours pour s'abonner
       this.showSstContours(); this.sstContourInterval();
+      this.showWaveContours(); this.waveContourInterval();
+      this.showWindContours(); this.windContourInterval();
       queueMicrotask(() => this.applyContours());
     });
   }
@@ -2897,20 +2926,33 @@ export class MapComponent implements AfterViewInit, OnDestroy {
    *  set env=contourInterval:N quand le toggle isolignes est ON. Sinon
    *  reset au style user-pref ou default. Appelé via un effect réactif. */
   private applyContours(): void {
+    const restore = (source: TileWMS | undefined, kind: string) => {
+      const userPref = this.palettesSvc.myPreferences()[kind] ?? null;
+      source?.updateParams({ STYLES: userPref ? `maritime:${userPref}` : '', env: undefined });
+    };
     if (this.sstSource) {
       if (this.showSstContours()) {
         this.sstSource.updateParams({
           STYLES: 'maritime:sst-with-contours',
           env: `contourInterval:${this.sstContourInterval()}`,
         });
-      } else {
-        // Restore le style courant (user pref ou default vide).
-        const userPref = this.palettesSvc.myPreferences()['sst'] ?? null;
-        this.sstSource.updateParams({
-          STYLES: userPref ? `maritime:${userPref}` : '',
-          env: undefined,
+      } else restore(this.sstSource, 'sst');
+    }
+    if (this.wavesSource) {
+      if (this.showWaveContours()) {
+        this.wavesSource.updateParams({
+          STYLES: 'maritime:wave-hs-with-contours',
+          env: `contourInterval:${this.waveContourInterval()}`,
         });
-      }
+      } else restore(this.wavesSource, 'waves');
+    }
+    if (this.windWmsSource) {
+      if (this.showWindContours()) {
+        this.windWmsSource.updateParams({
+          STYLES: 'maritime:wind-speed-with-contours',
+          env: `contourInterval:${this.windContourInterval()}`,
+        });
+      } else restore(this.windWmsSource, 'wind');
     }
   }
 
