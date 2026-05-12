@@ -177,7 +177,7 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
     // Sprint N4 (2026-05-12) : si parser_kind est un des kinds GRIB/NetCDF,
     // on délègue au sidecar Python qui fetch+parse+écrit le GeoTIFF d'un
     // coup, puis on trigger reindex GeoServer si sink_config le précise.
-    const sidecarKinds = ['grib_wind10m', 'grib_wave', 'netcdf_sst'];
+    const sidecarKinds = ['grib_wind10m', 'grib_wave', 'netcdf_sst', 'grib_gfs_multi'];
     if (src.parserKind && sidecarKinds.includes(src.parserKind)) {
       try {
         const result = await this.runSidecarCycle(src);
@@ -277,7 +277,11 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
     errorKind?: string; errorMsg?: string;
     paths: string[];
   }> {
-    if (!src.url) throw new Error('url required for sidecar cycle');
+    // Pour grib_gfs_multi l'URL est ignorée côté sidecar (le sidecar
+    // construit lui-même les URLs CGI subsetter NOMADS). On accepte donc
+    // une src.url vide pour ce kind (utile pour la DB).
+    const isMultiFetch = src.parserKind === 'grib_gfs_multi';
+    if (!src.url && !isMultiFetch) throw new Error('url required for sidecar cycle');
     const sinkCfg = (src.sinkConfig ?? {}) as {
       output_dir?: string; output_prefix?: string;
       geoserver_store?: string; geoserver_workspace?: string;
@@ -292,7 +296,7 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
     // Permet aux sources d'avoir une URL stable côté DB malgré une date
     // qui change chaque jour (typique des datasets quotidiens OISST,
     // ARPEGE runs, etc.).
-    const expandedUrl = this.expandUrlTemplate(src.url, new Date());
+    const expandedUrl = src.url ? this.expandUrlTemplate(src.url, new Date()) : '';
 
     const payload = {
       url: expandedUrl,
@@ -301,6 +305,10 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
       output_prefix: sinkCfg.output_prefix ?? src.name,
       valid_time: sinkCfg.valid_time,
       bbox: sinkCfg.bbox,
+      // Sprint N5 : pour grib_gfs_multi, fhours[] est dans parser_config.
+      // Plus généralement, on pass parser_config through pour que le sidecar
+      // puisse lire ses paramètres spécifiques au parser_kind.
+      parser_config: src.parserConfig ?? null,
       // Sprint N4 Phase 2 : auto-create du coveragestore GeoServer au 1er
       // cycle, idempotent les fois suivantes (le sidecar check d'abord
       // l'existence via REST).

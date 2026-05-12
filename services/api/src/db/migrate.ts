@@ -197,6 +197,30 @@ INSERT INTO data_sources (name, kind, url, schedule_expr, sink_label, bbox) VALU
   ('track-builder',      'sql_aggregate', 'PostGIS vessel_positions',                  'cron xx:35 chaque heure',
    'PostGIS vessel_tracks_daily (LineString par mmsi/day)',                            '[-15,35,30,65]')
 ON CONFLICT (name) DO NOTHING;
+
+-- Sprint N5 (2026-05-12) : weather-fetcher GFS migré vers orchestrator
+-- dynamique (sidecar Python grib-parser → multi-fhour CGI subsetter
+-- NOMADS → N GeoTIFFs/cycle). Remplace progressivement weather-fetcher
+-- legacy (qu'on laisse tourner en parallèle pendant la bascule).
+INSERT INTO data_sources (
+  name, kind, url, schedule_kind, schedule_expr,
+  parser_kind, parser_config,
+  sink_kind, sink_config, sink_label, bbox, enabled
+) VALUES (
+  'weather-orchestrator-gfs-wind',
+  'http_grib',
+  'nomads://gfs_0p25 multi-fhour',
+  'cron',
+  '15 4,10,16,22 * * *',
+  'grib_gfs_multi',
+  '{"fhours": [0, 6, 12, 24, 48]}',
+  'geotiff_volume',
+  '{"output_dir": "/coverage/wind-speed-gfs", "output_prefix": "gfs_wind_speed", "bbox": [-15, 35, 30, 65], "geoserver_create_if_missing": true, "geoserver_workspace": "maritime", "geoserver_store": "wind-speed-gfs", "geoserver_coverage": "wind-speed-gfs", "geoserver_title": "Wind Speed (GFS 0.25° via orchestrator)"}',
+  '/coverage/wind-speed-gfs (5 fhours/cycle)',
+  '[-15,35,30,65]',
+  false
+)
+ON CONFLICT (name) DO NOTHING;
 `;
 
 export async function runMigrations(databaseUrl: string): Promise<void> {

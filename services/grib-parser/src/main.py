@@ -31,9 +31,9 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 import numpy as np
 import requests
@@ -52,22 +52,27 @@ app = FastAPI(title='grib-parser', version='0.1.0')
 
 
 # ─── Models ─────────────────────────────────────────────────────────────
-ParserKind = Literal['grib_wind10m', 'grib_wave', 'netcdf_sst', 'identity']
+ParserKind = Literal['grib_wind10m', 'grib_wave', 'netcdf_sst', 'identity', 'grib_gfs_multi']
 
 
 class ParseRequest(BaseModel):
     """Requête de parsing.
 
-    Pour `kind='grib_wind10m'` : extrait u10/v10 → speed (sqrt) en GeoTIFF.
-    Pour `kind='grib_wave'`    : extrait swh (Hs) en GeoTIFF.
-    Pour `kind='netcdf_sst'`   : extrait sst (NOAA OISST) en GeoTIFF.
-    Pour `kind='identity'`     : juste télécharge, pas de reprojection."""
-    url: str = Field(..., description='URL du fichier source (GRIB ou NetCDF)')
+    Pour `kind='grib_wind10m'`   : extrait u10/v10 → speed (sqrt) en GeoTIFF (1 fichier).
+    Pour `kind='grib_wave'`      : extrait swh (Hs) en GeoTIFF.
+    Pour `kind='netcdf_sst'`     : extrait sst (NOAA OISST) en GeoTIFF.
+    Pour `kind='identity'`       : juste télécharge, pas de reprojection.
+    Pour `kind='grib_gfs_multi'` : fetch+parse N fhours d'un run NOMADS GFS
+                                   (N GeoTIFFs en 1 cycle, url ignorée car
+                                   le sidecar construit l'URL CGI subsetter
+                                   lui-même)."""
+    url: str = Field(..., description='URL du fichier source (GRIB ou NetCDF) — ignorée pour grib_gfs_multi')
     kind: ParserKind = Field(..., description='Type de parsing')
     output_dir: str = Field(..., description='Dossier de sortie (path absolu monté en volume)')
     output_prefix: str = Field('output', description='Préfixe nom de fichier (ex: arpege_wind_speed)')
     valid_time: Optional[str] = Field(None, description='ISO datetime pour le nom de fichier')
     bbox: Optional[list[float]] = Field(None, description='[minLon, minLat, maxLon, maxLat] EPSG:4326')
+    parser_config: Optional[dict[str, Any]] = Field(None, description='Config additionnelle (ex: fhours: list[int])')
     # ─── Sprint N4 Phase 2 : auto-create GeoServer store ───
     geoserver_create_if_missing: Optional[bool] = Field(False)
     geoserver_workspace: Optional[str] = Field('maritime')
@@ -97,7 +102,18 @@ def parse(req: ParseRequest) -> ParseResponse:
     selon la taille du fichier (GRIB AROME ≈ 55 MB / cycle). Le runner
     Node a un timeout 300s côté fetch HTTP."""
     log.info('Parse kind=%s url=%s', req.kind, req.url[-80:])
+    tmp_path: Optional[Path] = None
     try:
+        # ─── Sprint N5 : multi-fhour GFS (pas d'URL en entrée, le sidecar
+        # construit lui-même les URLs CGI subsetter NOMADS) ───
+        if req.kind == 'grib_gfs_multi':
+            out_dir = Path(req.output_dir)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            paths, total_bytes = _parse_grib_gfs_multi(req, out_dir)
+            _maybe_geoserver(req, out_dir)
+            return ParseResponse(ok=True, paths=[str(p) for p in paths],
+                                  records_out=len(paths), bytes_in=total_bytes)
+
         # 1. Fetch
         with tempfile.NamedTemporaryFile(suffix='.dat', delete=False) as tmp:
             tmp_path = Path(tmp.name)
@@ -137,11 +153,12 @@ def parse(req: ParseRequest) -> ParseResponse:
         log.exception('Parse failed')
         return ParseResponse(ok=False, error=f'{type(exc).__name__}: {exc}'[:500])
     finally:
-        try:
-            tmp_path.unlink(missing_ok=True)
-            (tmp_path.with_suffix('.grib2.idx')).unlink(missing_ok=True)
-        except Exception:
-            pass
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink(missing_ok=True)
+                (tmp_path.with_suffix('.grib2.idx')).unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 # ─── GeoServer auto-create + reindex (Sprint N4 Phase 2) ─────────────
@@ -374,6 +391,76 @@ def _parse_grib_wave(src: Path, out_dir: Path, prefix: str, ts_str: str,
     _to_geotiff(da, dest)
     ds.close()
     return dest
+
+
+# ─── Sprint N5 : GFS multi-fhour (NOMADS CGI subsetter) ───────────────
+NOMADS_GFS_BASE = 'https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl'
+
+
+def _latest_gfs_run(now: Optional[datetime] = None) -> datetime:
+    """NOAA publie un run GFS toutes les 6h (00, 06, 12, 18 UTC). Latence
+    de mise à dispo des fichiers ≈ 3-4h après l'heure du run. On prend le
+    run le plus récent dispo, soit (now - 4h) arrondi au pas de 6h."""
+    if now is None:
+        now = datetime.now(timezone.utc)
+    now = now - timedelta(hours=4)
+    run_hour = (now.hour // 6) * 6
+    return now.replace(hour=run_hour, minute=0, second=0, microsecond=0)
+
+
+def _gfs_wind_url(run: datetime, fhour: int, bbox: list[float]) -> str:
+    """URL CGI subsetter GFS pour vent à 10m (UGRD + VGRD). bbox =
+    [minLon, minLat, maxLon, maxLat] EPSG:4326."""
+    yyyymmdd = run.strftime('%Y%m%d')
+    hh = run.strftime('%H')
+    fff = f'{fhour:03d}'
+    return (
+        f'{NOMADS_GFS_BASE}?'
+        f'file=gfs.t{hh}z.pgrb2.0p25.f{fff}'
+        f'&var_UGRD=on&var_VGRD=on'
+        f'&lev_10_m_above_ground=on'
+        f'&subregion=&leftlon={bbox[0]}&rightlon={bbox[2]}'
+        f'&toplat={bbox[3]}&bottomlat={bbox[1]}'
+        f'&dir=%2Fgfs.{yyyymmdd}%2F{hh}%2Fatmos'
+    )
+
+
+def _parse_grib_gfs_multi(req: ParseRequest, out_dir: Path) -> tuple[list[Path], int]:
+    """Fetch + parse N fhours GFS en 1 cycle. Renvoie (paths, bytes_in).
+
+    Stratégie : si un fhour fail (HTTP 4xx/5xx), on log et on continue
+    (run NOAA pas encore complet → certains fhours arrivent en retard).
+    Tant qu'on a ≥1 GeoTIFF, on considère le cycle ok."""
+    cfg = req.parser_config or {}
+    fhours: list[int] = list(cfg.get('fhours') or [0, 6, 12, 24, 48])
+    bbox = req.bbox or [-15.0, 35.0, 30.0, 65.0]
+    run = _latest_gfs_run()
+    log.info('GFS run=%s fhours=%s bbox=%s', run.isoformat(), fhours, bbox)
+    paths: list[Path] = []
+    total_bytes = 0
+    for fhour in fhours:
+        url = _gfs_wind_url(run, fhour, bbox)
+        valid_time = run + timedelta(hours=fhour)
+        ts_str = valid_time.strftime('%Y%m%dT%H%M%SZ')
+        with tempfile.NamedTemporaryFile(suffix='.grib2', delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+        try:
+            bytes_in = _download(url, tmp_path)
+            total_bytes += bytes_in
+            dest = _parse_grib_wind10m(tmp_path, out_dir, req.output_prefix, ts_str, bbox)
+            paths.append(dest)
+            log.info('GFS fhour=%d → %s (%d bytes)', fhour, dest.name, bytes_in)
+        except Exception as exc:
+            log.warning('GFS fhour=%d failed: %s', fhour, exc)
+        finally:
+            try:
+                tmp_path.unlink(missing_ok=True)
+                (tmp_path.with_suffix('.grib2.idx')).unlink(missing_ok=True)
+            except Exception:
+                pass
+    if not paths:
+        raise HTTPException(status_code=502, detail=f'All {len(fhours)} fhours failed for run {run.isoformat()}')
+    return paths, total_bytes
 
 
 def _parse_netcdf_sst(src: Path, out_dir: Path, prefix: str, ts_str: str,
