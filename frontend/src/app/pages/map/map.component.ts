@@ -711,12 +711,12 @@ function toIsoTimestamp(d: Date): string {
                          (input)="setOpacity('piezo', +$any($event.target).value)" />
                 }
               </div>
-              <div class="layer-row layer-soon">
-                <label class="layer-toggle dim">
-                  <input type="checkbox" disabled />
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showEfas()">
+                  <input type="checkbox" [checked]="showEfas()" (change)="showEfas.set($any($event.target).checked)" />
                   <span class="toggle-glyph"><span class="glyph-icon">⚠</span></span>
                   <span class="toggle-text">
-                    <span class="toggle-name">Prévisions crues <span class="soon-tag">à venir</span></span>
+                    <span class="toggle-name">Prévisions crues</span>
                     <span class="toggle-count">EFAS Copernicus 10j</span>
                   </span>
                 </label>
@@ -747,24 +747,31 @@ function toIsoTimestamp(d: Date): string {
             </button>
             @if (catalogSections().sources) {
             <div class="catalog-section-body">
-              <!-- Placeholders V2 — fonds de carte + données statiques -->
-              <div class="layer-row layer-soon">
-                <label class="layer-toggle dim">
-                  <input type="checkbox" disabled />
+              <!-- Fond de carte : switcher 5 styles -->
+              <div class="layer-row">
+                <label class="layer-toggle">
                   <span class="toggle-glyph"><span class="glyph-icon">🗺</span></span>
                   <span class="toggle-text">
-                    <span class="toggle-name">Fonds de carte <span class="soon-tag">à venir</span></span>
-                    <span class="toggle-count">switcher dark / light / sat</span>
+                    <span class="toggle-name">Fond de carte</span>
+                    <span class="toggle-count">{{ basemapLabel() }}</span>
                   </span>
+                  <select class="palette-select" [value]="basemap()" (change)="setBasemap($any($event.target).value)" (click)="$event.stopPropagation()">
+                    <option value="dark">Sombre</option>
+                    <option value="voyager">Voyager</option>
+                    <option value="light">Clair</option>
+                    <option value="satellite">Satellite</option>
+                    <option value="osm">OpenStreetMap</option>
+                  </select>
                 </label>
               </div>
-              <div class="layer-row layer-soon">
-                <label class="layer-toggle dim">
-                  <input type="checkbox" disabled />
+              <!-- Bathymétrie EMODnet WMS -->
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showBathy()">
+                  <input type="checkbox" [checked]="showBathy()" (change)="showBathy.set($any($event.target).checked)" />
                   <span class="toggle-glyph"><span class="glyph-icon">≋</span></span>
                   <span class="toggle-text">
-                    <span class="toggle-name">Bathymétrie <span class="soon-tag">à venir</span></span>
-                    <span class="toggle-count">EMODnet 1/8 arc-min</span>
+                    <span class="toggle-name">Bathymétrie</span>
+                    <span class="toggle-count">EMODnet mean atlas</span>
                   </span>
                 </label>
               </div>
@@ -2173,6 +2180,21 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // ─── V2 Observation #3 (2026-05-12) — Feux NASA FIRMS ──────────────
   readonly showFirms = signal(false);
   readonly firmsStatus = signal('feux MODIS 24h (FIRMS)');
+  // ─── V2 Sources #1 — Basemap switcher ───────────────────────────
+  readonly basemap = signal<'dark' | 'voyager' | 'light' | 'satellite' | 'osm'>(this.loadBasemap());
+  readonly basemapLabel = computed(() => {
+    switch (this.basemap()) {
+      case 'voyager':   return 'Voyager (clair)';
+      case 'light':     return 'Clair';
+      case 'satellite': return 'Satellite (ESRI)';
+      case 'osm':       return 'OpenStreetMap';
+      default:          return 'Sombre (CARTO)';
+    }
+  });
+  // ─── V2 Sources #2 — Bathymétrie EMODnet WMS ────────────────────
+  readonly showBathy = signal(false);
+  // ─── V2 Hydrologie #3 — Prévisions crues EFAS Copernicus ────────
+  readonly showEfas = signal(false);
 
   // ─── Sprint Layer UX V2 — Phase A : opacity per layer + persist ──────
   //
@@ -2194,6 +2216,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     windArrows: false, waveArrows: false,
     lightning: false, alerts: false,
     windParticles: false, buoys: false, metar: false, hubeau: false, quakes: false, piezo: false, firms: false,
+    bathy: false, efas: false,
   };
   private readonly DEFAULT_OPACITIES = { ...this.layerOpacities() };
 
@@ -2285,10 +2308,63 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       return { active: flags.filter(Boolean).length, total: flags.length };
     }
     if (key === 'hydrology') {
-      const flags = [this.showHubeau(), this.showPiezo()];
+      const flags = [this.showHubeau(), this.showPiezo(), this.showEfas()];
       return { active: flags.filter(Boolean).length, total: flags.length };
     }
+    if (key === 'sources') {
+      // Le basemap est tjs "actif" (toujours un fond), donc on compte 1 fixe
+      // + les WMS sources optionnels.
+      const flags = [this.showBathy()];
+      return { active: 1 + flags.filter(Boolean).length, total: 1 + flags.length };
+    }
     return { active: 0, total: 0 };
+  }
+
+  /** Persist + reload basemap config. Stored separately from layer prefs. */
+  private loadBasemap(): 'dark' | 'voyager' | 'light' | 'satellite' | 'osm' {
+    try {
+      const v = localStorage.getItem('maritime.basemap');
+      if (v && ['dark', 'voyager', 'light', 'satellite', 'osm'].includes(v)) {
+        return v as 'dark' | 'voyager' | 'light' | 'satellite' | 'osm';
+      }
+    } catch {}
+    return 'dark';
+  }
+
+  setBasemap(key: 'dark' | 'voyager' | 'light' | 'satellite' | 'osm'): void {
+    this.basemap.set(key);
+    try { localStorage.setItem('maritime.basemap', key); } catch {}
+    this.applyBasemap();
+  }
+
+  /** Reconstruit les sources XYZ de baseTile + labelsTile selon basemap(). */
+  private applyBasemap(): void {
+    if (!this.baseTile) return;
+    const key = this.basemap();
+    const ATTRIB_CARTO = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, © <a href="https://carto.com/attributions">CARTO</a>';
+    const ATTRIB_ESRI = 'Tiles © <a href="https://www.esri.com/">Esri</a>, Maxar, GeoEye, Earthstar Geographics';
+    const ATTRIB_OSM = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+    const cfg: Record<typeof key, { url: string; attr: string; labelStyle?: string }> = {
+      dark:      { url: '/carto-tiles/dark_nolabels/{z}/{x}/{y}.png',     attr: ATTRIB_CARTO, labelStyle: 'dark_only_labels' },
+      voyager:   { url: '/carto-tiles/voyager_nolabels/{z}/{x}/{y}.png',  attr: ATTRIB_CARTO, labelStyle: 'voyager_only_labels' },
+      light:     { url: '/carto-tiles/light_nolabels/{z}/{x}/{y}.png',    attr: ATTRIB_CARTO, labelStyle: 'light_only_labels' },
+      satellite: { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr: ATTRIB_ESRI },
+      osm:       { url: 'https://{a-c}.tile.openstreetmap.org/{z}/{x}/{y}.png', attr: ATTRIB_OSM },
+    };
+    const c = cfg[key];
+    this.baseTile.setSource(new XYZ({ url: c.url, attributions: c.attr, maxZoom: 19 }));
+    if (this.labelsTile) {
+      if (c.labelStyle) {
+        this.labelsTile.setSource(new XYZ({
+          url: `/carto-tiles/${c.labelStyle}/{z}/{x}/{y}.png`,
+          attributions: '', maxZoom: 19,
+        }));
+        this.labelsTile.setVisible(true);
+      } else {
+        // Satellite / OSM ont déjà leurs labels embedded
+        this.labelsTile.setVisible(false);
+      }
+    }
   }
 
   /** Reset all layer prefs to app defaults (visibility + opacity + clear
@@ -2311,6 +2387,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.showQuakes.set(this.DEFAULT_VISIBILITY['quakes']);
     this.showPiezo.set(this.DEFAULT_VISIBILITY['piezo']);
     this.showFirms.set(this.DEFAULT_VISIBILITY['firms']);
+    this.showBathy.set(this.DEFAULT_VISIBILITY['bathy']);
+    this.showEfas.set(this.DEFAULT_VISIBILITY['efas']);
     this.layerOpacities.set({ ...this.DEFAULT_OPACITIES });
     this.applyAllLayerOpacities();
     this.applyLayerVisibility();
@@ -2339,6 +2417,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       quakes: this.showQuakes(),
       piezo: this.showPiezo(),
       firms: this.showFirms(),
+      bathy: this.showBathy(),
+      efas: this.showEfas(),
     };
     const opacity = this.layerOpacities();
     try {
@@ -2411,6 +2491,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       quakes: (v) => this.showQuakes.set(v),
       piezo: (v) => this.showPiezo.set(v),
       firms: (v) => this.showFirms.set(v),
+      bathy: (v) => this.showBathy.set(v),
+      efas: (v) => this.showEfas.set(v),
     };
     return map[key] ?? null;
   }
@@ -2439,6 +2521,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       if (typeof vis.quakes === 'boolean') this.showQuakes.set(vis.quakes);
       if (typeof vis.piezo === 'boolean') this.showPiezo.set(vis.piezo);
       if (typeof vis.firms === 'boolean') this.showFirms.set(vis.firms);
+      if (typeof vis.bathy === 'boolean') this.showBathy.set(vis.bathy);
+      if (typeof vis.efas === 'boolean') this.showEfas.set(vis.efas);
       const op = data?.opacity ?? {};
       this.layerOpacities.update((m) => ({ ...m, ...op }));
     } catch {
@@ -2547,6 +2631,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private firmsSource?: VectorSource;
   private firmsTimer?: ReturnType<typeof setInterval>;
   readonly selectedFirms = signal<FirmsProperties | null>(null);
+  // ─── V2 Sources / Hydro — Basemap + Bathy + EFAS (WMS direct) ───
+  private baseTile?: TileLayer<XYZ>;
+  private labelsTile?: TileLayer<XYZ>;
+  private bathyLayer?: TileLayer<TileWMS>;
+  private efasLayer?: TileLayer<TileWMS>;
   private buoysRefTimer?: ReturnType<typeof setInterval>;
   private buoysObsTimer?: ReturnType<typeof setInterval>;
   private buoysRefSub?: Subscription;
@@ -2576,6 +2665,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.showWindArrows(); this.showWaveArrows();
       this.showLightning(); this.showAlerts(); this.showWindParticles();
       this.showBuoys(); this.showMetar(); this.showHubeau(); this.showQuakes(); this.showPiezo(); this.showFirms();
+      this.showBathy(); this.showEfas();
       // Defer pour s'exécuter après ngAfterViewInit (this.*Layer dispo)
       queueMicrotask(() => {
         this.applyLayerVisibility();
@@ -2692,6 +2782,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   ngAfterViewInit(): void {
     this.initMap();
     this.initParticlesEngine();
+    // V2 Sources : applique le basemap stocké (sinon baseTile reste sur 'dark'
+    // par défaut). Doit être appelé APRÈS initMap (this.baseTile existe alors).
+    this.applyBasemap();
     // Phase A : restore layer prefs (visibility + opacity) depuis localStorage
     // AVANT applyLayerVisibility pour éviter un flash defaults → restored.
     this.restoreLayerPrefs();
@@ -2885,6 +2978,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       if (wanted) this.startFirmsLoop();
       else this.stopFirmsLoop();
     }
+    // V2 Sources : Bathy + EFAS WMS — pas de mode live nécessaire
+    // (raster server-side, le toggle suffit).
+    if (this.bathyLayer) this.bathyLayer.setVisible(this.showBathy());
+    if (this.efasLayer)  this.efasLayer.setVisible(this.showEfas());
     // Wind particles : engine est démarré au boot, on contrôle juste la
     // visibilité du canvas + la grille. Quand OFF, on stop le rAF pour
     // économiser CPU.
@@ -3951,15 +4048,17 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // cartocdn.com — réduit le traffic + cache local 30j + résilience
     // si CARTO down. Note : pas de `{a-d}` sharding side OL puisque le
     // cache est unifié côté serveur.
-    const baseTile = new TileLayer({
+    // V2 Sources #1 : baseTile + labelsTile stockés en fields pour permettre
+    // le switch dynamique (signal `basemap`). Sources initialisées dans
+    // applyBasemap() ci-dessous selon la valeur restaurée du localStorage.
+    this.baseTile = new TileLayer({
       source: new XYZ({
         url: '/carto-tiles/dark_nolabels/{z}/{x}/{y}.png',
         attributions: '© OpenStreetMap, © CARTO',
         maxZoom: 19,
       }),
     });
-
-    const labelsTile = new TileLayer({
+    this.labelsTile = new TileLayer({
       source: new XYZ({
         url: '/carto-tiles/dark_only_labels/{z}/{x}/{y}.png',
         attributions: '',
@@ -3967,6 +4066,39 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       }),
       zIndex: 50,
     });
+    // V2 Sources #2 : Bathymétrie EMODnet WMS (TileLayer raster).
+    // mean_atlas_land = bathymétrie nuancée bleu (lecture facile).
+    // zIndex 4 = juste au-dessus du baseTile, sous les rasters thématiques.
+    this.bathyLayer = new TileLayer({
+      source: new TileWMS({
+        url: 'https://ows.emodnet-bathymetry.eu/wms',
+        params: { LAYERS: 'mean_atlas_land', TILED: true, TRANSPARENT: true, FORMAT: 'image/png' },
+        attributions: '© <a href="https://emodnet.ec.europa.eu/en/bathymetry">EMODnet Bathymetry</a>',
+        crossOrigin: 'anonymous',
+      }),
+      zIndex: 4,
+      visible: false,
+      opacity: 0.7,
+    });
+    // V2 Hydrologie #3 : EFAS forecast crues Copernicus WMS.
+    // Layer `efas_forecast_flood_probability` = probabilité dépassement
+    // seuil de crue sur 10 jours forecast. zIndex 95 = au-dessus du wind
+    // mais sous les vector layers (vessels, alerts...).
+    this.efasLayer = new TileLayer({
+      source: new TileWMS({
+        url: 'https://gisco-services.ec.europa.eu/maps/wms/efas',
+        params: { LAYERS: 'efas_forecast_flood_probability', TILED: true, TRANSPARENT: true, FORMAT: 'image/png' },
+        attributions: '© <a href="https://www.efas.eu/">EFAS — Copernicus Emergency Management Service</a>',
+        crossOrigin: 'anonymous',
+      }),
+      zIndex: 95,
+      visible: false,
+      opacity: 0.7,
+    });
+    // Alias locaux pour le map.layers ci-dessous (le code existant utilise
+    // baseTile/labelsTile en variable locale).
+    const baseTile = this.baseTile;
+    const labelsTile = this.labelsTile;
 
     // SST raster layer — WMS time-enabled depuis GeoServer ImageMosaic.
     // Le param TIME est mis à jour par refreshForTime() à chaque change
@@ -4209,10 +4341,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       target: this.mapEl().nativeElement,
       layers: [
         baseTile,
+        this.bathyLayer,
         this.sstLayer,
         this.windLayer,
         this.wavesLayer,
         this.rainLayer,
+        this.efasLayer,
         labelsTile,
         this.waveArrowsLayer,
         this.windArrowsLayer,
