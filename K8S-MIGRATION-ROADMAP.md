@@ -194,14 +194,37 @@ Les 8 services maritime qui n'ont pas d'état persistant local :
 
 ### Sprint 4 — Maritime stateful (PG + Rabbit) (1 weekend)
 
-- [ ] **CloudNativePG operator** + cluster PG 1-instance (préprod) /
-      3-instances avec replica streaming (prod)
-- [ ] Migration data PG : `pg_dump` NAS → import dans le cluster CNPG
-- [ ] Hypertables Timescale : activer extension dans le manifest CNPG
-- [ ] Backups S3 Scaleway (pgBackRest natif CNPG, WAL streaming)
+**Pattern dual-DB** : 2 clusters Postgres distincts pour isoler les workloads
+incompatibles (leçon de l'incident 2026-05-13 où l'INSERT massif sur
+`vessels` saturait le WAL et empêchait GeoServer de lire 175 rows de
+catalog).
+
+| Cluster CNPG | Usage | Taille | Replicas | Storage class |
+|---|---|---|---|---|
+| `pg-catalog` | GeoServer JDBCConfig + sessions Tomcat | ~10 MB | 1 (single-instance suffit) | sbs-default (SSD) |
+| `pg-data` | Hypertables Timescale (vessels, positions, lightning, earthquakes, hubeau, observations…) | 5-20 GB | 3 streaming replication | sbs-5k (NVMe IOPS premium) |
+
+Chaque cluster a son propre WAL, ses propres backups, son propre scaling.
+L'INSERT massif sur `pg-data` ne touche plus jamais `pg-catalog` → boot
+GeoServer immuable même sous charge.
+
+- [ ] **CloudNativePG operator** déployé via Helm
+- [ ] Cluster `pg-catalog` : 1 instance, 1 GB PVC, dans namespace `prod`/`preprod`
+- [ ] Cluster `pg-data` : 3 instances (prod) / 1 (preprod) avec streaming
+      replication, 30 GB PVC NVMe, extension Timescale activée
+- [ ] Code maritime : 2 vars d'env distinctes `DATABASE_CATALOG_URL` (GeoServer
+      JDBCConfig) + `DATABASE_DATA_URL` (tous les services métier api/decoder/etc.)
+- [ ] Migration data PG actuel → 2 cibles :
+      - Tables `geoserver.*` (175 rows) → `pg-catalog`
+      - Schéma `public.*` (hypertables) → `pg-data` via `timescaledb-backup`
+        ou `pg_dump --schema=public` + `restore_timescaledb_data`
+- [ ] Backups S3 Scaleway via pgBackRest (CNPG natif), WAL streaming continu
 - [ ] **RabbitMQ Cluster Operator** + cluster 3-quorum (prod), 1-instance (preprod)
 - [ ] Restore des bindings/exchanges via `RabbitmqResource` manifests ou
       DefinitionsImport ConfigMap
+- [ ] **Side bonus restore granulaire** : si `pg-data` corrompue un jour, on
+      garde toute la config GeoServer (workspaces, layers, styles SLD) intacte
+      dans `pg-catalog` — pas de reconfig à refaire from scratch
 
 **Note** : c'est le sprint le plus risqué. Faire un dry-run préprod complet
 avant de toucher la prod.
