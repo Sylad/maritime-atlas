@@ -5,6 +5,7 @@ import { JobsController } from './jobs.controller';
 import { PublicOrchestratorController } from './public-orchestrator.controller';
 import { OrchestratorStreamController } from './orchestrator-stream.controller';
 import { OrchestratorRunnerService } from './orchestrator-runner.service';
+import { QueueAutoscalerService } from './queue-autoscaler.service';
 
 /**
  * Data Orchestrator Sprints N1 + N2 (2026-05-12).
@@ -29,7 +30,7 @@ import { OrchestratorRunnerService } from './orchestrator-runner.service';
 @Module({
   imports: [ScheduleModule],
   controllers: [SourcesController, JobsController, PublicOrchestratorController, OrchestratorStreamController],
-  providers: [OrchestratorRunnerService],
+  providers: [OrchestratorRunnerService, QueueAutoscalerService],
   exports: [OrchestratorRunnerService],
 })
 export class OrchestratorModule {}

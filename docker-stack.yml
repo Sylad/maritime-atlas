@@ -510,6 +510,17 @@ services:
       # ingesters cron. Doit matcher ORCHESTRATOR_JOB_TOKEN dans chaque
       # ingester. Default dev-only — override via .env.
       ORCHESTRATOR_JOB_TOKEN: ${ORCHESTRATOR_JOB_TOKEN:-dev-orchestrator-token-change-me}
+    volumes:
+      # QueueAutoscalerService a besoin du Docker socket pour scaler les
+      # services Swarm (ais-decoder etc.) selon la queue depth RabbitMQ.
+      # Le service api doit donc tourner sur un node manager (constraint
+      # plus bas). Mount RO suffit côté API mais Docker socket exige RW.
+      - /var/run/docker.sock:/var/run/docker.sock
+    deploy:
+      placement:
+        constraints:
+          # QueueAutoscaler ne peut scaler que depuis un manager node.
+          - node.role == manager
     depends_on:
       - postgres
       - geoserver
