@@ -7,6 +7,14 @@
       <sld:Title>Wind speed rainbow + isolignes (intervalle env var)</sld:Title>
       <sld:FeatureTypeStyle>
         <sld:Name>raster</sld:Name>
+        <sld:Transformation>
+          <ogc:Function name="idw:IDW">
+            <ogc:Function name="parameter"><ogc:Literal>data</ogc:Literal></ogc:Function>
+            <ogc:Function name="parameter">
+              <ogc:Literal>factor</ogc:Literal><ogc:Literal>4</ogc:Literal>
+            </ogc:Function>
+          </ogc:Function>
+        </sld:Transformation>
         <sld:Rule>
           <sld:RasterSymbolizer>
             <sld:ColorMap>
@@ -27,15 +35,10 @@
       <sld:FeatureTypeStyle>
         <sld:Name>contours</sld:Name>
         <sld:Transformation>
-          <ogc:Function name="ras:Contour">
+          <ogc:Function name="idw:IDWContour">
             <ogc:Function name="parameter"><ogc:Literal>data</ogc:Literal></ogc:Function>
-            <ogc:Function name="parameter">
-              <ogc:Literal>interval</ogc:Literal>
-              <ogc:Function name="env">
-                <ogc:Literal>contourInterval</ogc:Literal>
-                <ogc:Literal>5.0</ogc:Literal>
-              </ogc:Function>
-            </ogc:Function>
+            <ogc:Function name="parameter"><ogc:Literal>factor</ogc:Literal><ogc:Literal>4</ogc:Literal></ogc:Function>
+            <ogc:Function name="parameter"><ogc:Literal>interval</ogc:Literal><ogc:Literal>5.0</ogc:Literal></ogc:Function>
             <ogc:Function name="parameter"><ogc:Literal>simplify</ogc:Literal><ogc:Literal>true</ogc:Literal></ogc:Function>
             <ogc:Function name="parameter"><ogc:Literal>smooth</ogc:Literal><ogc:Literal>true</ogc:Literal></ogc:Function>
           </ogc:Function>

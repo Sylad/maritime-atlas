@@ -6,9 +6,18 @@
       <sld:Name>sst-with-contours</sld:Name>
       <sld:Title>SST rainbow + isolignes (intervalle env var)</sld:Title>
 
-      <!-- Pass 1 : raster coloré avec ColorMap (identique sst-rainbow). -->
+      <!-- Pass 1 : raster coloré densifié IDW factor=4 (rendu lisse).
+           Données source intactes côté GetFeatureInfo/WCS. -->
       <sld:FeatureTypeStyle>
         <sld:Name>raster</sld:Name>
+        <sld:Transformation>
+          <ogc:Function name="idw:IDW">
+            <ogc:Function name="parameter"><ogc:Literal>data</ogc:Literal></ogc:Function>
+            <ogc:Function name="parameter">
+              <ogc:Literal>factor</ogc:Literal><ogc:Literal>4</ogc:Literal>
+            </ogc:Function>
+          </ogc:Function>
+        </sld:Transformation>
         <sld:Rule>
           <sld:RasterSymbolizer>
             <sld:ColorMap>
@@ -30,30 +39,25 @@
         </sld:Rule>
       </sld:FeatureTypeStyle>
 
-      <!-- Pass 2 : isolignes via ras:Contour rendering transformation.
-           Intervalle pris depuis env var `contourInterval` (default 2°C).
-           Le client WMS peut override via ?env=contourInterval:0.5 -->
+      <!-- Pass 2 : isolignes via idw:IDWContour (IDW densify + Contour combinés
+           dans UN seul process pour contourner le bug GeoTools post-2.26.2 qui
+           empêche le chaining SLD natif ras:Contour(idw:IDW(...)). -->
       <sld:FeatureTypeStyle>
         <sld:Name>contours</sld:Name>
         <sld:Transformation>
-          <ogc:Function name="ras:Contour">
+          <ogc:Function name="idw:IDWContour">
+            <ogc:Function name="parameter"><ogc:Literal>data</ogc:Literal></ogc:Function>
             <ogc:Function name="parameter">
-              <ogc:Literal>data</ogc:Literal>
+              <ogc:Literal>factor</ogc:Literal><ogc:Literal>4</ogc:Literal>
             </ogc:Function>
             <ogc:Function name="parameter">
-              <ogc:Literal>interval</ogc:Literal>
-              <ogc:Function name="env">
-                <ogc:Literal>contourInterval</ogc:Literal>
-                <ogc:Literal>2.0</ogc:Literal>
-              </ogc:Function>
+              <ogc:Literal>interval</ogc:Literal><ogc:Literal>2.0</ogc:Literal>
             </ogc:Function>
             <ogc:Function name="parameter">
-              <ogc:Literal>simplify</ogc:Literal>
-              <ogc:Literal>true</ogc:Literal>
+              <ogc:Literal>simplify</ogc:Literal><ogc:Literal>true</ogc:Literal>
             </ogc:Function>
             <ogc:Function name="parameter">
-              <ogc:Literal>smooth</ogc:Literal>
-              <ogc:Literal>true</ogc:Literal>
+              <ogc:Literal>smooth</ogc:Literal><ogc:Literal>true</ogc:Literal>
             </ogc:Function>
           </ogc:Function>
         </sld:Transformation>

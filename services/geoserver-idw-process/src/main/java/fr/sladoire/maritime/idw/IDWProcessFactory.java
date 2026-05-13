@@ -19,6 +19,8 @@ import org.geotools.text.Text;
 public class IDWProcessFactory extends AnnotatedBeanProcessFactory {
 
     public IDWProcessFactory() {
-        super(Text.text("Maritime IDW processes"), "idw", IDWProcess.class);
+        super(Text.text("Maritime IDW processes"), "idw",
+              IDWProcess.class,
+              IDWContourProcess.class);
     }
 }
