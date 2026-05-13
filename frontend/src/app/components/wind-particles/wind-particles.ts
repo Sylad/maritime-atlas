@@ -265,10 +265,21 @@ export class WindParticleEngine {
       // blanchâtre. Tail (frames anciens) = alpha 0.05 ; head (frame
       // courant) = alpha 1.0. On rend segment par segment pour faire
       // varier alpha le long du polyline.
+      //
+      // V2.3 (2026-05-13) : ajout fade-in (naissance) + fade-out (mort)
+      // sur les FADE_FRAMES premières/dernières frames de vie pour éviter
+      // l'apparition/disparition brutale lors du respawn. Le facteur
+      // lifeFade multiplie l'alpha gradient déjà calculé.
+      const FADE_FRAMES = 20;
+      const ageFromBirth = p.maxTtl - p.ttl;
+      const fadeInFactor = Math.min(1, ageFromBirth / FADE_FRAMES);
+      const fadeOutFactor = Math.min(1, p.ttl / FADE_FRAMES);
+      const lifeFade = Math.min(fadeInFactor, fadeOutFactor);
+
       const baseColor = this.colorForSpeed(wind.speed);
       for (let i = 1; i < pts.length; i++) {
         const t = i / (pts.length - 1);  // 0 (tail) → 1 (head)
-        ctx.globalAlpha = t;              // gradient transparence
+        ctx.globalAlpha = t * lifeFade;   // gradient trail × fade vie
         ctx.strokeStyle = baseColor;
         ctx.beginPath();
         ctx.moveTo(pts[i - 1][0], pts[i - 1][1]);
