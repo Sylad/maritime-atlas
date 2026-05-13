@@ -147,37 +147,72 @@ export class AisDecoderService implements OnModuleInit, OnModuleDestroy {
    * Flush batch positions : 1 transaction avec multi-row INSERT vessel_positions
    * + multi-row UPSERT vessels. Postgres optimise les batches au-dessus de
    * ~10 lignes (1 lock acquire, 1 WAL flush, 1 commit).
+   *
+   * V2.1 (2026-05-13) — fix 2 régressions V2 :
+   *  1. "ON CONFLICT DO UPDATE command cannot affect row a second time" :
+   *     PG refuse 2 lignes avec le même PK dans le même UPSERT. Dedupe par
+   *     mmsi avant INSERT INTO vessels (garde l'entry la plus fraîche).
+   *  2. "deadlock detected" : 3 decoders parallèles qui UPSERTent les mêmes
+   *     mmsi dans des ordres différents → deadlock. Fix = trier par PK
+   *     avant INSERT pour que tous les decoders acquièrent les locks dans
+   *     le même ordre.
+   *  3. Pas d'ON CONFLICT sur vessel_positions : l'hypertable n'a ni PK ni
+   *     unique sur (ts, mmsi). Les doublons RMQ-redelivery sont bénins
+   *     (les queries "last_position" filtrent par MAX(ts) côté API).
    */
   private async flushPositions(): Promise<void> {
     if (this.positionBuffer.length === 0) return;
-    const batch = this.positionBuffer.splice(0);
+    const raw = this.positionBuffer.splice(0);
+
+    // Dedupe vessel_positions par (ts, mmsi) — last wins
+    const posMap = new Map<string, BufferedPosition>();
+    for (const p of raw) {
+      posMap.set(`${p.ts.getTime()}_${p.mmsi}`, p);
+    }
+    // Dedupe vessels par mmsi — keep the freshest by ts
+    const vesMap = new Map<number, BufferedPosition>();
+    for (const p of raw) {
+      const existing = vesMap.get(p.mmsi);
+      if (!existing || p.ts.getTime() > existing.ts.getTime()) {
+        vesMap.set(p.mmsi, p);
+      }
+    }
+    // Tri par PK : indispensable pour éviter cross-deadlock entre decoders
+    const posBatch = [...posMap.values()].sort((a, b) => {
+      const dt = a.ts.getTime() - b.ts.getTime();
+      return dt !== 0 ? dt : a.mmsi - b.mmsi;
+    });
+    const vesBatch = [...vesMap.values()].sort((a, b) => a.mmsi - b.mmsi);
+
     const client = await this.pg.pool.connect();
     try {
       await client.query('BEGIN');
 
-      // vessel_positions : multi-row INSERT
+      // vessel_positions : multi-row INSERT (append-only, pas de conflict possible)
       const posPlaceholders: string[] = [];
       const posValues: unknown[] = [];
       let i = 1;
-      for (const p of batch) {
+      for (const p of posBatch) {
         posPlaceholders.push(
           `($${i}, $${i + 1}, ST_SetSRID(ST_MakePoint($${i + 2}, $${i + 3}), 4326)::geography, $${i + 4}, $${i + 5}, $${i + 6}, $${i + 7})`,
         );
         posValues.push(p.ts, p.mmsi, p.lon, p.lat, p.sog, p.cog, p.heading, p.navStatus);
         i += 8;
       }
+      // Pas d'ON CONFLICT : l'hypertable vessel_positions n'a ni PK ni unique
+      // sur (ts, mmsi) — c'est l'usage Timescale "append-only event stream".
+      // Les doublons éventuels (RMQ redelivery) sont tolérés et bénins :
+      // les queries "last_position" filtrent par MAX(ts) côté API.
       await client.query(
         `INSERT INTO vessel_positions (ts, mmsi, geom, sog, cog, heading, nav_status) VALUES ${posPlaceholders.join(', ')}`,
         posValues,
       );
 
-      // vessels : multi-row UPSERT. Postgres applique les ON CONFLICT
-      // dans l'ordre du batch — si plusieurs entries pour le même MMSI
-      // dans le batch, le dernier "wins" pour last_seen / last_position.
+      // vessels : multi-row UPSERT — 1 row par mmsi grâce au dedupe.
       const vesPlaceholders: string[] = [];
       const vesValues: unknown[] = [];
       i = 1;
-      for (const p of batch) {
+      for (const p of vesBatch) {
         vesPlaceholders.push(
           `($${i}, $${i + 1}, $${i + 2}, ST_SetSRID(ST_MakePoint($${i + 3}, $${i + 4}), 4326)::geography)`,
         );
@@ -197,12 +232,12 @@ export class AisDecoderService implements OnModuleInit, OnModuleDestroy {
       );
 
       await client.query('COMMIT');
-      this.positionCount += batch.length;
+      this.positionCount += raw.length;
     } catch (err) {
       try { await client.query('ROLLBACK'); } catch {}
       // Re-buffer les messages pour retry (priorité haute) — sinon perte définitive.
-      this.positionBuffer.unshift(...batch);
-      this.logger.warn(`flushPositions failed (batch=${batch.length}, will retry): ${(err as Error).message}`);
+      this.positionBuffer.unshift(...raw);
+      this.logger.warn(`flushPositions failed (batch=${raw.length}, will retry): ${(err as Error).message}`);
     } finally {
       client.release();
     }
@@ -211,10 +246,39 @@ export class AisDecoderService implements OnModuleInit, OnModuleDestroy {
   /**
    * Flush batch static data. Multi-row INSERT...ON CONFLICT avec COALESCE
    * sur chaque colonne (préserve les valeurs existantes si new = null).
+   *
+   * V2.1 (2026-05-13) — dedupe par mmsi + tri par mmsi pour éviter le
+   * "ON CONFLICT cannot affect row a second time" et le deadlock cross-decoder.
+   * Pour les doublons : on garde l'entry la plus fraîche (ts max), et on
+   * fusionne les champs non-null par OR si plusieurs entries différentes.
    */
   private async flushStatic(): Promise<void> {
     if (this.staticBuffer.length === 0) return;
-    const batch = this.staticBuffer.splice(0);
+    const raw = this.staticBuffer.splice(0);
+
+    // Dedupe par mmsi — fusion : last ts wins pour last_seen/ts, COALESCE pour les champs nullable
+    const merged = new Map<number, BufferedStatic>();
+    for (const s of raw) {
+      const existing = merged.get(s.mmsi);
+      if (!existing) {
+        merged.set(s.mmsi, { ...s });
+      } else {
+        merged.set(s.mmsi, {
+          mmsi: s.mmsi,
+          name: existing.name ?? s.name,
+          callsign: existing.callsign ?? s.callsign,
+          shipType: existing.shipType ?? s.shipType,
+          lengthM: existing.lengthM || s.lengthM,
+          widthM: existing.widthM || s.widthM,
+          draughtM: existing.draughtM ?? s.draughtM,
+          destination: existing.destination ?? s.destination,
+          eta: existing.eta ?? s.eta,
+          ts: s.ts.getTime() > existing.ts.getTime() ? s.ts : existing.ts,
+        });
+      }
+    }
+    const batch = [...merged.values()].sort((a, b) => a.mmsi - b.mmsi);
+
     const client = await this.pg.pool.connect();
     try {
       const placeholders: string[] = [];
@@ -245,10 +309,10 @@ export class AisDecoderService implements OnModuleInit, OnModuleDestroy {
            last_seen = GREATEST(EXCLUDED.last_seen, vessels.last_seen)`,
         values,
       );
-      this.staticCount += batch.length;
+      this.staticCount += raw.length;
     } catch (err) {
-      this.staticBuffer.unshift(...batch);
-      this.logger.warn(`flushStatic failed (batch=${batch.length}, will retry): ${(err as Error).message}`);
+      this.staticBuffer.unshift(...raw);
+      this.logger.warn(`flushStatic failed (batch=${raw.length}, will retry): ${(err as Error).message}`);
     } finally {
       client.release();
     }
