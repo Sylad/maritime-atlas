@@ -59,7 +59,11 @@ export class QueueAutoscalerService implements OnModuleInit {
       scaleUpThreshold: 1000,
       scaleDownThreshold: 100,
       minReplicas: 1,
-      maxReplicas: 5,
+      // V2 (2026-05-13) : 5→3. Avec batch INSERT côté decoder + prefetch 200,
+      // chaque decoder ≈ 5× le throughput single-row. 3 decoders cumulent
+      // ~600+/s sans contention DB (vs 5 decoders single-row à 40/s cumulé).
+      // Moins de replicas = moins de pool conns Postgres consommées.
+      maxReplicas: 3,
     },
   ];
 

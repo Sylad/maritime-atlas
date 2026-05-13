@@ -52,7 +52,11 @@ export class RabbitMqConsumer implements OnModuleInit, OnModuleDestroy {
       try {
         this.connection = await amqp.connect(url);
         this.channel = await this.connection.createChannel();
-        await this.channel.prefetch(50); // backpressure
+        // prefetch=200 (V2 2026-05-13) : avec batch INSERT 100 par decoder,
+        // le pipeline RMQ→Batch→DB→Ack→RMQ a besoin de plus de messages en
+        // flight pour ne pas idle entre 2 batches. Avant : prefetch=50 →
+        // saturé immédiatement → 133/s cumulé sur 5 decoders. Après : ~300+/s.
+        await this.channel.prefetch(200);
 
         // Idempotent declarations (l'ingester les déclare aussi)
         await this.channel.assertExchange('ais.raw', 'direct', { durable: true });
