@@ -33,11 +33,12 @@ interface Particle {
   prevLat: number;
   ttl: number;       // frames remaining
   maxTtl: number;
-  /** Historique des N dernières positions (lon, lat) pour dessiner une
-   *  traînée polyline propre, sans cumul de fade qui parasite la couleur.
-   *  Permet de remplacer le `destination-in fadeAlpha` (qui produisait
-   *  des trails pâles "blanchâtres" sur fond sombre). */
-  history: Array<[number, number]>;
+  /** Historique des N dernières positions (lon, lat, speed) pour dessiner
+   *  une traînée polyline propre. La 3ème composante `speed` permet de
+   *  colorer CHAQUE segment selon la vitesse qu'avait la particule à ce
+   *  point — sinon toute la trail change brutalement de couleur quand la
+   *  particule traverse une zone de vitesse différente (vu V2.3). */
+  history: Array<[number, number, number]>;
 }
 
 export interface WindParticlesOptions {
@@ -240,20 +241,23 @@ export class WindParticleEngine {
       p.lon += wind.u * this.opts.advectScale;
       p.lat += wind.v * this.opts.advectScale;
       p.ttl--;
-      // Push current position dans history + trim
-      p.history.push([p.lon, p.lat]);
+      // Push current position + speed dans history + trim
+      p.history.push([p.lon, p.lat, wind.speed]);
       if (p.history.length > trailLen) p.history.shift();
 
       if (p.history.length < 2) continue;
 
       // Project all history points + draw polyline. On skip si TOUS les
-      // points sont hors viewport (cull pas-cher).
+      // points sont hors viewport (cull pas-cher). Préserve la speed à
+      // chaque point pour colorer segment par segment.
       const pts: Array<[number, number]> = [];
+      const speeds: number[] = [];
       let allOutside = true;
-      for (const [hLon, hLat] of p.history) {
+      for (const [hLon, hLat, hSpeed] of p.history) {
         const px = this.project(hLon, hLat);
         if (!px) continue;
         pts.push(px);
+        speeds.push(hSpeed);
         if (px[0] >= 0 && px[0] <= w && px[1] >= 0 && px[1] <= h) {
           allOutside = false;
         }
@@ -276,11 +280,14 @@ export class WindParticleEngine {
       const fadeOutFactor = Math.min(1, p.ttl / FADE_FRAMES);
       const lifeFade = Math.min(fadeInFactor, fadeOutFactor);
 
-      const baseColor = this.colorForSpeed(wind.speed);
+      // V2.4 : couleur par segment basée sur la speed à CE point de
+      // l'histoire (pas la speed courante de la particule). Évite le
+      // changement brutal de couleur sur toute la trail quand la particule
+      // traverse une frontière de zone vitesse. Trail = "fossile" coloré.
       for (let i = 1; i < pts.length; i++) {
         const t = i / (pts.length - 1);  // 0 (tail) → 1 (head)
         ctx.globalAlpha = t * lifeFade;   // gradient trail × fade vie
-        ctx.strokeStyle = baseColor;
+        ctx.strokeStyle = this.colorForSpeed(speeds[i]);
         ctx.beginPath();
         ctx.moveTo(pts[i - 1][0], pts[i - 1][1]);
         ctx.lineTo(pts[i][0], pts[i][1]);
