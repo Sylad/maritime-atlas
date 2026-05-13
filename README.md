@@ -5,7 +5,8 @@
 [![Angular 19](https://img.shields.io/badge/Angular-19-DD0031?logo=angular&logoColor=white)](https://angular.dev)
 [![OpenLayers 10](https://img.shields.io/badge/OpenLayers-10-1F6B75?logo=openlayers&logoColor=white)](https://openlayers.org)
 [![NestJS 11](https://img.shields.io/badge/NestJS-11-E0234E?logo=nestjs&logoColor=white)](https://nestjs.com)
-[![GeoServer 2.27](https://img.shields.io/badge/GeoServer-2.27%20cluster-79AF00?logo=geoserver&logoColor=white)](https://geoserver.org)
+[![GeoServer 2.28](https://img.shields.io/badge/GeoServer-2.28%20cluster-79AF00?logo=geoserver&logoColor=white)](https://geoserver.org)
+[![Custom WPS plugin](https://img.shields.io/badge/Custom%20WPS%20plugin-idw%3AIDW%20%2B%20IDWContour-D97757?logo=java&logoColor=white)](services/geoserver-idw-process/)
 [![TimescaleDB](https://img.shields.io/badge/TimescaleDB-PG16-FDB515?logo=timescale&logoColor=white)](https://www.timescale.com)
 [![RabbitMQ](https://img.shields.io/badge/RabbitMQ-3.13-FF6600?logo=rabbitmq&logoColor=white)](https://www.rabbitmq.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -100,7 +101,7 @@ https://github.com/Sylad/maritime-atlas/raw/main/docs/screenshots/07-particles.m
 | `postgres` | timescaledb-ha:pg16 | 15432 | PostGIS + TimescaleDB, hypertable `vessel_positions`, tables users/palettes |
 | `rabbitmq` | rabbitmq:3.13-management | 5672 / 15672 | Glue messaging `ais.raw` → `ais.positions` |
 | `seaweedfs` | chrislusf/seaweedfs:3.97 | 8333 | S3-compatible object store (master+volume+filer+S3 en 1 container). Backend pour GWC tiles + COG rasters (à venir) |
-| `geoserver-1/2/3` | maritime-geoserver:2.28.2-with-gwc-s3 (×3 replicas, custom image) | — | Cluster WMS/WFS/WMTS + GWC-S3 cache. Build local depuis docker.osgeo.org/geoserver:2.28.2 + extraction du gwc-s3-plugin SourceForge |
+| `geoserver-1/2/3` | maritime-geoserver:2.28.3-full (×3 replicas, custom image) | — | Cluster WMS/WFS/WMTS + GWC-S3 cache + JDBCConfig/JDBCStore (catalog Postgres-backed) + WPS + control-flow + plugin custom **`idw:IDW` / `idw:IDWContour`** (Java 17, voir `services/geoserver-idw-process/`). Build local depuis docker.osgeo.org/geoserver:2.28.3 |
 | `geoserver` | nginx:alpine (LB interne) | 8080 | Load balancer ip_hash devant les 3 replicas — alias DNS rétro-compat |
 | `geoserver-provisioner` | alpine/curl (one-shot) | — | Crée workspace + datastore + layers + styles via REST (idempotent) |
 | `ais-ingester` | NestJS 11 | — | WS aisstream.io → publish `ais.raw` (bbox France métropole) |
@@ -120,7 +121,8 @@ https://github.com/Sylad/maritime-atlas/raw/main/docs/screenshots/07-particles.m
 |---|---|
 | Storage | PostgreSQL 16 + PostGIS 3.4 + TimescaleDB (hypertable retention 30j) |
 | Messaging | RabbitMQ 3.13 (`ais.raw` direct, `ais.positions` topic) |
-| Tile/WFS server | GeoServer 2.27 (image mosaic stores time-aware pour rasters) |
+| Tile/WFS server | GeoServer 2.28.3 (cluster 3 replicas + LB nginx + image mosaic time-aware) avec extensions stable WPS / control-flow / gwc-s3 et community JDBCConfig / JDBCStore (catalog Postgres) |
+| WPS custom | Plugin Java 17 `gs-idw-process` (Maven + SPI + Spring) — 2 processes : `idw:IDW` (densification IDW parallel) + `idw:IDWContour` (densify + extraction isolignes combinés, contourne le bug GeoTools post-2.26.2 sur le SLD chaining) |
 | Backend | NestJS 11 + TypeScript 5, Drizzle ORM (api), amqplib (ais), node-cron (track-builder) |
 | Raster pipeline | Python 3 + xarray + rioxarray + cfgrib + gdal natif |
 | Frontend | Angular 19 + OpenLayers 10 + nginx alpine |
@@ -141,6 +143,8 @@ https://github.com/Sylad/maritime-atlas/raw/main/docs/screenshots/07-particles.m
 | **5** | API NestJS + Drizzle + JWT, palettes utilisateur (max 5/user), miroir GeoServer styles |
 | **6** | Flèches vent (GFS) + flèches vagues (WW3) — VectorLayer GeoJSON via volume partagé |
 | **Auth refonte** | Schema users `username` + `email_verified_at` + `role` + cron dormants · Google OAuth (`passport-google-oauth20`) · vérif email Resend SDK · `AdminUsersController` `/admin/users` list/promote/delete · RBAC 2 rôles strict |
+| **Sprint Europe** (2026-05-12, 5 chantiers) | bbox Europe étroite, ARPEGE 0.1° activé, EMODnet 612 plateformes, clustering OpenLayers, compression TimescaleDB 88.7% |
+| **GeoServer V3 IDW** (2026-05-13) | Plugin Java custom `idw:IDW` (densify parallel sur quad-core) + `idw:IDWContour` (combiné, contourne bug GeoTools chaining post-2.26.2) + extensions WPS / control-flow / JDBCConfig · isolignes lisses sur SST / wave-hs / wind-speed · burst test 30 req parallèles validé (P95 6s, zéro 502) |
 
 ## Bbox
 
