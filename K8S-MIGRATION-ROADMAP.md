@@ -13,6 +13,16 @@ crashloop GeoServer/frontend) montre que **le NAS Synology est un SPoF**
 pour la visibilité publique. Pour une recherche d'emploi, on ne peut pas
 se permettre qu'un recruteur clique et tombe sur un 502.
 
+**Diagnostic technique** révélé pendant l'incident : Postgres, GeoServer,
+RabbitMQ, ais-decoder et 10 autres services partagent **le même volume
+Btrfs unique** sur le NAS. Quand l'ais-decoder pompe 430 msg/s avec
+WAL flush concurrent, la file d'attente disque déborde et **les autres
+services en pâtissent en cascade** — GeoServer ne peut pas se connecter
+à Postgres parce que PG est lui-même bloqué sur `LWLock WALWrite`. Sur
+K8s avec CloudNativePG, chaque DB obtient son **PVC SSD dédié** avec son
+propre IOPS budget, et l'isolation namespace + resource limits cappent
+l'I/O d'un service downstream avant qu'il ne sature ses voisins.
+
 K8s plutôt que Swarm parce que :
 
 - 2026 : K8s = lingua franca chez 95% des boîtes (EKS, GKE, AKS, OpenShift,
@@ -266,6 +276,7 @@ Budget annuel : **€560-780/an** = un investissement carrière clair.
 | KEDA mal calibré → over-scale | Coût | maxReplicaCount=5, cooldown 5min |
 | Coût explose (over-provisioning) | Moyen | Resource requests/limits stricts + HPA bornés |
 | NAS pousse trop vite, AMQP throttle | Bas | Rate-limiting publisher + backpressure pattern |
+| Re-création de la même contention I/O cluster | Moyen | PVC dédié par stateful workload + `resources.limits` strictes + storage class SSD (Scaleway Block Storage NVMe), pas un volume Btrfs partagé |
 | Dépendance Scaleway (vendor lock-in) | Moyen | Manifests vanilla K8s, exportables vers OVH/Hetzner |
 | 7 weekends c'est long, perte de momentum | Moyen | Sprint 1 (ol-companion) livre déjà un truc à montrer |
 
