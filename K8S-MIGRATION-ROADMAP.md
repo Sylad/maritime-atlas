@@ -33,44 +33,56 @@ K8s plutôt que Swarm parce que :
 
 ---
 
-## Architecture cible
+## Architecture cible — local-first, cloud en phase 2
+
+Décision 2026-05-13 (post-incident) : **commencer par un cluster k3s local
+sur Big-Blue (poste de dev WSL2)**. Le cluster Scaleway managé devient une
+phase 2 quand tout sera stable en local.
+
+Rationale :
+- **Coût initial = €0**. On valide toute l'archi avant de payer.
+- **Iteration boucle = secondes** (kubectl apply local) vs minutes (cloud).
+- **Workflow vendable** : la combo "k3s local + cloud K8s + GitOps" est
+  exactement ce qu'utilisent les équipes Platform Engineering en boîte.
+- **Hardware** : Big-Blue = i9-14900KF, 31 GiB RAM, ext4 natif WSL2 → bien
+  plus capable que le NAS Synology pour cette charge.
 
 ```
                  ┌────────────────────────────────────────────────┐
                  │          Cloudflare (DNS + CDN + WAF)          │
                  │     ↳ frontends statiques Astro (eywa,         │
                  │       evatosorus) — gratis, déjà en place      │
-                 │     ↳ frontends dynamiques (finance, war, ol,  │
-                 │       maritime) → Cloudflare Pages avec build  │
-                 │       de demo data figées (fallback)           │
+                 │     ↳ phase 2 : frontends dynamiques publiés   │
+                 │       via tunnel (cloudflared) vers cluster    │
                  └────────────────────┬───────────────────────────┘
                                       │
-                              DNS A/AAAA → IP LB cluster
+                  Phase 1 (local) : *.dev.local via /etc/hosts
+                  Phase 2 (cloud) : DNS public → IP LB Scaleway
                                       │
        ┌──────────────────────────────▼──────────────────────────────┐
-       │   Scaleway Kapsule cluster (région fr-par-2 ou pl-waw-1)    │
+       │  Phase 1 — k3s sur Big-Blue WSL2 (preprod/dev en local)     │
        │   ┌────────────────────────────────────────────────────┐   │
-       │   │  namespace: prod                                   │   │
-       │   │   ├─ maritime (api, ais-decoder ×N, geoserver ×N,  │   │
-       │   │   │  weather-fetchers, alerts, frontend nginx)     │   │
-       │   │   ├─ finance / warhammer / ol (NestJS + frontend)  │   │
-       │   │   └─ infrastructure (cnpg, rabbitmq-operator,      │   │
-       │   │      cert-manager, ingress-nginx, keda)            │   │
-       │   ├────────────────────────────────────────────────────┤   │
        │   │  namespace: preprod                                │   │
-       │   │   └─ idem prod mais resource limits ÷3 + 1 replica │   │
+       │   │   ├─ maritime stack (replicas=1, mini-data ~50 MB) │   │
+       │   │   ├─ finance / warhammer / ol                      │   │
+       │   │   └─ infra : cnpg, rmq operator, cert-manager,     │   │
+       │   │      ingress-nginx, keda, argocd, kube-prometheus  │   │
        │   └────────────────────────────────────────────────────┘   │
-       │   Cluster-wide : ArgoCD + Prometheus + Grafana + Loki      │
-       └──────────────────────────────▲──────────────────────────────┘
-                                      │
-                          AIS feed (TLS sortant)
-                                      │
-       ┌──────────────────────────────┴──────────────────────────────┐
-       │       NAS Synology (rôle : edge collector + dev local)      │
-       │   ├─ ais-ingester (radio receiver / aisstream.io client)    │
-       │   ├─ buoy-fetcher, lightning-fetcher (cron data acquisition)│
-       │   ├─ Mini-Blue WSL2 + k3s (dev local — optionnel)           │
-       │   └─ Storage froid : backups PG + snapshots                 │
+       │  Cluster sur ext4 natif WSL2 ; archives sur /mnt/e          │
+       └─────────────────────────────────────────────────────────────┘
+
+       ┌─────────────────────────────────────────────────────────────┐
+       │  Phase 2 — Scaleway Kapsule (prod publique, plus tard)      │
+       │   namespace: prod (replicas≥1, live data, exposé internet)  │
+       │   Coût : ~€47/mo                                            │
+       └─────────────────────────────────────────────────────────────┘
+
+       ┌─────────────────────────────────────────────────────────────┐
+       │      NAS Synology (rôle réduit : edge data collector)        │
+       │   ├─ ais-ingester (client aisstream.io)                      │
+       │   ├─ buoy/lightning/sst fetchers (cron data acquisition)     │
+       │   └─ Storage froid backups long-terme                        │
+       │   → push vers RabbitMQ cluster (local ou cloud) via TLS      │
        └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -80,7 +92,60 @@ Pattern reconnu (IoT edge / hybrid cloud) → également vendable sur CV.
 
 ---
 
-## Provider — Scaleway Kapsule
+## Disk budget + tiered storage Big-Blue
+
+Big-Blue a 3 zones de stockage utilisables, avec des perfs très différentes :
+
+| Zone | Capacité libre | Filesystem | Fsync latency | Usage |
+|---|---|---|---|---|
+| `/` (rootfs WSL2) | 936 GB | ext4 natif | ~0.5 ms | **Cluster + PVC hot** |
+| `/mnt/e` | 5.2 TB | 9P proxy WSL→Windows | 5-50 ms (10-100× pire) | **Archives + backups froids** |
+| `/mnt/d` | 2.0 TB | 9P | idem | Réserve |
+| `/mnt/f` | 867 GB | 9P | idem | Réserve |
+
+**Règle absolue** : **jamais de PVC stateful sur `/mnt/*`** — sinon on
+retombe dans le même piège fsync qu'avec Btrfs sur le NAS.
+
+### Budget cap `/` ≤ ~180 GB
+
+| Poste | Estimation |
+|---|---|
+| k3s + containerd image cache | ~10 GB |
+| Containers running (PG, RMQ, GS, maritime stack) | ~5 GB |
+| Postgres data live (~30j hot, hypertable chunks récentes) | ~30-50 GB |
+| RabbitMQ + queues | ~2 GB |
+| GeoServer data + coverages chaudes | ~10 GB |
+| Observability (Prom retention 7j, Grafana, Loki) | ~20 GB |
+| App volumes (finance, war, ol uploads) | ~5 GB |
+| Buffer croissance | ~80 GB |
+| **Total cap** | **~180 GB** |
+
+### Garde-fous
+
+- **2 StorageClass** :
+  - `local-path-hot` → provisioner sur `/var/lib/rancher/k3s/storage` (= `/`)
+  - `local-path-cold` → provisioner sur `/mnt/e/k3s-cold` (pour backups +
+    hypertables > 30j via Timescale `move_chunk` / tablespace)
+- **Tous les `PersistentVolumeClaim` ont `spec.resources.requests.storage`
+  bornés**. Pas d'illimité.
+- **Prometheus alert** : `node_filesystem_avail_bytes / size < 20%` →
+  notif Telegram ou Discord webhook.
+- **CronJob nightly** : purge `containerd` images dead (`crictl rmi --prune`)
+  + retention logs Loki + vacuum PG.
+- **CNPG backups** : pgBackRest target `/mnt/e/cnpg-backups` (séquentiel,
+  pas critique fsync).
+
+### Stratégie hypertables Timescale (long terme)
+
+Quand `pg-data` dépasse ~50 GB sur `/`, activer la stratégie de tiering :
+- Chunks récents (≤30j) sur `local-path-hot` (PVC sur `/`)
+- Chunks > 30j déplacés vers un tablespace sur `local-path-cold` (PVC
+  sur `/mnt/e`) via `SELECT move_chunk(...)`
+- Permet de stocker plusieurs TB d'historique AIS sans saturer `/`.
+
+---
+
+## Provider cloud (phase 2) — Scaleway Kapsule
 
 | Critère | Scaleway Kapsule | OVH MKS | DigitalOcean | Hetzner |
 |---|---|---|---|---|
@@ -123,24 +188,32 @@ Liste à ressortir dans le CV / LinkedIn une fois la migration faite :
 
 ## Phases — 7 sprints (~weekends)
 
-### Sprint 0 — Bootstrap cluster (1 weekend)
+### Sprint 0 — Bootstrap cluster local Big-Blue (1 weekend)
 
-Provision + plomberie cluster sans aucune app encore.
+Provision + plomberie d'un cluster k3s sur Big-Blue WSL2, sans aucune app encore.
 
-- [ ] Création compte Scaleway + facturation
-- [ ] Provision cluster Kapsule (2 nodes DEV1-L) en fr-par-2
-- [ ] `kubectl` config + accès via kubeconfig
-- [ ] Création namespaces `prod` + `preprod` + `argocd` + `infra`
-- [ ] Install `ingress-nginx` via Helm + IP publique Scaleway LB
-- [ ] Install `cert-manager` + ClusterIssuer Let's Encrypt DNS-01 (Cloudflare)
-- [ ] Install `argocd` + accès UI via Ingress + TLS
-- [ ] Install `sealed-secrets` controller
-- [ ] Création registry Scaleway + GitHub Actions auth secret
+- [ ] Install **k3s** single-node via `curl -sfL https://get.k3s.io | sh -`
+      (option : `--disable traefik` si on veut ingress-nginx pour iso prod)
+- [ ] kubeconfig copié dans `~/.kube/config` + `kubectl` testé
+- [ ] Création namespaces `preprod` + `argocd` + `infra`
+- [ ] Création **StorageClass `local-path-hot`** (sur `/`) + **`local-path-cold`**
+      (sur `/mnt/e/k3s-cold`) avec rancher local-path-provisioner customisé
+- [ ] Install **ingress-nginx** via Helm + port-forward 80/443 vers WSL2
+- [ ] Install **cert-manager** + ClusterIssuer self-signed (local) ou
+      `mkcert` CA installé dans Big-Blue pour `*.dev.local`
+- [ ] Install **ArgoCD** + accès UI via Ingress local
+- [ ] Install **sealed-secrets** controller
+- [ ] `/etc/hosts` : `127.0.0.1 ol.dev.local maritime.dev.local finance.dev.local
+      warhammer.dev.local argocd.dev.local`
 - [ ] Création repo Git séparé `developpeur-gitops` (les manifests générés)
-- [ ] DNS Cloudflare : `*.sylad.dev` (ou domaine choisi) pointé vers LB
+- [ ] **Prometheus alert disk usage** sur node WSL2
 
 **Livrables** : `kubectl get pods -A` montre tous les controllers verts, UI
-ArgoCD accessible, première app de test (whoami) déployable via Helm chart.
+ArgoCD accessible sur `https://argocd.dev.local`, première app de test (whoami)
+déployable via Helm chart.
+
+**Phase 2 (plus tard, quand stable)** : Bootstrap Scaleway Kapsule en namespace
+`prod`, sync ArgoCD app-of-apps cross-cluster, DNS public Cloudflare.
 
 ### Sprint 1 — ol-companion (1 weekend)
 
@@ -275,6 +348,11 @@ Le sprint "CV-bait" : tout ce qui fait pro à montrer en démo.
 
 ## Coûts mensuels estimés
 
+### Phase 1 — Cluster local Big-Blue
+**€0/mois**. RAM/CPU/disk de Big-Blue (i9-14900KF, 31 GiB, 936 GB ext4).
+Investissement = 0, on valide toute l'archi avant de payer.
+
+### Phase 2 — Cluster cloud Scaleway Kapsule (quand stable)
 | Poste | Coût |
 |---|---|
 | Control plane Kapsule | €0 |
@@ -283,10 +361,10 @@ Le sprint "CV-bait" : tout ce qui fait pro à montrer en démo.
 | Object Storage (~10 GB) | ~€0.12 |
 | Container Registry | €0 |
 | Backups CNPG sur Object Storage | ~€1 |
-| **Total** | **~€47/mois** |
+| **Total prod** | **~€47/mois** |
 
 Avec un 3ème node si besoin pour absorber les pics : ~€65/mois.
-Budget annuel : **€560-780/an** = un investissement carrière clair.
+Budget annuel phase 2 : **€560-780/an** = investissement carrière clair.
 
 ---
 
@@ -299,7 +377,8 @@ Budget annuel : **€560-780/an** = un investissement carrière clair.
 | KEDA mal calibré → over-scale | Coût | maxReplicaCount=5, cooldown 5min |
 | Coût explose (over-provisioning) | Moyen | Resource requests/limits stricts + HPA bornés |
 | NAS pousse trop vite, AMQP throttle | Bas | Rate-limiting publisher + backpressure pattern |
-| Re-création de la même contention I/O cluster | Moyen | PVC dédié par stateful workload + `resources.limits` strictes + storage class SSD (Scaleway Block Storage NVMe), pas un volume Btrfs partagé |
+| Re-création de la même contention I/O cluster | Moyen | PVC dédié par stateful workload + `resources.limits` strictes + storage class SSD (Scaleway Block Storage NVMe ou ext4 natif WSL2), pas un volume Btrfs partagé |
+| Saturation `/` WSL2 sur Big-Blue (cluster local) | Élevé | Disk budget ≤180 GB, 2 StorageClass (hot `/`, cold `/mnt/e`), Prom alert disk<20%, hypertables tiering Timescale |
 | Dépendance Scaleway (vendor lock-in) | Moyen | Manifests vanilla K8s, exportables vers OVH/Hetzner |
 | 7 weekends c'est long, perte de momentum | Moyen | Sprint 1 (ol-companion) livre déjà un truc à montrer |
 
