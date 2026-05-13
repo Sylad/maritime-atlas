@@ -1,0 +1,577 @@
+# name: maritime-atlas (retiré pour stack deploy — le nom vient du `maritime` arg de docker stack deploy)
+
+services:
+  # ─── Storage : PostgreSQL + PostGIS + TimescaleDB ──────────────────
+  postgres:
+    image: timescale/timescaledb-ha:pg16
+    container_name: maritime-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-maritime}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-maritime}
+      POSTGRES_DB: ${POSTGRES_DB:-maritime}
+    ports:
+      # 5432 occupé sur l'host NAS — on expose sur 15432 pour éviter le clash.
+      # Les services internes (ais-decoder) utilisent toujours postgres:5432.
+      - "15432:5432"
+    volumes:
+      - postgres-data:/home/postgres/pgdata/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-maritime}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # ─── Messaging : RabbitMQ ──────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: maritime-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-maritime}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-maritime}
+    ports:
+      - "5672:5672"      # AMQP
+      - "15672:15672"    # Management UI
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # ─── S3-compatible storage : SeaweedFS (sprint stockage objet) ─────
+  # 1 container `server` mode bundle = master + volume + filer + S3
+  # gateway. Le S3 expose port 8333. Cibles d'usage :
+  #   - GWC-S3 BlobStore (cache de tuiles GeoServer)
+  #   - COG rasters time-aware (à venir, déféré)
+  # Auth : credentials dans seaweedfs/s3.json (homelab — pour expo
+  # publique, durcir via env-based templating).
+  # Refs : https://github.com/seaweedfs/seaweedfs/wiki/S3-Configuration
+  seaweedfs:
+    image: chrislusf/seaweedfs:3.97
+    container_name: maritime-seaweedfs
+    command: server -dir=/data -filer -s3 -s3.config=/etc/sw/s3.json -s3.port=8333
+    ports:
+      - "${SEAWEEDFS_S3_PORT:-8333}:8333"   # S3 API
+    volumes:
+      - seaweedfs-data:/data
+      - ./seaweedfs/s3.json:/etc/sw/s3.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:8333/status > /dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # ─── Tile/WFS server : GeoServer cluster (3 replicas, sprint 9) ────
+  # Pattern cluster officiel :
+  #   * catalog (workspaces/layers/styles) partagé via JDBCConfig +
+  #     JDBCStore (community extensions) — schema `geoserver` dans la
+  #     base maritime existante. Vrai pattern enterprise.
+  #   * data_dir volume `geoserver-data` mount partagé (RWX) entre les
+  #     3 replicas — porte les blobs SLD + properties JDBCConfig/Store.
+  #   * sessions admin UI cohérentes via nginx `ip_hash` (sticky).
+  #     JDBCSessionDataStore Jetty demande de patcher le WAR, pas
+  #     proportionné pour notre besoin ; sticky atteint le même but UX.
+  #
+  # Anchor YAML `&geoserver-base` factorise la config commune ; chaque
+  # replica override juste container_name + GEOSERVER_NODE_ID. Tout le
+  # reste (image, env, volumes, healthcheck) est identique.
+  geoserver-1: &geoserver-base
+    build:
+      context: ./geoserver
+      dockerfile: Dockerfile
+    image: maritime-geoserver:2.28.3-full
+    container_name: maritime-geoserver-1
+    environment: &geoserver-env
+      GEOSERVER_NODE_ID: geoserver-1
+      GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
+      GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}
+      INSTALL_EXTENSIONS: "true"
+      STABLE_EXTENSIONS: "wps,csw,inspire"
+      # 3 plugins bakés dans l'image custom (cf. geoserver/Dockerfile) :
+      #   - gwc-s3 (SourceForge stable extension)
+      #   - jdbcconfig + jdbcstore (OSGeo Nexus 2.28.3 release JARs)
+      # → plus de COMMUNITY_EXTENSIONS env var qui 404 silencieusement.
+      # JVM flags : endpoint AWS S3 override + path-style obligatoire pour
+      # SeaweedFS / MinIO (non-AWS endpoints). Sans ces 2 flags, l'AWS SDK
+      # contacte le vrai api.amazonaws.com et fail.
+      EXTRA_JAVA_OPTS: "-Xms512m -Xmx2g -Daws.s3.endpoint=http://seaweedfs:8333 -Daws.s3.pathStyleAccess=true"
+      # CORS — chaque replica doit le re-déclarer.
+      CORS_ENABLED: "true"
+      CORS_ALLOWED_ORIGINS: "*"
+      # Credentials Postgres injectés dans les .properties par le wrapper
+      # cluster-bootstrap.sh via envsubst.
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-maritime}
+      POSTGRES_USER: ${POSTGRES_USER:-maritime}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-maritime}
+    volumes: &geoserver-volumes
+      - geoserver-data:/opt/geoserver_data
+      - coverage-data:/coverage
+      # Templates jdbcconfig.properties / jdbcstore.properties (lecture
+      # seule) + entrypoint wrapper qui les hydrate au boot.
+      - ./geoserver/cluster:/cluster-config:ro
+    entrypoint: ["/bin/bash", "/cluster-config/cluster-bootstrap.sh"]
+    healthcheck: &geoserver-healthcheck
+      test: ["CMD-SHELL", "curl -sf -u ${GEOSERVER_ADMIN_USER:-admin}:${GEOSERVER_ADMIN_PASSWORD:-geoserver} http://localhost:8080/geoserver/rest/about/status > /dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 30
+      start_period: 120s
+    depends_on:
+      - postgres
+      - seaweedfs
+    restart: unless-stopped
+
+  # geoserver-2 et geoserver-3 retirés (2026-05-13) pour décharger le NAS.
+  # 1 seul replica geoserver-1 suffit avec control-flow + IDW V2 parallel.
+  # Pour scaler future : ajouter un node Swarm Linux + deploy.replicas: N.
+
+  # Alias `geoserver` — service léger qui pointe vers le LB nginx du
+  # frontend pour que les autres services (provisioner, weather-fetcher,
+  # sst-fetcher, api) continuent à appeler `http://geoserver:8080/geoserver`
+  # exactement comme avant. Zéro changement côté services métier.
+  geoserver:
+    image: nginx:alpine
+    container_name: maritime-geoserver-lb
+    volumes:
+      - ./geoserver/cluster/nginx-lb.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "${GEOSERVER_PORT:-8080}:8080"
+    healthcheck:
+      # /lb-health = endpoint statique dans nginx-lb.conf qui retourne 200 OK
+      # sans toucher aux upstreams. Plus fiable en Swarm que le proxy
+      # /geoserver/web/ qui dépend que les replicas backend soient déjà up.
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/lb-health > /dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    depends_on:
+      - geoserver-1
+    restart: unless-stopped
+
+  # ─── GeoServer auto-provisioner (one-shot sidecar) ─────────────────
+  # Crée idempotamment workspace + datastore PostGIS + layers via REST.
+  # Pattern alternatif au JAR Spring custom — versionné dans le repo,
+  # lisible, reproductible. S'exécute une fois puis exit 0.
+  geoserver-provisioner:
+    image: alpine/curl:latest
+    container_name: maritime-geoserver-provisioner
+    env_file: .env
+    environment:
+      GEOSERVER_URL: http://geoserver:8080/geoserver
+      GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
+      GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-maritime}
+      POSTGRES_USER: ${POSTGRES_USER:-maritime}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-maritime}
+    volumes:
+      - ./geoserver/provision.sh:/provision.sh:ro
+      - ./geoserver/styles:/styles:ro
+    command: ["sh", "/provision.sh"]
+    depends_on:
+      - geoserver
+    restart: "no"
+
+  # ─── Producer : ais-ingester ───────────────────────────────────────
+  # Connect to aisstream.io websocket, filter Bretagne bbox, publish raw
+  # JSON messages on RabbitMQ exchange `ais.raw`.
+  ais-ingester:
+    build: ./services/ais-ingester
+    image: maritime-atlas-ais-ingester:latest
+    container_name: maritime-ais-ingester
+    env_file: .env
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-maritime}:${RABBITMQ_PASSWORD:-maritime}@rabbitmq:5672
+    depends_on:
+      - rabbitmq
+    restart: unless-stopped
+
+  # ─── Worker : ais-decoder ──────────────────────────────────────────
+  # Consume `ais.raw`, normalize, INSERT in PostGIS (vessel_positions
+  # hypertable + UPSERT vessels). Publish enriched events on `ais.positions`.
+  ais-decoder:
+    build: ./services/ais-decoder
+    image: maritime-atlas-ais-decoder:latest
+    container_name: maritime-ais-decoder
+    env_file: .env
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-maritime}:${RABBITMQ_PASSWORD:-maritime}@rabbitmq:5672
+      DATABASE_URL: postgres://${POSTGRES_USER:-maritime}:${POSTGRES_PASSWORD:-maritime}@postgres:5432/${POSTGRES_DB:-maritime}
+    depends_on:
+      - postgres
+      - rabbitmq
+    restart: unless-stopped
+
+  # ─── Worker : track-builder (sprint 2) ─────────────────────────────
+  # Cron horaire (xx:35) qui agrège vessel_positions → vessel_tracks_daily
+  # (LineStrings par mmsi+day). Permet à GeoServer de servir des tracks
+  # pré-aggregés en WFS, instantané même sur 30j d'historique.
+  track-builder:
+    build: ./services/track-builder
+    image: maritime-atlas-track-builder:latest
+    container_name: maritime-track-builder
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-maritime}:${POSTGRES_PASSWORD:-maritime}@postgres:5432/${POSTGRES_DB:-maritime}
+      # Data Orchestrator MVP S1 (2026-05-12) — heartbeat opt-in
+      ORCHESTRATOR_API: http://api:3010/api
+      ORCHESTRATOR_JOB_TOKEN: ${ORCHESTRATOR_JOB_TOKEN:-dev-orchestrator-token-change-me}
+      ORCHESTRATOR_SOURCE_NAME: track-builder
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  # ─── Worker : alerts-engine (sprint 10) ───────────────────────────
+  # Souscrit à ais.positions + lightning.strike + raster.ready. Applique
+  # règles métier (high-wind sur cargo/tanker, lightning à <10km d'un
+  # navire) et publie sur exchange alerts.maritime + persiste en hypertable.
+  # Cooldown 30min par (mmsi, kind) pour éviter le spam.
+  alerts-engine:
+    build: ./services/alerts-engine
+    image: maritime-atlas-alerts-engine:latest
+    container_name: maritime-alerts-engine
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-maritime}:${POSTGRES_PASSWORD:-maritime}@postgres:5432/${POSTGRES_DB:-maritime}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-maritime}:${RABBITMQ_PASSWORD:-maritime}@rabbitmq:5672
+      WIND_ARROWS_DIR: /wind-arrows
+      WIND_SPEED_ALERT_THRESHOLD: "10"
+      LIGHTNING_PROXIMITY_KM: "10"
+      COOLDOWN_MIN: "30"
+    volumes:
+      - wind-arrows-data:/wind-arrows:ro
+    depends_on:
+      - postgres
+      - rabbitmq
+    restart: unless-stopped
+
+  # ─── Worker : lightning-fetcher (sprint 7) ────────────────────────
+  # Consomme le WebSocket public Blitzortung community, décode LZW,
+  # filtre la bbox France, persiste dans la hypertable lightning_strikes
+  # (TimescaleDB retention 7 jours). Publie chaque strike sur le topic
+  # exchange `lightning.strike` avec routing_key = geohash3.
+  lightning-fetcher:
+    build: ./services/lightning-fetcher
+    image: maritime-atlas-lightning-fetcher:latest
+    container_name: maritime-lightning-fetcher
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-maritime}:${POSTGRES_PASSWORD:-maritime}@postgres:5432/${POSTGRES_DB:-maritime}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-maritime}:${RABBITMQ_PASSWORD:-maritime}@rabbitmq:5672
+    depends_on:
+      - postgres
+      - rabbitmq
+    restart: unless-stopped
+
+  # ─── Worker : weather-fetcher (sprint 4a) ─────────────────────────
+  # Cron 4×/jour (04/10/16/22 UTC, calé sur runs NOAA +4h de latence) qui
+  # télécharge GFS (vent 10m UGRD/VGRD) + WaveWatch III (HTSGW + DIRPW)
+  # via les CGI subsetters NOMADS, recadre bbox France, exporte en
+  # GeoTIFF time-tagged dans 3 mosaic stores partagés (wind_speed,
+  # wave_hs, wave_dir). Au premier fetch crée les coverage stores +
+  # active time dimensions. Service Python (xarray + cfgrib + gdal).
+  weather-fetcher:
+    build: ./services/weather-fetcher
+    image: maritime-atlas-weather-fetcher:latest
+    container_name: maritime-weather-fetcher
+    env_file: .env
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-maritime}:${RABBITMQ_PASSWORD:-maritime}@rabbitmq:5672
+      GEOSERVER_URL: http://geoserver:8080/geoserver
+      GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
+      GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}
+      WIND_DIR: /coverage/wind-speed
+      WAVE_HS_DIR: /coverage/wave-hs
+      WAVE_DIR_DIR: /coverage/wave-dir
+      WIND_ARROWS_DIR: /wind-arrows
+      FORECAST_HOURS: "72"
+      FORECAST_STEP: "6"
+      ORCHESTRATOR_API: http://api:3010/api
+      ORCHESTRATOR_JOB_TOKEN: ${ORCHESTRATOR_JOB_TOKEN:-dev-orchestrator-token-change-me}
+      ORCHESTRATOR_SOURCE_NAME: weather-fetcher
+    volumes:
+      - coverage-data:/coverage
+      - wind-arrows-data:/wind-arrows
+    depends_on:
+      - geoserver
+    restart: unless-stopped
+
+  # ─── Worker : weather-fetcher-arpege (sprint Europe Chantier #2) ───
+  # Migration AROME → ARPEGE 2026-05-12 : ARPEGE 0.1° (Europe étroite,
+  # 11 km) remplace AROME 0.025° (FR uniquement, 2.5 km). Couverture
+  # ×8 en surface, résolution toujours 2.5× meilleure que GFS 0.25°.
+  #
+  # Cron 4×/jour (03:30 / 09:30 / 15:30 / 21:30 UTC, alignés sur les runs
+  # ARPEGE 00/06/12/18 +3h de latence) qui télécharge les bundles SP1 01
+  # de Météo-France depuis le bucket public PNT
+  # (object.data.gouv.fr/meteofrance-pnt) — AUCUNE clé API requise (open
+  # data sans inscription). Extrait u10/v10 → speed, écrit GeoTIFF dans
+  # /coverage/wind-speed-arpege/ + GeoJSON arrows dans
+  # /wind-arrows/arpege_wind_arrows_*.geojson. Layer GeoServer publié au
+  # premier cycle = maritime:wind-speed-arpege (style SLD partagé avec
+  # GFS via provision.sh).
+  weather-fetcher-arpege:
+    build: ./services/weather-fetcher-arpege
+    image: maritime-atlas-weather-fetcher-arpege:latest
+    container_name: maritime-weather-fetcher-arpege
+    env_file: .env
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-maritime}:${RABBITMQ_PASSWORD:-maritime}@rabbitmq:5672
+      GEOSERVER_URL: http://geoserver:8080/geoserver
+      GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
+      GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}
+      WIND_DIR: /coverage/wind-speed-arpege
+      WIND_ARROWS_DIR: /wind-arrows
+      # ARPEGE couvre jusqu'à +102h ; on prend 48h par défaut
+      # (4 bundles × 30MB ≈ 120MB / run × 4 runs/jour ≈ 480MB / jour).
+      FORECAST_HOURS: "48"
+      # Bundles GRIB2 contiennent du pas horaire ; 3h aligne avec le slider GFS.
+      SAMPLE_STEP_HOURS: "3"
+      ORCHESTRATOR_API: http://api:3010/api
+      ORCHESTRATOR_JOB_TOKEN: ${ORCHESTRATOR_JOB_TOKEN:-dev-orchestrator-token-change-me}
+      ORCHESTRATOR_SOURCE_NAME: weather-fetcher-arpege
+    volumes:
+      - coverage-data:/coverage
+      - wind-arrows-data:/wind-arrows
+    depends_on:
+      - geoserver
+    restart: unless-stopped
+
+  # ─── Worker : weather-fetcher-arome (réintroduit 2026-05-12) ──────
+  # Sylvain a choisi de réactiver AROME après le Chantier #2 Sprint
+  # Europe qui l'avait supprimé au profit d'ARPEGE Europe. Couverture
+  # FR métropole uniquement (bbox ~ [-6, 41, 10, 51.5]) mais résolution
+  # 0.025° (2.5 km) — 4× plus fin qu'ARPEGE 0.1° et 10× plus fin que
+  # GFS 0.25°. Coexiste désormais avec ARPEGE : 3 sources vent
+  # sélectionnables dans le frontend (GFS / ARPEGE / AROME).
+  #
+  # Cron 4×/jour décalé d'ARPEGE pour éviter le chevauchement (02:30 /
+  # 08:30 / 14:30 / 20:30 UTC vs ARPEGE 03:30 / 09:30 / 15:30 / 21:30).
+  # Layer GeoServer publiée = maritime:wind-speed-arome (style SLD
+  # partagé via provision.sh).
+  weather-fetcher-arome:
+    build: ./services/weather-fetcher-arome
+    image: maritime-atlas-weather-fetcher-arome:latest
+    container_name: maritime-weather-fetcher-arome
+    env_file: .env
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-maritime}:${RABBITMQ_PASSWORD:-maritime}@rabbitmq:5672
+      GEOSERVER_URL: http://geoserver:8080/geoserver
+      GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
+      GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}
+      WIND_DIR: /coverage/wind-speed-arome
+      WIND_ARROWS_DIR: /wind-arrows
+      # AROME va jusqu'à +51h ; on prend 24h pour limiter la charge
+      # (4 bundles × 55MB ≈ 220MB / run × 4 runs/jour ≈ 880MB / jour).
+      FORECAST_HOURS: "24"
+      SAMPLE_STEP_HOURS: "3"
+      ORCHESTRATOR_API: http://api:3010/api
+      ORCHESTRATOR_JOB_TOKEN: ${ORCHESTRATOR_JOB_TOKEN:-dev-orchestrator-token-change-me}
+      ORCHESTRATOR_SOURCE_NAME: weather-fetcher-arome
+    volumes:
+      - coverage-data:/coverage
+      - wind-arrows-data:/wind-arrows
+    depends_on:
+      - geoserver
+    restart: unless-stopped
+
+  # ─── Worker : buoy-fetcher (sprint Europe Chantier #3) ────────────
+  # Migration CANDHIS → EMODnet Physics 2026-05-12. L'ancien
+  # `candhis-fetcher` couvrait 118 bouées houlographes FR (CEREMA, métro
+  # + outre-mer) + une API obs TR optionnelle (clé sur demande email).
+  # EMODnet Physics publie un WFS public agrégeant les plateformes vagues
+  # in-situ Europe-wide (layer `EMODnet:ERD_EP_WAVES_INSITU`, ~28 plateformes
+  # bbox Europe étroite). Pas de clé, attribution open data requise.
+  #
+  # MVP : seul le référentiel (positions + métadonnées + last obs date) est
+  # ingéré. Les obs temps réel détaillées vivent dans des NetCDF par
+  # plateforme — hors-scope Chantier #3.
+  #
+  # Schema géré par le service lui-même (table buoys + hypertable
+  # buoy_observations conservée vide pour évolution future, vue
+  # v_buoy_observations_recent). PK candhis_id gardée pour minimiser le
+  # churn provisioner GeoServer + frontend — sa valeur est désormais
+  # PLATFORMCODE EMODnet.
+  buoy-fetcher:
+    build: ./services/buoy-fetcher
+    image: maritime-atlas-buoy-fetcher:latest
+    container_name: maritime-buoy-fetcher
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-maritime}:${POSTGRES_PASSWORD:-maritime}@postgres:5432/${POSTGRES_DB:-maritime}
+      # Re-seed quotidien (1440 min). EMODnet bouge rarement.
+      BUOY_FETCH_INTERVAL_MIN: "1440"
+      ORCHESTRATOR_API: http://api:3010/api
+      ORCHESTRATOR_JOB_TOKEN: ${ORCHESTRATOR_JOB_TOKEN:-dev-orchestrator-token-change-me}
+      ORCHESTRATOR_SOURCE_NAME: buoy-fetcher
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  # ─── Worker : sst-fetcher (sprint 3) ───────────────────────────────
+  # Cron quotidien (06:00 UTC) qui télécharge NOAA OISST v2.1 (NetCDF),
+  # subset bbox France métropole, exporte en GeoTIFF dans le mosaic
+  # store partagé. Au premier fetch crée le coverage store + active
+  # time dimension. Service Python (xarray + rioxarray + gdal natif).
+  sst-fetcher:
+    build: ./services/sst-fetcher
+    image: maritime-atlas-sst-fetcher:latest
+    container_name: maritime-sst-fetcher
+    env_file: .env
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-maritime}:${RABBITMQ_PASSWORD:-maritime}@rabbitmq:5672
+      GEOSERVER_URL: http://geoserver:8080/geoserver
+      GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
+      GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}
+      COVERAGE_DIR: /coverage/sst-daily
+      ORCHESTRATOR_API: http://api:3010/api
+      ORCHESTRATOR_JOB_TOKEN: ${ORCHESTRATOR_JOB_TOKEN:-dev-orchestrator-token-change-me}
+      ORCHESTRATOR_SOURCE_NAME: sst-fetcher
+    volumes:
+      - coverage-data:/coverage
+    depends_on:
+      - geoserver
+    restart: unless-stopped
+
+  # ─── Sidecar Python grib-parser (sprint N4 orchestrator 2026-05-12) ──
+  # Appelé par le runner orchestrator (côté api) via HTTP POST /parse pour
+  # parser des fichiers GRIB/NetCDF et écrire les GeoTIFFs résultants
+  # dans le volume coverage partagé. Permet d'absorber les fetchers
+  # historiques (sst-fetcher, weather-fetcher, …) dans l'orchestrator
+  # dynamique sans réécrire xarray+rioxarray en Node.
+  #
+  # Pas d'auth — réseau interne docker compose uniquement (pas de port
+  # publié). Le runner connaît l'URL via env GRIB_PARSER_URL côté api.
+  grib-parser:
+    build: ./services/grib-parser
+    image: maritime-atlas-grib-parser:latest
+    container_name: maritime-grib-parser
+    environment:
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - coverage-data:/coverage
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8500/health', timeout=2)\" || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  # ─── API NestJS (sprint 5) — auth + palettes utilisateur ──────────
+  # Service jeune avec Postgres (réutilise la base maritime existante,
+  # 3 nouvelles tables isolées : users, palettes, user_layer_preferences).
+  # JWT 24h, mirroring des palettes en styles GeoServer "user_<id>_<slug>".
+  api:
+    build: ./services/api
+    image: maritime-atlas-api:latest
+    container_name: maritime-api
+    env_file: .env
+    environment:
+      PORT: "3010"
+      CORS_ORIGIN: ${API_CORS_ORIGIN:-http://localhost:4204,http://nas:4204}
+      DATABASE_URL: postgres://${POSTGRES_USER:-maritime}:${POSTGRES_PASSWORD:-maritime}@postgres:5432/${POSTGRES_DB:-maritime}
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-in-prod}
+      JWT_EXPIRES_IN: "24h"
+      # Sprint N2 orchestrator runner : RMQ pour le sink rmq_publish.
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-maritime}:${RABBITMQ_PASSWORD:-maritime}@rabbitmq:5672
+      # Sprint N4 orchestrator : sidecar Python grib-parser.
+      # Override via .env GRIB_PARSER_URL=http://192.168.1.26:8500 pour
+      # déporter le sidecar sur MINI-BLUE (cf compose.mini-blue.yml).
+      GRIB_PARSER_URL: ${GRIB_PARSER_URL:-http://grib-parser:8500}
+      GEOSERVER_URL: http://geoserver:8080/geoserver
+      GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
+      GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-geoserver}
+      GEOSERVER_WORKSPACE: maritime
+      PALETTE_LIMIT_PER_USER: "5"
+      NODE_ENV: production
+      # ─── Sprint Auth refonte ───
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-sylvain.ladoire@gmail.com}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-sylvain}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://nas:4204}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-noreply@sladoire.dev}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-https://maritime.sladoire.dev/api/auth/google/callback}
+      # ─── Data Orchestrator MVP S1 (2026-05-12) ───
+      # Shared secret pour le endpoint POST /admin/jobs/log appelé par les
+      # ingesters cron. Doit matcher ORCHESTRATOR_JOB_TOKEN dans chaque
+      # ingester. Default dev-only — override via .env.
+      ORCHESTRATOR_JOB_TOKEN: ${ORCHESTRATOR_JOB_TOKEN:-dev-orchestrator-token-change-me}
+    depends_on:
+      - postgres
+      - geoserver
+    restart: unless-stopped
+
+  # ─── Frontend Angular + OpenLayers (sprint 1.5) ────────────────────
+  # nginx proxy /geoserver/ → service GeoServer interne (CORS-free).
+  # nginx proxy /api/ → service api NestJS (sprint 5).
+  frontend:
+    build: ./frontend
+    image: maritime-atlas-frontend:latest
+    container_name: maritime-frontend
+    ports:
+      - "4204:80"
+    volumes:
+      # Sprint 6 : wind/wave arrows GeoJSON exposés via /wind-arrows/* depuis nginx.
+      - wind-arrows-data:/usr/share/nginx/wind-arrows:ro
+    depends_on:
+      - geoserver
+      - api
+    restart: unless-stopped
+
+  # ─── Cloudflare Tunnel — exposition publique HTTPS ────────────────
+  # Tunnel sortant (le NAS appelle Cloudflare, pas l'inverse) → pas
+  # besoin d'ouvrir de port sur la box, pas de NAT. Le routing
+  # public-hostname est défini côté dashboard Cloudflare Zero Trust
+  # (https://one.dash.cloudflare.com/ → Networks → Tunnels) :
+  #   maritime.sladoire.dev → HTTP → frontend:80
+  #
+  # SSL auto via Cloudflare edge, DDoS protection gratuite, et le cache
+  # CDN devant les WMS tiles GeoServer économise pas mal de bande.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: maritime-cloudflared
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - frontend
+    restart: unless-stopped
+
+volumes:
+  # IMPORTANT 2026-05-13 : les volumes sont externes et pointent vers ceux
+  # créés par l'ancien compose (préfixe maritime-atlas_) pour préserver les
+  # données existantes. Stack name `maritime` créerait sinon des volumes neufs
+  # vides `maritime_xxx`. Ces définitions external assurent qu'on réutilise
+  # les volumes prod existants.
+  postgres-data:
+    external: true
+    name: maritime-atlas_postgres-data
+  rabbitmq-data:
+    external: true
+    name: maritime-atlas_rabbitmq-data
+  geoserver-data:
+    external: true
+    name: maritime-atlas_geoserver-data
+  coverage-data:
+    external: true
+    name: maritime-atlas_coverage-data
+  wind-arrows-data:
+    external: true
+    name: maritime-atlas_wind-arrows-data
+  seaweedfs-data:
+    external: true
+    name: maritime-atlas_seaweedfs-data
