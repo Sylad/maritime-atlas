@@ -122,8 +122,14 @@ services:
       test: ["CMD-SHELL", "curl -sf -u ${GEOSERVER_ADMIN_USER:-admin}:${GEOSERVER_ADMIN_PASSWORD:-geoserver} http://localhost:8080/geoserver/rest/about/status > /dev/null || exit 1"]
       interval: 15s
       timeout: 10s
-      retries: 30
-      start_period: 120s
+      # start_period 600s + 60×15s = 1500s = 25 min de grâce au boot.
+      # Le NAS Synology peut avoir load 9+ et IO wait élevé après une coupure
+      # secteur (Btrfs scrub) — le boot Tomcat + Spring + JDBCConfig prend
+      # jusqu'à 10-15 min dans ces conditions. Healthcheck V1 (120s + 30×15s
+      # = 9.5 min) tuait le container avant qu'il finisse. Voir incident
+      # 2026-05-13 post-coupure secteur.
+      retries: 60
+      start_period: 600s
     depends_on:
       - postgres
       - seaweedfs
