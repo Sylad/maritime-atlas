@@ -4392,6 +4392,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.bathyLayer = new TileLayer({
       source: new TileWMS({
         url: '/wms-emodnet',
+        projection: viewProj,
         params: { LAYERS: 'mean_atlas_land', TILED: true, TRANSPARENT: true, FORMAT: 'image/png' },
         attributions: '© <a href="https://emodnet.ec.europa.eu/en/bathymetry">EMODnet Bathymetry</a>',
       }),
@@ -4406,6 +4407,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.eezLayer = new TileLayer({
       source: new TileWMS({
         url: '/wms-marineregions',
+        projection: viewProj,
         params: { LAYERS: 'MarineRegions:eez', TILED: true, TRANSPARENT: true, FORMAT: 'image/png' },
         attributions: '© <a href="https://www.marineregions.org/">Marine Regions</a> (VLIZ, CC BY-NC-SA 4.0)',
       }),
@@ -4418,6 +4420,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.mpaLayer = new TileLayer({
       source: new TileWMS({
         url: '/wms-emodnet-human',
+        projection: viewProj,
         params: { LAYERS: 'marineprotectedareas', TILED: true, TRANSPARENT: true, FORMAT: 'image/png' },
         attributions: '© <a href="https://emodnet.ec.europa.eu/en/human-activities">EMODnet Human Activities</a>',
       }),
@@ -4433,6 +4436,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.efasLayer = new TileLayer({
       source: new TileWMS({
         url: '/wms-efas',
+        projection: viewProj,
         params: { LAYERS: 'efas_forecast_flood_probability', TILED: true, TRANSPARENT: true, FORMAT: 'image/png' },
         attributions: '© <a href="https://www.efas.eu/">EFAS — Copernicus Emergency Management Service</a>',
       }),
@@ -4445,11 +4449,20 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     const baseTile = this.baseTile;
     const labelsTile = this.labelsTile;
 
+    // Projection de la View actuelle — passée explicitement aux TileWMS
+    // pour qu'OL construise un TileGrid adapté (origin/resolutions/tile
+    // size). Sans ça, OL utilisait le TileGrid par défaut EPSG:3857 même
+    // en View Lambert EPSG:3035 → tiles fetched correctement par GS mais
+    // POSITIONNÉES aux mauvaises coords par OL → rasters en patchwork
+    // mal placés. Fix 2026-05-14 (Sylvain feedback projection Lambert).
+    const viewProj = this.map.getView().getProjection();
+
     // SST raster layer — WMS time-enabled depuis GeoServer ImageMosaic.
     // Le param TIME est mis à jour par refreshForTime() à chaque change
     // de currentTime.
     this.sstSource = new TileWMS({
       url: '/geoserver/maritime/wms',
+      projection: viewProj,
       params: {
         LAYERS: 'maritime:sst-daily',
         TILED: true,
@@ -4482,6 +4495,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
                                                : 'maritime:wind-speed';
     this.windWmsSource = new TileWMS({
       url: '/geoserver/maritime/wms',
+      projection: viewProj,
       params: { LAYERS: initialWindLayer, TILED: true, TRANSPARENT: true, interpolations: 'bicubic' },
       serverType: 'geoserver',
       attributions: [ATTRIB_NOAA, ATTRIB_ARPEGE, ATTRIB_AROME],
@@ -4496,6 +4510,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // Vagues (hauteur sig., m) — WMS time-enabled.
     this.wavesSource = new TileWMS({
       url: '/geoserver/maritime/wms',
+      projection: viewProj,
       params: { LAYERS: 'maritime:wave-hs', TILED: true, TRANSPARENT: true, interpolations: 'bicubic' },
       serverType: 'geoserver',
       attributions: ATTRIB_NOAA,
