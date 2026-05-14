@@ -205,6 +205,7 @@ function toIsoTimestamp(d: Date): string {
         <app-animation-panel
           [anchor]="currentTimeSig()"
           [forecastActive]="isForecastActive()"
+          [masterLayerLabel]="masterLayerLabel()"
           (launch)="onAnimationLaunch($event)"
           (cancel)="closeAnimationPanel()" />
       }
@@ -2280,6 +2281,40 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     });
   }
 
+  // ─── Animation v2 phase 1 — registry des layers animables ────────
+  // Catalogue déclaratif des layers qui ont une dimension temporelle
+  // utile pour l'animation. Pour chaque entry :
+  //   - active() : signal getter — true si layer allumé par l'user
+  //   - type : 'wms' (utilise GetCapabilities) ou 'vector' (scan 30min)
+  //   - gsLayerName : nom GeoServer pour les capabilities WMS
+  // L'ordre de cette liste sert de tiebreaker quand 2 layers s'allument
+  // simultanément (rare). Le master réel = premier dans activationOrder.
+  private readonly animatableLayers: ReadonlyArray<{
+    key: string;
+    label: string;
+    type: 'wms' | 'vector';
+    gsLayerName?: string;
+    active: () => boolean;
+  }> = [
+    { key: 'wind',      label: 'Vent',     type: 'wms',    gsLayerName: 'maritime:wind-speed',     active: () => this.showWind() },
+    { key: 'waves',     label: 'Vagues',   type: 'wms',    gsLayerName: 'maritime:wave-hs',        active: () => this.showWaves() },
+    { key: 'sst',       label: 'SST',      type: 'wms',    gsLayerName: 'maritime:sst-daily',      active: () => this.showSST() },
+    { key: 'vessels',   label: 'Navires AIS', type: 'vector',                                       active: () => this.showVessels() },
+    { key: 'lightning', label: 'Foudre',   type: 'vector',                                          active: () => this.showLightning() },
+    { key: 'metar',     label: 'METAR',    type: 'vector',                                          active: () => this.showMetar() },
+    { key: 'firms',     label: 'FIRMS',    type: 'vector',                                          active: () => this.showFirms() },
+    { key: 'quakes',    label: 'Séismes',  type: 'vector',                                          active: () => this.showQuakes() },
+  ];
+
+  /** Stack ordonné des layers allumés (ordre d'activation user). Maintenu
+   *  par effect() depuis les show* signals. La tête = master du temps. */
+  readonly activationOrder = signal<string[]>([]);
+  readonly masterLayerKey = computed<string | null>(() => this.activationOrder()[0] ?? null);
+  readonly masterLayerLabel = computed<string | null>(() => {
+    const key = this.masterLayerKey();
+    return key ? this.animatableLayers.find((l) => l.key === key)?.label ?? null : null;
+  });
+
   // Toggles user — par défaut tout visible (sauf rain/wind/waves : opt-in
   // pour éviter d'écraser l'image avec des tiles tant que pas demandé)
   readonly showVessels = signal(true);
@@ -2960,6 +2995,35 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   }
 
   constructor() {
+    // Effect : maintient activationOrder à jour. À chaque changement de
+    // toggle on diff l'ancien set vs nouveau ; push les nouveaux activés
+    // en queue, retire les désactivés. Tête = master du temps.
+    let prevActive = new Set<string>();
+    effect(() => {
+      const currentActive = new Set<string>(
+        this.animatableLayers.filter((l) => l.active()).map((l) => l.key),
+      );
+      const order = [...this.activationOrder()];
+      // Désactivations : remove
+      for (const key of prevActive) {
+        if (!currentActive.has(key)) {
+          const i = order.indexOf(key);
+          if (i >= 0) order.splice(i, 1);
+        }
+      }
+      // Activations : append à la fin (dans l'ordre du registry pour
+      // un tiebreaker stable si plusieurs s'allument dans le même tick)
+      for (const layer of this.animatableLayers) {
+        if (currentActive.has(layer.key) && !prevActive.has(layer.key) && !order.includes(layer.key)) {
+          order.push(layer.key);
+        }
+      }
+      if (order.join('|') !== this.activationOrder().join('|')) {
+        this.activationOrder.set(order);
+      }
+      prevActive = currentActive;
+    });
+
     // Effect réactif : à chaque changement de signal toggle, on ré-applique
     // la visibility des layers OL. Sans ça, cocher/décocher un toggle ne
     // déclenche aucune mise à jour côté Map (les layers OL ne sont pas
@@ -3168,13 +3232,43 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       .subscribe((t) => this.onTimeChange(t));
 
     // Provider sliding-window : appelé au début de chaque loop si
-    // followRealTime est ON. Retourne "maintenant" arrondi à l'heure,
-    // ce qui ré-ancre la fenêtre d'animation sur l'instant courant et
-    // pickup donc les granules ingérés depuis le dernier loop.
+    // followRealTime est ON. Re-fetch la liste de timestamps du master
+    // pour intégrer les granules ingérés pendant la lecture (extension
+    // vers le futur uniquement — on ne recule pas dans le passé).
     this.animPlayer.setSlidingWindowProvider(async () => {
+      const cfg = this.animPlayer.config();
+      if (!cfg) return null;
+      const masterKey = this.masterLayerKey();
+      if (!masterKey) return { anchor: new Date() };
+      const master = this.animatableLayers.find((l) => l.key === masterKey);
+      if (!master) return { anchor: new Date() };
       const now = new Date();
       now.setUTCMinutes(0, 0, 0);
-      return now;
+      const window = this.computeAnimationWindow({ ...cfg, anchor: now });
+      const timestamps = await this.fetchTimestamps(master, window.start, window.end);
+      return { anchor: now, timestamps };
+    });
+
+    // Provider return-to-now : appelé au stop / fin d'animation. Pour
+    // le master courant, trouve la date la plus proche de maintenant
+    // dans la liste GS capabilities. Permet de retomber sur la donnée
+    // la plus fraîche disponible (spec Sylvain).
+    this.animPlayer.setNearestNowProvider(async () => {
+      const masterKey = this.masterLayerKey();
+      if (!masterKey) return new Date();
+      const master = this.animatableLayers.find((l) => l.key === masterKey);
+      if (!master) return new Date();
+      const now = Date.now();
+      // On scanne large : -7j / +7j autour de now pour avoir un choix
+      // pour le master, quel que soit son horizon (passé ou forecast).
+      const start = new Date(now - 7 * 86400_000);
+      const end = new Date(now + 7 * 86400_000);
+      const list = await this.fetchTimestamps(master, start, end);
+      if (list.length === 0) return new Date();
+      // Date dont |t - now| est minimal
+      return list.reduce((best, cur) =>
+        Math.abs(cur.getTime() - now) < Math.abs(best.getTime() - now) ? cur : best,
+      );
     });
     // Bootstrap palette preferences si déjà connecté (le token est en
     // localStorage et restaure currentUser via signal au chargement).
@@ -4206,16 +4300,28 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // Avant : 1970-01-01 → cursor (56 ans) faisait scanner des millions
     // de granules mosaic à chaque pan/zoom → sur-load CPU GS + timeouts.
     const isoTs = toIsoTimestamp(t);
-    if (this.sstSource && !this.isFuture()) {
-      const sstStart = new Date(t.getTime() - 30 * 24 * 3600 * 1000);
-      const sstRange = `${toIsoTimestamp(sstStart)}/${isoTs}`;
-      this.sstSource.updateParams({ TIME: sstRange });
+    // Animation mode : on envoie TIME=instant (= timestamp précis du
+    // master). GeoServer fait nearest-match auto pour les non-masters
+    // grâce à nearestMatchEnabled+acceptableInterval configuré côté GS.
+    // Hors animation : ranges étroites par layer (SST -30j, forecast
+    // -1j/+7j) pour le snap-to-latest classique.
+    const animating = this.animPlayer.state() !== 'idle';
+    if (animating) {
+      if (this.sstSource && !this.isFuture()) this.sstSource.updateParams({ TIME: isoTs });
+      if (this.windWmsSource) this.windWmsSource.updateParams({ TIME: isoTs });
+      if (this.wavesSource)   this.wavesSource.updateParams({ TIME: isoTs });
+    } else {
+      if (this.sstSource && !this.isFuture()) {
+        const sstStart = new Date(t.getTime() - 30 * 24 * 3600 * 1000);
+        const sstRange = `${toIsoTimestamp(sstStart)}/${isoTs}`;
+        this.sstSource.updateParams({ TIME: sstRange });
+      }
+      const fcStart = new Date(t.getTime() - 1 * 24 * 3600 * 1000);
+      const fcEnd   = new Date(t.getTime() + 7 * 24 * 3600 * 1000);
+      const fcRange = `${toIsoTimestamp(fcStart)}/${toIsoTimestamp(fcEnd)}`;
+      if (this.windWmsSource) this.windWmsSource.updateParams({ TIME: fcRange });
+      if (this.wavesSource)   this.wavesSource.updateParams({ TIME: fcRange });
     }
-    const fcStart = new Date(t.getTime() - 1 * 24 * 3600 * 1000);
-    const fcEnd   = new Date(t.getTime() + 7 * 24 * 3600 * 1000);
-    const fcRange = `${toIsoTimestamp(fcStart)}/${toIsoTimestamp(fcEnd)}`;
-    if (this.windWmsSource) this.windWmsSource.updateParams({ TIME: fcRange });
-    if (this.wavesSource)   this.wavesSource.updateParams({ TIME: fcRange });
   }
 
   /**
@@ -4409,9 +4515,107 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.animPanelOpen.set(false);
   }
 
-  onAnimationLaunch(opts: AnimationOptions): void {
+  async onAnimationLaunch(opts: AnimationOptions): Promise<void> {
     this.animPanelOpen.set(false);
-    this.animPlayer.start(opts);
+
+    // Phase 1 — pattern Eumetview : on parcourt les timestamps réels du
+    // master plutôt qu'un step 1h fixe. Si aucun master (rien d'actif),
+    // fallback legacy.
+    const masterKey = this.masterLayerKey();
+    if (!masterKey) {
+      this.animPlayer.start(opts);
+      return;
+    }
+    const master = this.animatableLayers.find((l) => l.key === masterKey);
+    if (!master) {
+      this.animPlayer.start(opts);
+      return;
+    }
+
+    // Compute window [start, end] depuis duration + direction pour clamper
+    // les timestamps fetchés (le master peut publier au-delà).
+    const window = this.computeAnimationWindow(opts);
+    const timestamps = await this.fetchTimestamps(master, window.start, window.end);
+
+    this.animPlayer.start({
+      ...opts,
+      timestamps,
+      masterLayerLabel: master.label,
+    });
+  }
+
+  /** Calcule la fenêtre [start, end] selon direction + duration. */
+  private computeAnimationWindow(opts: AnimationOptions): { start: Date; end: Date } {
+    const hours = { '6h': 6, '24h': 24, '3d': 72, '7d': 168 }[opts.duration];
+    const ms = hours * 3_600_000;
+    const resolved = opts.direction === 'auto'
+      ? (opts.forecastActive ? 'future' : 'past')
+      : opts.direction;
+    const anchor = new Date(opts.anchor.getTime());
+    anchor.setUTCMinutes(0, 0, 0);
+    if (resolved === 'past') {
+      return { start: new Date(anchor.getTime() - ms), end: anchor };
+    }
+    return { start: anchor, end: new Date(anchor.getTime() + ms) };
+  }
+
+  /** Récupère la liste des timestamps disponibles pour le master sur la
+   *  fenêtre [start, end]. WMS → GS GetCapabilities + parse `<Dimension>`.
+   *  Vector → scan 30min (pas de capabilities WFS pour le temps). */
+  private async fetchTimestamps(
+    master: { type: 'wms' | 'vector'; gsLayerName?: string },
+    start: Date,
+    end: Date,
+  ): Promise<Date[]> {
+    if (master.type === 'vector') {
+      // Scan toutes les 30min — convention Sylvain pour les sources
+      // continues (AIS, foudre, METAR).
+      const STEP = 30 * 60_000;
+      const out: Date[] = [];
+      for (let t = start.getTime(); t <= end.getTime(); t += STEP) {
+        out.push(new Date(t));
+      }
+      return out;
+    }
+    if (!master.gsLayerName) return [];
+    try {
+      const url = `/geoserver/maritime/wms?service=WMS&version=1.3.0&request=GetCapabilities`;
+      const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+      if (!resp.ok) throw new Error(`GetCapabilities HTTP ${resp.status}`);
+      const xml = await resp.text();
+      return this.parseTimeDimension(xml, master.gsLayerName)
+        .filter((t) => t.getTime() >= start.getTime() && t.getTime() <= end.getTime());
+    } catch (err) {
+      console.warn('[anim] GetCapabilities échec, fallback step 1h :', err);
+      return [];
+    }
+  }
+
+  /** Parse le <Dimension name="time"> d'un layer dans le doc WMS Caps.
+   *  Format type : "2026-05-13T00:00:00Z,2026-05-14T00:00:00Z,...".
+   *  Supporte aussi l'intervalle "start/end/PERIOD" → on enumere. */
+  private parseTimeDimension(xml: string, layerName: string): Date[] {
+    // Match le <Layer> avec le bon <Name>layerName</Name> + son <Dimension>
+    const escaped = layerName.replace(/[/.]/g, '\\$&');
+    const layerRe = new RegExp(
+      `<Layer[^>]*>[\\s\\S]*?<Name>${escaped}</Name>[\\s\\S]*?<Dimension[^>]*name="time"[^>]*>([^<]*)</Dimension>[\\s\\S]*?</Layer>`,
+      'i',
+    );
+    const m = xml.match(layerRe);
+    if (!m) return [];
+    const raw = m[1].trim();
+    const out: Date[] = [];
+    for (const token of raw.split(',')) {
+      const trimmed = token.trim();
+      if (!trimmed) continue;
+      if (trimmed.includes('/')) {
+        // Interval : start/end/PERIOD (rare en pratique pour mosaïque, on ignore)
+        continue;
+      }
+      const d = new Date(trimmed);
+      if (!isNaN(d.getTime())) out.push(d);
+    }
+    return out;
   }
 
   /** Appelé quand l'utilisateur click le bouton ▶︎ du time-slider.

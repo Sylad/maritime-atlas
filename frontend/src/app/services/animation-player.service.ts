@@ -42,6 +42,13 @@ export interface AnimationOptions {
   /** Auto-detect direction "auto" : true si au moins une couche
    *  forecast est active au moment du lancement. */
   forecastActive: boolean;
+  /** Phase 1 (2026-05-14 soir) — Pattern Eumetview : on parcourt les
+   *  timestamps RÉELS du "layer maître du temps" plutôt qu'un step 1h
+   *  fixe. Si fourni, le player itère ce tableau ; sinon fallback sur
+   *  le step 1h calculé depuis duration (legacy). */
+  timestamps?: Date[];
+  /** Nom du master pour affichage UI (modal, overlay). */
+  masterLayerLabel?: string;
 }
 
 type PlayerState = 'idle' | 'playing' | 'paused';
@@ -70,9 +77,14 @@ export class AnimationPlayerService {
   readonly state = signal<PlayerState>('idle');
   readonly config = signal<AnimationOptions | null>(null);
 
-  /** Frame courante (1-based) / total frames calculé depuis duration. */
+  /** Frame courante (0-based) / total frames. Si timestamps fourni
+   *  (master layer), total = liste.length. Sinon legacy = duration en
+   *  heures. */
   readonly frameIndex = signal<number>(0);
+  private readonly timestampsCount = signal<number>(0);
   readonly totalFrames = computed<number>(() => {
+    const ts = this.timestampsCount();
+    if (ts > 0) return ts;
     const cfg = this.config();
     return cfg ? DURATION_HOURS[cfg.duration] : 0;
   });
@@ -91,16 +103,30 @@ export class AnimationPlayerService {
   private timer: ReturnType<typeof setInterval> | null = null;
   private rangeStart: Date | null = null;
   private rangeEnd: Date | null = null;
+  /** Phase 1 : liste de timestamps réels du master à parcourir. Si null,
+   *  fallback step 1h fixe (legacy). */
+  private timestamps: Date[] | null = null;
 
   /** Callback optionnel pour le sliding window — appelé au début de
    *  chaque loop si followRealTime=true. Doit retourner la nouvelle
-   *  ancre + boolean si la fenêtre a effectivement bougé. */
-  private slidingWindowProvider: (() => Promise<Date | null>) | null = null;
+   *  ancre ET une nouvelle liste de timestamps si master change. */
+  private slidingWindowProvider:
+    | (() => Promise<{ anchor: Date; timestamps?: Date[] } | null>)
+    | null = null;
 
-  /** Définit le provider sliding window (appelé par map.component
-   *  qui sait comment fetch GS GetCapabilities). */
-  setSlidingWindowProvider(fn: (() => Promise<Date | null>) | null): void {
+  /** Callback optionnel — appelé au stop/fin pour récupérer le timestamp
+   *  "le plus proche de now" disponible côté master (return-to-now spec
+   *  Sylvain 2026-05-14). Si null, on retombe sur Date.now(). */
+  private nearestNowProvider: (() => Promise<Date | null>) | null = null;
+
+  setSlidingWindowProvider(
+    fn: (() => Promise<{ anchor: Date; timestamps?: Date[] } | null>) | null,
+  ): void {
     this.slidingWindowProvider = fn;
+  }
+
+  setNearestNowProvider(fn: (() => Promise<Date | null>) | null): void {
+    this.nearestNowProvider = fn;
   }
 
   /** Calcule [start, end] selon direction + duration + anchor. */
@@ -131,7 +157,20 @@ export class AnimationPlayerService {
     this.rangeEnd = end;
     this.frameIndex.set(0);
 
-    this.emitFrame(start);
+    // Phase 1 : si timestamps fourni, on garde QUE ceux qui tombent
+    // dans la fenêtre [start, end] (le master peut publier au-delà,
+    // on ne veut pas dépasser ce que l'user a demandé).
+    if (opts.timestamps && opts.timestamps.length > 0) {
+      this.setTimestamps(opts.timestamps
+        .filter((t) => t.getTime() >= start.getTime() && t.getTime() <= end.getTime())
+        .sort((a, b) => a.getTime() - b.getTime()));
+    } else {
+      this.setTimestamps(null);
+    }
+
+    // Première frame : 1er timestamp si dispo, sinon start (legacy).
+    const firstFrame = this.timestamps?.[0] ?? start;
+    this.emitFrame(firstFrame);
     this.state.set('playing');
     this.scheduleNextTick();
   }
@@ -150,14 +189,28 @@ export class AnimationPlayerService {
     this.scheduleNextTick();
   }
 
-  /** Arrête complètement et reset l'état. */
+  /** Arrête complètement et reset l'état. Émet en plus une frame finale
+   *  "return-to-now" (la date la plus proche de maintenant fournie par
+   *  nearestNowProvider) pour que la carte revienne sur la donnée la
+   *  plus fraîche du master plutôt que de rester figée sur la dernière
+   *  frame de l'animation. Spec Sylvain 2026-05-14. */
   stop(): void {
+    const wasActive = this.state() !== 'idle';
     this.clearTimer();
     this.state.set('idle');
     this.config.set(null);
     this.frameIndex.set(0);
     this.rangeStart = null;
     this.rangeEnd = null;
+    this.setTimestamps(null);
+
+    if (wasActive && this.nearestNowProvider) {
+      // Fire-and-forget : on émet la frame return-to-now dès qu'on a la
+      // réponse. Si fail, on retombe sur Date.now().
+      this.nearestNowProvider()
+        .then((t) => this.emitFrame(t ?? new Date()))
+        .catch(() => this.emitFrame(new Date()));
+    }
   }
 
   /** Change la vitesse en vol — reschedule le tick suivant avec le
@@ -197,7 +250,14 @@ export class AnimationPlayerService {
     }
   }
 
-  /** Avance d'une frame. Si fin de range : loop ou stop. */
+  /** Avance d'une frame. Si fin atteinte : loop, stop ou return-to-now.
+   *
+   *  2 modes :
+   *  - timestamps-driven (Phase 1, master layer) : on itère
+   *    this.timestamps[i] ; frameIndex = position dans le tableau.
+   *  - legacy step 1h (fallback si pas de master ou pas de timestamps
+   *    dispo) : on avance d'1 heure depuis rangeStart.
+   */
   private async tick(): Promise<void> {
     const cfg = this.config();
     if (!cfg || !this.rangeStart || !this.rangeEnd) {
@@ -205,45 +265,82 @@ export class AnimationPlayerService {
       return;
     }
 
+    const usingTimestamps = this.timestamps !== null && this.timestamps.length > 0;
     const nextIndex = this.frameIndex() + 1;
-    const nextTime = new Date(this.rangeStart.getTime() + nextIndex * HOUR_MS);
 
-    if (nextTime.getTime() <= this.rangeEnd.getTime()) {
-      this.frameIndex.set(nextIndex);
-      this.emitFrame(nextTime);
-      return;
+    if (usingTimestamps) {
+      const list = this.timestamps!;
+      if (nextIndex < list.length) {
+        this.frameIndex.set(nextIndex);
+        this.emitFrame(list[nextIndex]);
+        return;
+      }
+    } else {
+      const nextTime = new Date(this.rangeStart.getTime() + nextIndex * HOUR_MS);
+      if (nextTime.getTime() <= this.rangeEnd.getTime()) {
+        this.frameIndex.set(nextIndex);
+        this.emitFrame(nextTime);
+        return;
+      }
     }
 
-    // Fin de range atteinte — gérer loop/end.
+    // ── Fin de séquence atteinte ───────────────────────────────────
     if (!cfg.loop) {
       this.clearTimer();
       this.state.set('idle');
       this.finishedSubject.next();
+      // return-to-now : émet la frame la plus proche de maintenant
+      if (this.nearestNowProvider) {
+        try {
+          const t = await this.nearestNowProvider();
+          this.emitFrame(t ?? new Date());
+        } catch {
+          this.emitFrame(new Date());
+        }
+      }
+      // reset state final (config/range/timestamps purgés)
+      this.config.set(null);
+      this.frameIndex.set(0);
+      this.rangeStart = null;
+      this.rangeEnd = null;
+      this.setTimestamps(null);
       return;
     }
 
-    // Loop activée. Si followRealTime + provider dispo, on essaie d'étendre
-    // la fenêtre vers maintenant avant de relooper.
+    // Loop activée. Si followRealTime + provider dispo, on demande au
+    // consumer de fournir une nouvelle ancre ET une nouvelle liste de
+    // timestamps (le master a peut-être de nouveaux granules disponibles).
     if (cfg.followRealTime && this.slidingWindowProvider) {
       try {
-        const newAnchor = await this.slidingWindowProvider();
-        if (newAnchor) {
-          const { start, end } = this.computeRange({ ...cfg, anchor: newAnchor });
+        const refreshed = await this.slidingWindowProvider();
+        if (refreshed) {
+          const { start, end } = this.computeRange({ ...cfg, anchor: refreshed.anchor });
           this.rangeStart = start;
           this.rangeEnd = end;
+          if (refreshed.timestamps && refreshed.timestamps.length > 0) {
+            this.setTimestamps(refreshed.timestamps
+              .filter((t) => t.getTime() >= start.getTime() && t.getTime() <= end.getTime())
+              .sort((a, b) => a.getTime() - b.getTime()));
+          }
         }
       } catch {
-        // Si le fetch échoue, on continue avec la fenêtre actuelle —
         // ne pas casser la loop pour un fail réseau ponctuel.
       }
     }
 
     this.frameIndex.set(0);
-    this.emitFrame(this.rangeStart);
+    const firstFrame = this.timestamps?.[0] ?? this.rangeStart;
+    this.emitFrame(firstFrame);
   }
 
   private emitFrame(t: Date): void {
     this.frameTimeSubject.next(t);
+  }
+
+  /** Set la liste de timestamps + sync le signal count pour totalFrames. */
+  private setTimestamps(list: Date[] | null): void {
+    this.timestamps = list;
+    this.timestampsCount.set(list?.length ?? 0);
   }
 
   /** Round to hour for clean frame boundaries. */

@@ -38,6 +38,18 @@ import {
       </header>
 
       <div class="ap-body">
+        <!-- Master layer info -->
+        @if (masterLayerLabel) {
+          <section class="ap-master">
+            <span class="ap-master-icon">⏱</span>
+            <div>
+              <div class="ap-master-label">Maître du temps</div>
+              <div class="ap-master-value">{{ masterLayerLabel }}</div>
+              <small class="ap-hint">L'animation parcourt les dates pour lesquelles cette couche a des données. Les autres couches s'adaptent au plus proche.</small>
+            </div>
+          </section>
+        }
+
         <!-- Durée -->
         <section class="ap-group">
           <div class="ap-label">Durée</div>
@@ -194,6 +206,36 @@ import {
       gap: 1.2em;
     }
     .ap-group { display: flex; flex-direction: column; gap: 0.5em; }
+    .ap-master {
+      display: flex;
+      gap: 0.7em;
+      align-items: flex-start;
+      padding: 0.7em 0.9em;
+      background: hsl(224 80% 50% / 0.10);
+      border: 1px solid hsl(224 95% 60% / 0.45);
+      border-radius: 8px;
+      box-shadow: 0 0 18px hsl(224 95% 60% / 0.20) inset;
+    }
+    .ap-master-icon {
+      font-size: 1.3rem;
+      line-height: 1;
+      filter: drop-shadow(0 0 8px hsl(224 95% 60% / 0.8));
+      font-variant-emoji: text;
+    }
+    .ap-master-label {
+      font-family: var(--font-mono, monospace);
+      font-size: 0.65rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--accent, #67e8f9);
+      opacity: 0.85;
+    }
+    .ap-master-value {
+      font-size: 0.95rem;
+      color: var(--fg, #e8e6e3);
+      font-weight: 600;
+      margin: 2px 0 4px;
+    }
     .ap-label {
       font-family: var(--font-mono, monospace);
       font-size: 0.7rem;
@@ -315,6 +357,11 @@ export class AnimationPanelComponent {
   /** Indique s'il y a au moins une couche forecast active actuellement.
    *  Sert au mode "Auto" pour choisir past vs future. */
   @Input() forecastActive = false;
+
+  /** Phase 1 v2 : nom du "layer maître du temps" actuel. Affiché dans
+   *  la modal pour que l'user sache quel layer pilote la séquence de
+   *  timestamps. null = aucun layer animable actif. */
+  @Input() masterLayerLabel: string | null = null;
 
   @Output() launch = new EventEmitter<AnimationOptions>();
   @Output() cancel = new EventEmitter<void>();
