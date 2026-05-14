@@ -64,6 +64,7 @@ jobs:
             ["services/weather-fetcher-arome"]="weather-fetcher-arome"
             ["services/sst-fetcher"]="sst-fetcher"
             ["services/grib-parser"]="grib-parser"
+            ["services/maritime-style-bootstrap"]="style-bootstrap"
             ["frontend"]="frontend"
             ["geoserver"]="geoserver"
           )
@@ -111,9 +112,10 @@ jobs:
         id: ctx
         run: |
           case "${{ matrix.service }}" in
-            frontend)   echo "path=frontend"   >> $GITHUB_OUTPUT ;;
-            geoserver)  echo "path=geoserver"  >> $GITHUB_OUTPUT ;;
-            *)          echo "path=services/${{ matrix.service }}" >> $GITHUB_OUTPUT ;;
+            frontend)         echo "path=frontend"   >> $GITHUB_OUTPUT ;;
+            geoserver)        echo "path=geoserver"  >> $GITHUB_OUTPUT ;;
+            style-bootstrap)  echo "path=services/maritime-style-bootstrap" >> $GITHUB_OUTPUT ;;
+            *)                echo "path=services/${{ matrix.service }}" >> $GITHUB_OUTPUT ;;
           esac
 
       - name: Compute image name & tag
