@@ -2926,7 +2926,16 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // Coalesce past-mode vessel fetches : si l'utilisateur drag rapidement
   // le slider, on n'envoie qu'une requête après ~150ms d'inactivité.
   private pastFetchDebounce?: ReturnType<typeof setTimeout>;
-  private readonly geoJsonFmt = new GeoJSON({ featureProjection: 'EPSG:3857', dataProjection: 'EPSG:4326' });
+  // featureProjection DOIT matcher la View projection courante (sinon
+  // features décodées en EPSG:3857 alors que View en EPSG:3035 → bug
+  // wind-arrows mal placés en Lambert). On lazy-instancie via getter
+  // pour récupérer la projection actuelle à chaque parse.
+  private get geoJsonFmt(): GeoJSON {
+    return new GeoJSON({
+      featureProjection: this.map?.getView().getProjection() ?? 'EPSG:3857',
+      dataProjection: 'EPSG:4326',
+    });
+  }
 
   constructor() {
     // Effect réactif : à chaque changement de signal toggle, on ré-applique
