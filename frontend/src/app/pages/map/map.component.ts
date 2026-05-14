@@ -4134,28 +4134,29 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.vesselsCount.set(0);
     }
     // Snap-to-latest pour les WMS time-enabled : on passe une PLAGE
-    // [cursor-30d, cursor] au lieu d'un instant pile. GeoServer ImageMosaic
-    // matche le timestep le plus récent dispo dans la plage — donc on
-    // affiche toujours la dernière donnée connue jusqu'au cursor, plutôt
-    // qu'une tile vide quand l'instant exact n'est pas indexé.
+    // étroite au GS plutôt qu'un instant pile. GeoServer ImageMosaic
+    // matche le timestep le plus récent dispo dans la plage — affiche
+    // toujours la donnée la plus fraîche autour du cursor, plutôt qu'une
+    // tile vide si l'instant exact n'est pas indexé.
     //
-    // 2026-05-14 : fenêtre passée de 56 ans (1970-01-01) à 30 jours.
-    // Avec range 1970, GS scannait potentiellement des millions de
-    // granules de la mosaic → sur-load CPU + timeouts. 30 jours suffit
-    // amplement pour couvrir le retard de publication NOAA OISST
-    // (~14-21 jours preliminary→final) et reste raisonnable pour la
-    // perf GS.
+    // 2026-05-14 (Sylvain) : fenêtre cadrée pour soulager Mini-Blue.
+    //   - SST = observation NOAA OISST. Délai publication
+    //     preliminary→final 14-21j → fenêtre passée de 30 jours.
+    //   - Wind/Wave = modèles forecast (GFS/AROME/ARPEGE/WaveWatch).
+    //     Couverture utile run-analyse + horizons forecast : -1j / +7j.
+    // Avant : 1970-01-01 → cursor (56 ans) faisait scanner des millions
+    // de granules mosaic à chaque pan/zoom → sur-load CPU GS + timeouts.
     const isoTs = toIsoTimestamp(t);
-    const tStart = new Date(t.getTime() - 30 * 24 * 3600 * 1000);
-    const timeRange = `${toIsoTimestamp(tStart)}/${isoTs}`;
     if (this.sstSource && !this.isFuture()) {
-      this.sstSource.updateParams({ TIME: timeRange });
+      const sstStart = new Date(t.getTime() - 30 * 24 * 3600 * 1000);
+      const sstRange = `${toIsoTimestamp(sstStart)}/${isoTs}`;
+      this.sstSource.updateParams({ TIME: sstRange });
     }
-    // Wind/Waves : forecast peut couvrir le passé (run analyse) ET le futur
-    // jusqu'à +72h. On utilise la même plage [past..cursor] pour le past
-    // mode, mais en mode futur on accepte aussi le forecast.
-    if (this.windWmsSource) this.windWmsSource.updateParams({ TIME: timeRange });
-    if (this.wavesSource)   this.wavesSource.updateParams({ TIME: timeRange });
+    const fcStart = new Date(t.getTime() - 1 * 24 * 3600 * 1000);
+    const fcEnd   = new Date(t.getTime() + 7 * 24 * 3600 * 1000);
+    const fcRange = `${toIsoTimestamp(fcStart)}/${toIsoTimestamp(fcEnd)}`;
+    if (this.windWmsSource) this.windWmsSource.updateParams({ TIME: fcRange });
+    if (this.wavesSource)   this.wavesSource.updateParams({ TIME: fcRange });
   }
 
   /**
