@@ -196,14 +196,11 @@ function toIsoTimestamp(d: Date): string {
         <button type="button" class="recenter-btn"
                 (click)="recenterDefaultZone()"
                 [title]="recenterTooltip()">⊙</button>
-        <button type="button" class="anim-launcher-btn"
-                [class.is-running]="animPlayer.state() !== 'idle'"
-                [disabled]="animPlayer.state() !== 'idle'"
-                (click)="openAnimationPanel()"
-                title="Lancer une animation temporelle">▶</button>
       </div>
 
-      <!-- Animation : panel modal config + overlay contrôles lecture -->
+      <!-- Animation : panel modal config + overlay contrôles lecture.
+           Le déclenchement passe par le bouton ▶︎ du time-slider, pas
+           par un bouton séparé (cf onSliderPlayClicked). -->
       @if (animPanelOpen()) {
         <app-animation-panel
           [anchor]="currentTimeSig()"
@@ -1217,7 +1214,9 @@ function toIsoTimestamp(d: Date): string {
         [maxTime]="sliderConfig().maxTime"
         [stepMs]="sliderConfig().stepMs"
         [statusLabel]="sliderConfig().label"
-        (timeChange)="onSliderTimeChange($event)" />
+        [externalAnimationActive]="animPlayer.state() !== 'idle'"
+        (timeChange)="onSliderTimeChange($event)"
+        (playClicked)="onSliderPlayClicked()" />
     </div>
   `,
   styles: `
@@ -2019,35 +2018,6 @@ function toIsoTimestamp(d: Date): string {
       background: rgba(0, 60, 136, 0.7);
     }
     .recenter-btn:focus-visible {
-      outline: 2px solid var(--accent-bright);
-      outline-offset: 2px;
-    }
-    /* Bouton ▶ Animation — même look brut OL que recenter-btn pour
-       cohérence visuelle dans le dock top-right. */
-    .anim-launcher-btn {
-      width: 1.375em;
-      height: 1.375em;
-      margin: 0 0 4px 0;
-      padding: 0;
-      background: rgba(0, 60, 136, 0.5);
-      border: 1px solid transparent;
-      border-radius: 2px;
-      color: #fff;
-      font-size: 1em;
-      line-height: 1;
-      cursor: pointer;
-      transition: background 150ms, opacity 150ms;
-      font-variant-emoji: text;
-    }
-    .anim-launcher-btn:hover:not(:disabled) {
-      background: rgba(0, 60, 136, 0.7);
-    }
-    .anim-launcher-btn:disabled,
-    .anim-launcher-btn.is-running {
-      opacity: 0.45;
-      cursor: not-allowed;
-    }
-    .anim-launcher-btn:focus-visible {
       outline: 2px solid var(--accent-bright);
       outline-offset: 2px;
     }
@@ -4433,6 +4403,20 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   onAnimationLaunch(opts: AnimationOptions): void {
     this.animPanelOpen.set(false);
     this.animPlayer.start(opts);
+  }
+
+  /** Appelé quand l'utilisateur click le bouton ▶︎ du time-slider.
+   *  Logique : idle → ouvre la modal de config / playing → pause /
+   *  paused → resume. C'est l'unique entry point UI pour l'animation. */
+  onSliderPlayClicked(): void {
+    const state = this.animPlayer.state();
+    if (state === 'idle') {
+      this.openAnimationPanel();
+    } else if (state === 'playing') {
+      this.animPlayer.pause();
+    } else if (state === 'paused') {
+      this.animPlayer.resume();
+    }
   }
 
   /** Phase C.3 + C.4 (2026-05-12) : construit la View initiale avec la

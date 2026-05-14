@@ -291,10 +291,21 @@ export class TimeSliderComponent {
 
   // Output : émet à chaque changement de cursor (drag, click track, btn).
   readonly timeChange = output<Date>();
+  /** Émis quand l'utilisateur clique le bouton play/pause. Si le parent
+   *  gère un AnimationPlayer externe (via [externalAnimationActive]), il
+   *  intercepte cet event pour open la modal ou pause/resume. Sinon
+   *  fallback sur le startPlay/stopPlay interne ("+6h/sec"). */
+  readonly playClicked = output<void>();
+
+  /** Quand true, le bouton play affiche ⏸ et togglePlay émet juste
+   *  playClicked au parent (mode "AnimationPlayer externe"). */
+  readonly externalAnimationActive = input<boolean>(false);
 
   // État interne
   readonly currentTime = signal<Date>(new Date());
-  readonly playing = signal(false);
+  private readonly legacyPlaying = signal(false);
+  /** Computed exposé au template : OR du mode externe + mode legacy. */
+  readonly playing = computed<boolean>(() => this.externalAnimationActive() || this.legacyPlaying());
   private playTimer?: ReturnType<typeof setInterval>;
   private nowTickTimer?: ReturnType<typeof setInterval>;
   private dragRaf?: number;
@@ -371,12 +382,18 @@ export class TimeSliderComponent {
   }
 
   togglePlay(): void {
-    if (this.playing()) this.stopPlay();
+    // Toujours notifier le parent — s'il gère un AnimationPlayer externe,
+    // il intercepte (ouvre la modal, pause, resume…). Si le parent ne
+    // fait rien (cas standalone / test), on fallback sur le start/stop
+    // interne "+6h/s".
+    this.playClicked.emit();
+    if (this.externalAnimationActive()) return;
+    if (this.legacyPlaying()) this.stopPlay();
     else this.startPlay();
   }
 
   private startPlay(): void {
-    this.playing.set(true);
+    this.legacyPlaying.set(true);
     // 6h advance per second de temps réel. L'animation s'arrête à NOW :
     // au-delà = forecast pas dispo, donc inutile de traverser. L'utilisateur
     // doit explicitement déplacer le cursor au-delà de NOW pour voir le futur.
@@ -395,7 +412,7 @@ export class TimeSliderComponent {
   }
 
   private stopPlay(): void {
-    this.playing.set(false);
+    this.legacyPlaying.set(false);
     if (this.playTimer) clearInterval(this.playTimer);
     this.playTimer = undefined;
   }
