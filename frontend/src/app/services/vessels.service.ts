@@ -118,7 +118,7 @@ export class VesselsService {
         typeName: 'maritime:vessel_tracks_daily',
         outputFormat: 'application/json',
         srsName: 'EPSG:4326',
-        CQL_FILTER: `day=${day}`,
+        CQL_FILTER: `day='${day}'`,
         count: '5000',
       },
     });

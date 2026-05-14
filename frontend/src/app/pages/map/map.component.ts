@@ -1347,8 +1347,8 @@ function toIsoTimestamp(d: Date): string {
       background-image: url(/aetherwx-logo.png);
       background-size: cover;
       background-repeat: no-repeat;
-      background-position: center;
-      height: 150px;
+      background-position: center top;
+      height: 200px;
       margin: -1em -1.2em 1em -1.2em;
       border-bottom: 1px solid var(--border);
       border-radius: 8px 8px 0 0;
@@ -4134,12 +4134,20 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.vesselsCount.set(0);
     }
     // Snap-to-latest pour les WMS time-enabled : on passe une PLAGE
-    // [old, cursor] au lieu d'un instant pile. GeoServer ImageMosaic
+    // [cursor-30d, cursor] au lieu d'un instant pile. GeoServer ImageMosaic
     // matche le timestep le plus récent dispo dans la plage — donc on
     // affiche toujours la dernière donnée connue jusqu'au cursor, plutôt
     // qu'une tile vide quand l'instant exact n'est pas indexé.
+    //
+    // 2026-05-14 : fenêtre passée de 56 ans (1970-01-01) à 30 jours.
+    // Avec range 1970, GS scannait potentiellement des millions de
+    // granules de la mosaic → sur-load CPU + timeouts. 30 jours suffit
+    // amplement pour couvrir le retard de publication NOAA OISST
+    // (~14-21 jours preliminary→final) et reste raisonnable pour la
+    // perf GS.
     const isoTs = toIsoTimestamp(t);
-    const timeRange = `1970-01-01T00:00:00Z/${isoTs}`;
+    const tStart = new Date(t.getTime() - 30 * 24 * 3600 * 1000);
+    const timeRange = `${toIsoTimestamp(tStart)}/${isoTs}`;
     if (this.sstSource && !this.isFuture()) {
       this.sstSource.updateParams({ TIME: timeRange });
     }
