@@ -23,18 +23,18 @@ import { DatePipe } from '@angular/common';
   template: `
     <div class="time-slider">
       <div class="ts-controls">
-        <button type="button" class="ts-btn" (click)="step(-86400000)" title="-1 jour">⏮</button>
-        <button type="button" class="ts-btn" (click)="step(-3600000)" title="-1 heure">⏪</button>
+        <button type="button" class="ts-btn" (click)="step(-86400000)" title="-1 jour">⏮&#xFE0E;</button>
+        <button type="button" class="ts-btn" (click)="step(-3600000)" title="-1 heure">⏪&#xFE0E;</button>
         <button
           type="button"
           class="ts-btn ts-btn-play"
           [class.playing]="playing()"
           (click)="togglePlay()"
           [title]="playing() ? 'Pause' : 'Play (6h/s)'">
-          {{ playing() ? '⏸' : '▶' }}
+          {{ playing() ? '⏸︎' : '▶︎' }}
         </button>
-        <button type="button" class="ts-btn" (click)="step(3600000)" title="+1 heure">⏩</button>
-        <button type="button" class="ts-btn" (click)="step(86400000)" title="+1 jour">⏭</button>
+        <button type="button" class="ts-btn" (click)="step(3600000)" title="+1 heure">⏩&#xFE0E;</button>
+        <button type="button" class="ts-btn" (click)="step(86400000)" title="+1 jour">⏭&#xFE0E;</button>
         <button
           type="button"
           class="ts-btn ts-btn-now"
@@ -129,6 +129,10 @@ import { DatePipe } from '@angular/common';
       cursor: pointer;
       font-size: 0.9rem;
       transition: all 150ms;
+      /* Force text presentation des emoji ⏪ ⏩ ⏮ ⏭ etc — sinon
+         certains browsers les rendent en multicolore (fond bleu pour
+         ⏪ ⏩ notamment). Avec U+FE0E variation selector ça respecte. */
+      font-variant-emoji: text;
       &:hover { color: var(--fg); border-color: var(--accent); }
       @media (max-width: 760px) {
         width: 32px;
