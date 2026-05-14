@@ -4384,6 +4384,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       }),
       zIndex: 50,
     });
+    // Projection courante de la View — passée explicitement à toutes les
+    // TileWMS sources pour qu'OL construise un TileGrid adapté. Sans ça
+    // les tiles fetched étaient placées aux coords EPSG:3857 même en View
+    // Lambert EPSG:3035 (fix 2026-05-14).
+    const viewProj = this.map.getView().getProjection();
     // V2 Sources #2 : Bathymétrie EMODnet WMS (TileLayer raster).
     // mean_atlas_land = bathymétrie nuancée bleu (lecture facile).
     // zIndex 4 = juste au-dessus du baseTile, sous les rasters thématiques.
@@ -4448,14 +4453,6 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // baseTile/labelsTile en variable locale).
     const baseTile = this.baseTile;
     const labelsTile = this.labelsTile;
-
-    // Projection de la View actuelle — passée explicitement aux TileWMS
-    // pour qu'OL construise un TileGrid adapté (origin/resolutions/tile
-    // size). Sans ça, OL utilisait le TileGrid par défaut EPSG:3857 même
-    // en View Lambert EPSG:3035 → tiles fetched correctement par GS mais
-    // POSITIONNÉES aux mauvaises coords par OL → rasters en patchwork
-    // mal placés. Fix 2026-05-14 (Sylvain feedback projection Lambert).
-    const viewProj = this.map.getView().getProjection();
 
     // SST raster layer — WMS time-enabled depuis GeoServer ImageMosaic.
     // Le param TIME est mis à jour par refreshForTime() à chaque change
