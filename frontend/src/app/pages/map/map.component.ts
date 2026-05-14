@@ -233,6 +233,10 @@ function toIsoTimestamp(d: Date): string {
               <span class="attribution-label">Plateformes vagues</span>
               <span><a href="https://emodnet.ec.europa.eu/en/physics" target="_blank" rel="noopener">EMODnet Physics</a> (CC-BY)</span>
             </div>
+            <div class="attribution-row attribution-build">
+              <span class="attribution-label">Bâti avec</span>
+              <span><a href="https://claude.com/claude-code" target="_blank" rel="noopener">Claude Code</a> (Anthropic) · <a href="/about" rel="noopener">À propos</a></span>
+            </div>
           </div>
         }
       </div>
