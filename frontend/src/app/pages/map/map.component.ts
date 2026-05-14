@@ -4387,8 +4387,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // Projection courante de la View — passée explicitement à toutes les
     // TileWMS sources pour qu'OL construise un TileGrid adapté. Sans ça
     // les tiles fetched étaient placées aux coords EPSG:3857 même en View
-    // Lambert EPSG:3035 (fix 2026-05-14).
-    const viewProj = this.map.getView().getProjection();
+    // Lambert EPSG:3035 (fix 2026-05-14). Non-null assert : cette méthode
+    // est appelée depuis ngAfterViewInit après initMap.
+    const viewProj = this.map!.getView().getProjection();
     // V2 Sources #2 : Bathymétrie EMODnet WMS (TileLayer raster).
     // mean_atlas_land = bathymétrie nuancée bleu (lecture facile).
     // zIndex 4 = juste au-dessus du baseTile, sous les rasters thématiques.
