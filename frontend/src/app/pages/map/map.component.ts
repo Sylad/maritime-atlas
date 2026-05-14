@@ -252,17 +252,7 @@ function toIsoTimestamp(d: Date): string {
       </button>
 
       <div class="legend data-catalog" [class.legend--closed]="!legendOpen()">
-        <div class="catalog-header">
-          <img
-            src="/aetherwx-logo.png"
-            alt="AetherWX — see the atmosphere"
-            class="catalog-logo"
-            loading="eager" />
-          <div class="catalog-header-text">
-            <div class="catalog-title">DATA CATALOG</div>
-            <div class="catalog-subtitle">Europe étroite</div>
-          </div>
-        </div>
+        <div class="catalog-header" role="img" aria-label="AetherWX — see the atmosphere"></div>
 
 
         <div class="layer-toggles">
@@ -1340,36 +1330,17 @@ function toIsoTimestamp(d: Date): string {
       margin-bottom: 0.8em;
     }
     /* ═══ V2 Phase 1 — Data catalog accordion ═══════════════════════ */
+    /* Hero logo en background-image, breaks out du padding parent pour
+       coller aux 4 coins arrondis du panneau. Pattern validé Sylvain. */
     .data-catalog .catalog-header {
-      display: flex;
-      align-items: center;
-      gap: 0.6em;
-      margin-bottom: 0.8em;
-      padding-bottom: 0.8em;
+      background-image: url(/aetherwx-logo.png);
+      background-size: contain;
+      background-repeat: no-repeat;
+      background-position: center;
+      height: 150px;
+      margin: -1em -1.2em 1em -1.2em;
       border-bottom: 1px solid var(--border);
-    }
-    .data-catalog .catalog-logo {
-      width: 96px;
-      height: 96px;
-      object-fit: contain;
-      flex-shrink: 0;
-    }
-    .data-catalog .catalog-header-text {
-      display: flex;
-      flex-direction: column;
-      min-width: 0;
-    }
-    .catalog-title {
-      font-family: var(--font-mono);
-      font-size: 0.7rem;
-      letter-spacing: 0.2em;
-      color: var(--accent);
-      font-weight: 700;
-    }
-    .catalog-subtitle {
-      font-size: 0.7rem;
-      color: var(--fg-muted);
-      margin-top: 0.2em;
+      border-radius: 8px 8px 0 0;
     }
     .catalog-section {
       display: flex;

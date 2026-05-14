@@ -273,11 +273,16 @@ def output_path_for(date: datetime) -> Path:
     return COVERAGE_DIR / f"sst_{date.strftime('%Y%m%d')}.tif"
 
 
-def url_for(date: datetime) -> str:
-    return (
-        f"{NCEI_BASE}/{date.strftime('%Y%m')}/"
-        f"oisst-avhrr-v02r01.{date.strftime('%Y%m%d')}.nc"
-    )
+def url_candidates(date: datetime) -> list[str]:
+    """NOAA OISST publie d'abord en suffixe `_preliminary.nc` (J+1) puis
+    valide la version finale 14-21 jours plus tard. On essaie le final
+    d'abord (cas data >21j), fallback sur preliminary (cas data <21j)."""
+    ymd = date.strftime('%Y%m%d')
+    ym = date.strftime('%Y%m')
+    return [
+        f"{NCEI_BASE}/{ym}/oisst-avhrr-v02r01.{ymd}.nc",
+        f"{NCEI_BASE}/{ym}/oisst-avhrr-v02r01.{ymd}_preliminary.nc",
+    ]
 
 
 def fetch_and_convert(date: datetime) -> bool:
@@ -287,18 +292,31 @@ def fetch_and_convert(date: datetime) -> bool:
         log.debug('SST %s already present, skip', date.strftime('%Y-%m-%d'))
         return False
 
-    url = url_for(date)
-    log.info('Fetching SST %s from %s', date.strftime('%Y-%m-%d'), url)
     tmp_nc = COVERAGE_DIR / f"_tmp_{date.strftime('%Y%m%d')}.nc"
+    candidates = url_candidates(date)
 
     try:
-        # Download NetCDF (~1.6 MB par jour)
-        with requests.get(url, stream=True, timeout=120) as r:
+        # On essaie successivement les URLs candidates (final puis preliminary)
+        r = None
+        url_used = None
+        for url in candidates:
+            log.info('Fetching SST %s from %s', date.strftime('%Y-%m-%d'), url)
+            r = requests.get(url, stream=True, timeout=120)
             if r.status_code == 404:
-                # Fichier pas encore publié (latence NCEI ~1-2j sur le jour J)
-                log.info('SST %s not yet published (404), will retry next run',
-                         date.strftime('%Y-%m-%d'))
-                return False
+                log.info('SST %s 404 on %s, trying next candidate',
+                         date.strftime('%Y-%m-%d'),
+                         'final' if '_preliminary' not in url else 'preliminary')
+                r.close()
+                r = None
+                continue
+            url_used = url
+            break
+        if r is None:
+            log.info('SST %s not yet published (all candidates 404)',
+                     date.strftime('%Y-%m-%d'))
+            return False
+
+        with r:
             r.raise_for_status()
             tmp_nc.parent.mkdir(parents=True, exist_ok=True)
             with open(tmp_nc, 'wb') as f:

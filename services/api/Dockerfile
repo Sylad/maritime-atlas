@@ -1,5 +1,5 @@
 # Multi-stage build (mirror finance/warhammer/ol pattern, Node 22).
-FROM node:22-alpine AS builder
+FROM node:22-bookworm-slim AS builder
 
 WORKDIR /app
 
@@ -12,7 +12,7 @@ COPY src ./src
 RUN npm run build
 
 # ─── Runtime ──────────────────────────────────────────────────────────
-FROM node:22-alpine
+FROM node:22-bookworm-slim
 
 WORKDIR /app
 
