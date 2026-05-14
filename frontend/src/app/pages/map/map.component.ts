@@ -1343,7 +1343,7 @@ function toIsoTimestamp(d: Date): string {
        coller aux 4 coins arrondis du panneau. Pattern validé Sylvain. */
     .data-catalog .catalog-header {
       background-image: url(/aetherwx-logo.png);
-      background-size: contain;
+      background-size: cover;
       background-repeat: no-repeat;
       background-position: center;
       height: 150px;
