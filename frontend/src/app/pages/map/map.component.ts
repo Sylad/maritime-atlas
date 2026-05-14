@@ -4406,6 +4406,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.bathyLayer = new TileLayer({
       source: new TileWMS({
         url: '/wms-emodnet',
+        projection: 'EPSG:3857',
         params: { LAYERS: 'mean_atlas_land', TILED: true, TRANSPARENT: true, FORMAT: 'image/png' },
         attributions: '© <a href="https://emodnet.ec.europa.eu/en/bathymetry">EMODnet Bathymetry</a>',
       }),
@@ -4420,6 +4421,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.eezLayer = new TileLayer({
       source: new TileWMS({
         url: '/wms-marineregions',
+        projection: 'EPSG:3857',
         params: { LAYERS: 'MarineRegions:eez', TILED: true, TRANSPARENT: true, FORMAT: 'image/png' },
         attributions: '© <a href="https://www.marineregions.org/">Marine Regions</a> (VLIZ, CC BY-NC-SA 4.0)',
       }),
@@ -4432,6 +4434,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.mpaLayer = new TileLayer({
       source: new TileWMS({
         url: '/wms-emodnet-human',
+        projection: 'EPSG:3857',
         params: { LAYERS: 'marineprotectedareas', TILED: true, TRANSPARENT: true, FORMAT: 'image/png' },
         attributions: '© <a href="https://emodnet.ec.europa.eu/en/human-activities">EMODnet Human Activities</a>',
       }),
@@ -4447,6 +4450,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.efasLayer = new TileLayer({
       source: new TileWMS({
         url: '/wms-efas',
+        projection: 'EPSG:3857',
         params: { LAYERS: 'efas_forecast_flood_probability', TILED: true, TRANSPARENT: true, FORMAT: 'image/png' },
         attributions: '© <a href="https://www.efas.eu/">EFAS — Copernicus Emergency Management Service</a>',
       }),
@@ -4464,6 +4468,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // de currentTime.
     this.sstSource = new ImageWMS({
       url: '/geoserver/maritime/wms',
+      projection: 'EPSG:3857',
       ratio: 1.2,  // léger over-fetch pour pre-cache pendant pan
       params: {
         LAYERS: 'maritime:sst-daily',
@@ -4492,6 +4497,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
                                                : 'maritime:wind-speed';
     this.windWmsSource = new ImageWMS({
       url: '/geoserver/maritime/wms',
+      projection: 'EPSG:3857',
       ratio: 1.2,
       params: { LAYERS: initialWindLayer, TRANSPARENT: true, interpolations: 'bicubic' },
       serverType: 'geoserver',
@@ -4507,6 +4513,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // Vagues (hauteur sig., m) — WMS time-enabled.
     this.wavesSource = new ImageWMS({
       url: '/geoserver/maritime/wms',
+      projection: 'EPSG:3857',
       ratio: 1.2,
       params: { LAYERS: 'maritime:wave-hs', TRANSPARENT: true, interpolations: 'bicubic' },
       serverType: 'geoserver',
