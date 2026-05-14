@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, effect, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 
 /**
@@ -50,7 +50,7 @@ import { DatePipe } from '@angular/common';
           } @else if (isFuture()) {
             <span class="ts-future">FORECAST</span>
           }
-          {{ currentTime() | date:'EEE dd MMM yyyy · HH:mm' }}
+          {{ displayTime() | date:'EEE dd MMM yyyy · HH:mm' }}
           @if (statusLabel()) {
             <span class="ts-status">{{ statusLabel() }}</span>
           }
@@ -309,6 +309,10 @@ export class TimeSliderComponent {
 
   // État interne
   readonly currentTime = signal<Date>(new Date());
+  /** Temps à afficher = externe (anim player) en priorité, sinon interne.
+   *  Plus fiable qu'un effect() qui set currentTime — évite les loops et
+   *  les soucis de change detection sur OnPush. */
+  readonly displayTime = computed<Date>(() => this.externalCurrentTime() ?? this.currentTime());
   private readonly legacyPlaying = signal(false);
   /** Computed exposé au template : OR du mode externe + mode legacy. */
   readonly playing = computed<boolean>(() => this.externalAnimationActive() || this.legacyPlaying());
@@ -326,17 +330,6 @@ export class TimeSliderComponent {
       }
     }, 60_000);
 
-    // Sync externe → interne. Quand le parent pilote le temps (animation
-    // player notamment), le `currentTime` interne suit. On évite de
-    // ré-émettre timeChange pour ne pas boucler — c'est juste un mirror
-    // visuel (label date + position cursor).
-    effect(() => {
-      const ext = this.externalCurrentTime();
-      if (!ext) return;
-      if (ext.getTime() !== this.currentTime().getTime()) {
-        this.currentTime.set(ext);
-      }
-    });
   }
 
   // ─── Computed ──────────────────────────────────────────────────────
@@ -345,7 +338,7 @@ export class TimeSliderComponent {
   readonly cursorPercent = computed(() => {
     const min = this.minTime().getTime();
     const max = this.maxTime().getTime();
-    const cur = this.currentTime().getTime();
+    const cur = this.displayTime().getTime();
     return Math.max(0, Math.min(100, ((cur - min) / (max - min)) * 100));
   });
 
@@ -356,8 +349,8 @@ export class TimeSliderComponent {
     return Math.max(0, Math.min(100, ((now - min) / (max - min)) * 100));
   });
 
-  readonly isLive = computed(() => Math.abs(Date.now() - this.currentTime().getTime()) < 5 * 60_000);
-  readonly isFuture = computed(() => this.currentTime().getTime() > Date.now() + 5 * 60_000);
+  readonly isLive = computed(() => Math.abs(Date.now() - this.displayTime().getTime()) < 5 * 60_000);
+  readonly isFuture = computed(() => this.displayTime().getTime() > Date.now() + 5 * 60_000);
 
   // ─── Step buttons computed ─────────────────────────────────────────
   /** Small step = la granularité native (stepMs si fourni, sinon 1h). */

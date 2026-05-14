@@ -4172,12 +4172,18 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.closePopup();
     } else if (!this.isFuture()) {
       // Past mode : tracks daily (LineStrings) + vessels positions à T (debounced).
-      const day = toIsoDate(t);
-      if (day !== this.lastTrackDay) {
-        this.lastTrackDay = day;
-        this.fetchTracks(day);
+      // Pendant une animation : on skip fetchTracks (le feature type GS
+      // vessel_tracks_daily n'expose pas `day` → 400 répété à chaque
+      // frame). À ré-activer après reconfig GS REST. Skip aussi
+      // scheduleFetchVesselsAt pour ne pas inonder l'API à 4× / sec.
+      if (this.animPlayer.state() === 'idle') {
+        const day = toIsoDate(t);
+        if (day !== this.lastTrackDay) {
+          this.lastTrackDay = day;
+          this.fetchTracks(day);
+        }
+        this.scheduleFetchVesselsAt(t);
       }
-      this.scheduleFetchVesselsAt(t);
     } else {
       // Future : aucun fetch (forecast pas implémenté).
       this.cancelPastVesselsFetch();
