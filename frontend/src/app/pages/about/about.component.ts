@@ -20,7 +20,7 @@ import { RouterLink } from '@angular/router';
       <section class="hero">
         <div class="hero-overlay"></div>
         <div class="hero-content">
-          <img src="/aetherwx-logo.png" alt="AetherWX — see the atmosphere" class="hero-logo" />
+          <img src="/AetherWX_logo.png" alt="AetherWX — see the atmosphere" class="hero-logo" />
           <div class="eyebrow">Atlas live · France métropole · anciennement Maritime Atlas</div>
           <h1>Le matelot et le copilote</h1>
           <p class="lede">

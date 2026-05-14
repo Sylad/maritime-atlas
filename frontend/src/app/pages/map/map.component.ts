@@ -1363,7 +1363,7 @@ function toIsoTimestamp(d: Date): string {
     /* Hero logo en background-image, breaks out du padding parent pour
        coller aux 4 coins arrondis du panneau. Pattern validé Sylvain. */
     .data-catalog .catalog-header {
-      background-image: url(/aetherwx-logo.png);
+      background-image: url(/AetherWX_logo_menu.png);
       background-size: cover;
       background-repeat: no-repeat;
       background-position: center top;
