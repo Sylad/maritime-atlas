@@ -253,8 +253,15 @@ function toIsoTimestamp(d: Date): string {
 
       <div class="legend data-catalog" [class.legend--closed]="!legendOpen()">
         <div class="catalog-header">
-          <div class="catalog-title">DATA CATALOG</div>
-          <div class="catalog-subtitle">Europe étroite</div>
+          <img
+            src="/aetherwx-logo.png"
+            alt="AetherWX — see the atmosphere"
+            class="catalog-logo"
+            loading="eager" />
+          <div class="catalog-header-text">
+            <div class="catalog-title">DATA CATALOG</div>
+            <div class="catalog-subtitle">Europe étroite</div>
+          </div>
         </div>
 
 
@@ -906,7 +913,14 @@ function toIsoTimestamp(d: Date): string {
             <div class="legend-refresh">refresh {{ lastRefreshAt() | date:'HH:mm:ss' }}</div>
           }
           @if (errorMsg()) {
-            <div class="legend-error">{{ errorMsg() }}</div>
+            <button
+              type="button"
+              class="legend-error-compact"
+              [title]="(errorCopied() ? '✓ copié dans le presse-papier' : (errorMsg() + ' — click pour copier'))"
+              (click)="copyErrorToClipboard()">
+              <span class="legend-error-icon">⚠</span>
+              <span class="legend-error-label">{{ errorCopied() ? 'copié' : 'erreur' }}</span>
+            </button>
           }
         </div>
 
@@ -1327,9 +1341,23 @@ function toIsoTimestamp(d: Date): string {
     }
     /* ═══ V2 Phase 1 — Data catalog accordion ═══════════════════════ */
     .data-catalog .catalog-header {
+      display: flex;
+      align-items: center;
+      gap: 0.6em;
       margin-bottom: 0.8em;
       padding-bottom: 0.8em;
       border-bottom: 1px solid var(--border);
+    }
+    .data-catalog .catalog-logo {
+      width: 48px;
+      height: 48px;
+      object-fit: contain;
+      flex-shrink: 0;
+    }
+    .data-catalog .catalog-header-text {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
     }
     .catalog-title {
       font-family: var(--font-mono);
@@ -1810,6 +1838,31 @@ function toIsoTimestamp(d: Date): string {
       font-size: 0.7rem;
       margin-top: 0.4em;
     }
+    /* Compact error indicator : icône + texte "erreur" rouge sans élargir
+       le panneau gauche. Le message complet est en tooltip native (title). */
+    .legend-error-compact {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3em;
+      margin-top: 0.4em;
+      padding: 0.15em 0.5em;
+      border: 1px solid var(--negative);
+      border-radius: 3px;
+      background: color-mix(in srgb, var(--negative) 12%, transparent);
+      color: var(--negative);
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.05em;
+      cursor: help;
+      max-width: max-content;
+    }
+    .legend-error-icon {
+      font-size: 0.8rem;
+      line-height: 1;
+    }
+    .legend-error-label {
+      text-transform: uppercase;
+    }
 
     .popup {
       position: absolute;
@@ -2203,6 +2256,25 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly tracksCount = signal(0);
   readonly lastRefreshAt = signal<Date | null>(null);
   readonly errorMsg = signal<string | null>(null);
+  // Flash "copié" sur le badge erreur 2s après le click clipboard.
+  readonly errorCopied = signal(false);
+
+  /** Set errorMsg + log dans console.error pour debug DevTools. */
+  private setError(msg: string, original?: unknown): void {
+    this.errorMsg.set(msg);
+    // eslint-disable-next-line no-console
+    console.error('[map]', msg, original ?? '');
+  }
+
+  /** Copie le message d'erreur courant au clipboard, flash 'copié' 2s. */
+  copyErrorToClipboard(): void {
+    const msg = this.errorMsg();
+    if (!msg) return;
+    void navigator.clipboard.writeText(msg).then(() => {
+      this.errorCopied.set(true);
+      setTimeout(() => this.errorCopied.set(false), 2000);
+    });
+  }
 
   // Toggles user — par défaut tout visible (sauf rain/wind/waves : opt-in
   // pour éviter d'écraser l'image avec des tiles tant que pas demandé)
@@ -4026,7 +4098,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
           this.vesselSource.addFeatures(features);
         },
         error: (err) => {
-          this.errorMsg.set(`Erreur WFS replay : ${err.message ?? err}`);
+          this.setError(`Erreur WFS replay : ${err.message ?? err}`, err);
           this.vesselsCount.set(0);
         },
       });
@@ -4064,7 +4136,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
           const features = this.geoJsonFmt.readFeatures(fc);
           this.vesselSource.addFeatures(features);
         },
-        error: (err) => this.errorMsg.set(`Erreur WFS live : ${err.message ?? err}`),
+        error: (err) => this.setError(`Erreur WFS live : ${err.message ?? err}`, err),
       });
   }
 
@@ -4087,7 +4159,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
           this.trackSource.addFeatures(features);
         },
         error: (err) => {
-          this.errorMsg.set(`Erreur WFS tracks : ${err.message ?? err}`);
+          this.setError(`Erreur WFS tracks : ${err.message ?? err}`, err);
           this.tracksCount.set(0);
         },
       });

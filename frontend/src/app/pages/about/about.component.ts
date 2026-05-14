@@ -63,10 +63,13 @@ import { RouterLink } from '@angular/router';
           </p>
           <p class="emphasis">
             Particularité de ce site : c'est mon premier projet 100% solo
-            avec Claude — pas de ChatGPT pour les visuels, pas de Copilot
-            pour le code, pas de Midjourney pour les éléments graphiques.
-            Tout — backend, frontend, SVG inline, SLD, Mermaid de doc — a
-            été écrit en pair-programming avec Claude Code, de bout en bout.
+            avec Claude — pas de Copilot pour le code, pas de Midjourney
+            pour les éléments graphiques. Tout — backend, frontend, SVG
+            inline, SLD, Mermaid de doc — a été écrit en pair-programming
+            avec Claude Code, de bout en bout. <strong>Seule exception :
+            le logo AetherWX (radar + storm + slogan "see the atmosphere")
+            a été designé par ChatGPT</strong> en mai 2026 lors du rebrand
+            depuis Maritime Atlas.
           </p>
         </div>
       </section>
