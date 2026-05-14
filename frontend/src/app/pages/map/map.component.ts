@@ -2998,31 +2998,43 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // Effect : maintient activationOrder à jour. À chaque changement de
     // toggle on diff l'ancien set vs nouveau ; push les nouveaux activés
     // en queue, retire les désactivés. Tête = master du temps.
+    //
+    // Note : `internalOrder` est local (pas de read du signal qu'on
+    // écrit dans le même effect → évite dépendance circulaire) +
+    // `allowSignalWrites: true` car Angular 18+ interdit set() depuis
+    // effect par défaut (NG0600). Sans cette option, l'effect throw
+    // silencieusement et activationOrder reste vide → masterLayerLabel
+    // null → bloc « Maître du temps » absent de la modal (bug observé
+    // Sylvain 2026-05-14).
     let prevActive = new Set<string>();
+    let internalOrder: string[] = [];
     effect(() => {
       const currentActive = new Set<string>(
         this.animatableLayers.filter((l) => l.active()).map((l) => l.key),
       );
-      const order = [...this.activationOrder()];
+      let changed = false;
       // Désactivations : remove
       for (const key of prevActive) {
         if (!currentActive.has(key)) {
-          const i = order.indexOf(key);
-          if (i >= 0) order.splice(i, 1);
+          const i = internalOrder.indexOf(key);
+          if (i >= 0) {
+            internalOrder.splice(i, 1);
+            changed = true;
+          }
         }
       }
-      // Activations : append à la fin (dans l'ordre du registry pour
-      // un tiebreaker stable si plusieurs s'allument dans le même tick)
+      // Activations : append (tiebreaker = ordre du registry)
       for (const layer of this.animatableLayers) {
-        if (currentActive.has(layer.key) && !prevActive.has(layer.key) && !order.includes(layer.key)) {
-          order.push(layer.key);
+        if (currentActive.has(layer.key) && !prevActive.has(layer.key) && !internalOrder.includes(layer.key)) {
+          internalOrder.push(layer.key);
+          changed = true;
         }
       }
-      if (order.join('|') !== this.activationOrder().join('|')) {
-        this.activationOrder.set(order);
+      if (changed) {
+        this.activationOrder.set([...internalOrder]);
       }
       prevActive = currentActive;
-    });
+    }, { allowSignalWrites: true });
 
     // Effect réactif : à chaque changement de signal toggle, on ré-applique
     // la visibility des layers OL. Sans ça, cocher/décocher un toggle ne
