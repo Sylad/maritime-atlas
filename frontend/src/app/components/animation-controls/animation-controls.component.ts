@@ -26,17 +26,10 @@ import {
     @if (visible()) {
       <div class="ac-bar" role="toolbar" aria-label="Contrôles animation">
         <button type="button"
-                class="ac-btn ac-pause"
-                [attr.title]="isPlaying() ? 'Pause' : 'Reprendre'"
-                (click)="togglePause()">
-          {{ isPlaying() ? '⏸' : '▶' }}
-        </button>
-
-        <button type="button"
                 class="ac-btn ac-stop"
-                title="Arrêter"
+                title="Arrêter l'animation"
                 (click)="stop()">
-          ⏹
+          ⏸
         </button>
 
         <span class="ac-progress" [attr.title]="progressTitle()">
