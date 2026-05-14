@@ -206,7 +206,7 @@ function toIsoTimestamp(d: Date): string {
       <!-- Animation : panel modal config + overlay contrôles lecture -->
       @if (animPanelOpen()) {
         <app-animation-panel
-          [anchor]="currentTime"
+          [anchor]="currentTimeSig()"
           [forecastActive]="isForecastActive()"
           (launch)="onAnimationLaunch($event)"
           (cancel)="closeAnimationPanel()" />
@@ -2242,7 +2242,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private readonly prefsSync = inject(PreferencesSyncService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
-  private readonly animPlayer = inject(AnimationPlayerService);
+  readonly animPlayer = inject(AnimationPlayerService);
 
   readonly currentUser = this.auth.currentUser;
   readonly isAuthenticated = this.auth.isAuthenticated;
