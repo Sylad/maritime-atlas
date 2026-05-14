@@ -1364,10 +1364,12 @@ function toIsoTimestamp(d: Date): string {
        coller aux 4 coins arrondis du panneau. Pattern validé Sylvain. */
     .data-catalog .catalog-header {
       background-image: url(/AetherWX_logo_menu.png);
-      background-size: cover;
+      background-size: 100% 100%;     /* exact-fill : pas de crop, pas de vide */
       background-repeat: no-repeat;
-      background-position: center top;
-      height: 200px;
+      /* Suit le ratio natif de AetherWX_logo_menu.png (1176×709 = 1.66:1)
+         → la hauteur s'auto-ajuste à la largeur courante du panel.
+         À largeur ~257px on retombe sur ≈155px de haut comme demandé. */
+      aspect-ratio: 1176 / 709;
       margin: -1em -1.2em 1em -1.2em;
       border-bottom: 1px solid var(--border);
       border-radius: 8px 8px 0 0;
