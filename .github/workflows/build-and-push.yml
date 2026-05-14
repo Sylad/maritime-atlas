@@ -100,8 +100,12 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: Sylad
+          # PAT (write:packages) requis car les packages sont owned par
+          # user account (pas org/repo). GITHUB_TOKEN ne suffit pas →
+          # 403 Forbidden au push. Setup secret repo : Settings →
+          # Secrets and variables → Actions → New : GHCR_TOKEN.
+          password: ${{ secrets.GHCR_TOKEN }}
 
       - name: Compute context path
         id: ctx
