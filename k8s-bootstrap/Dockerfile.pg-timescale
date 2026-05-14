@@ -1,0 +1,24 @@
+# Image PG + PostGIS + Timescale CNPG-compatible (UID 26).
+#
+# Base : image officielle CNPG-PostGIS qui a déjà :
+#   - PG 16 avec scripts CNPG (USER 26, /var/lib/postgresql/data, etc.)
+#   - PostGIS 3.4 précompilé
+#
+# Ajout : Timescale 2.x via apt depuis le repo officiel timescaledb.
+# Le `shared_preload_libraries=timescaledb` se configure côté CNPG Cluster
+# via spec.postgresql.shared_preload_libraries (et non parameters).
+FROM ghcr.io/cloudnative-pg/postgis:16-3.4
+
+USER root
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends gnupg2 wget lsb-release ca-certificates curl \
+ && curl -fsSL https://packagecloud.io/timescale/timescaledb/gpgkey | gpg --dearmor -o /etc/apt/trusted.gpg.d/timescaledb.gpg \
+ && echo "deb https://packagecloud.io/timescale/timescaledb/debian/ $(lsb_release -c -s) main" > /etc/apt/sources.list.d/timescaledb.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends timescaledb-2-postgresql-16 \
+ && apt-get purge -y wget gnupg2 lsb-release \
+ && apt-get autoremove -y \
+ && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+
+USER 26

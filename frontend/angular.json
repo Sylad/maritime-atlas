@@ -25,7 +25,9 @@
             "polyfills": ["zone.js"],
             "tsConfig": "tsconfig.app.json",
             "inlineStyleLanguage": "scss",
-            "assets": [],
+            "assets": [
+              { "glob": "**/*", "input": "public", "output": "/" }
+            ],
             "styles": ["src/styles.scss", "node_modules/ol/ol.css"],
             "scripts": []
           },

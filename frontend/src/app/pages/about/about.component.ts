@@ -52,7 +52,7 @@ import { RouterLink } from '@angular/router';
             empiéter sur le taf — la mer plutôt que le ciel.
           </p>
           <p>
-            <strong>Maritime Atlas</strong> est né de là, et de l'envie de
+            <strong>AetherWX</strong> est né de là, et de l'envie de
             tester jusqu'où une session intensive de pair-programming avec
             un agent IA pouvait aller. Le périmètre s'est élargi rapidement :
             j'ai commencé par "AIS sur la Bretagne", j'ai fini avec un atlas
@@ -204,7 +204,7 @@ import { RouterLink } from '@angular/router';
         <p>
           Démarre petit (1 source, 1 layer, 1 toggle), pose le pipeline
           minimal, et seulement après — quand le boucle marche — ajoute le
-          reste. Maritime Atlas a commencé par 1 ingester AIS et 1 carte
+          reste. AetherWX a commencé par 1 ingester AIS et 1 carte
           OpenLayers. Tout le reste s'est greffé naturellement.
         </p>
         <p>

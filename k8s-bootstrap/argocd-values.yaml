@@ -1,0 +1,25 @@
+# ArgoCD values pour cluster local k3s Big-Blue.
+# - TLS termination par ingress-nginx (cert-manager + mkcert CA)
+# - argocd-server en mode "insecure" interne (= HTTP) parce que l'ingress
+#   fait déjà le TLS, sinon double-TLS = redirect loop.
+configs:
+  params:
+    server.insecure: true
+
+server:
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hostname: argocd.dev.local
+    annotations:
+      cert-manager.io/cluster-issuer: mkcert-ca-issuer
+    tls: true
+
+# Pas besoin de HA pour un cluster local mono-node — désactive les replicas
+# par défaut pour économiser RAM.
+controller:
+  replicas: 1
+applicationSet:
+  replicas: 1
+repoServer:
+  replicas: 1

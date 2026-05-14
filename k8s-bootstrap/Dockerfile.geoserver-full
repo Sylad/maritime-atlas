@@ -1,0 +1,7 @@
+# Image GeoServer maritime complète : base v1 + JAR plugin IDW custom.
+# Build d'abord maritime-gs-idw-build (qui produit le JAR via Maven),
+# puis cette image qui le pose dans WEB-INF/lib/.
+FROM maritime-gs-idw-build AS idw
+
+FROM maritime-geoserver:v1
+COPY --from=idw /jar/*.jar /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/

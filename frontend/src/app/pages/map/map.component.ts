@@ -4377,7 +4377,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // via WFS sur v_alerts_recent. Style triangle de warning coloré selon
     // severity (warning=orange, danger=rouge).
     this.alertsSource = new VectorSource({
-      attributions: 'Alertes maritime-atlas (engine RMQ croise AIS + GFS + Blitzortung)',
+      attributions: 'Alertes AetherWX (engine RMQ croise AIS + GFS + Blitzortung)',
     });
     this.alertsLayer = new VectorLayer({
       source: this.alertsSource,
