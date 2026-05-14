@@ -4347,6 +4347,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   }
 
   private initMap(): void {
+    // Build la View tôt pour que les TileWMS sources puissent récupérer la
+    // projection courante (sinon `this.map` n'existe pas encore quand on
+    // crée les sources → runtime crash 'Cannot read properties of undefined
+    // (reading getView)'). Fix 2026-05-14 post-refactor projection Lambert.
+    const initialView = this.buildInitialView();
+    const viewProj = initialView.getProjection();
+
     // Attributions exposées via le contrôle Attribution OpenLayers (icône
     // (i) bas-droite). Chaque source déclare sa propre attribution → l'icône
     // affiche la liste complète au survol.
@@ -4384,12 +4391,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       }),
       zIndex: 50,
     });
-    // Projection courante de la View — passée explicitement à toutes les
-    // TileWMS sources pour qu'OL construise un TileGrid adapté. Sans ça
-    // les tiles fetched étaient placées aux coords EPSG:3857 même en View
-    // Lambert EPSG:3035 (fix 2026-05-14). Non-null assert : cette méthode
-    // est appelée depuis ngAfterViewInit après initMap.
-    const viewProj = this.map!.getView().getProjection();
+    // viewProj est défini en haut de la fonction (depuis initialView).
     // V2 Sources #2 : Bathymétrie EMODnet WMS (TileLayer raster).
     // mean_atlas_land = bathymétrie nuancée bleu (lecture facile).
     // zIndex 4 = juste au-dessus du baseTile, sous les rasters thématiques.
@@ -4748,7 +4750,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
           placeholder: '—',
         }),
       ]),
-      view: this.buildInitialView(),
+      view: initialView,
     });
 
     // Click handler — route le popup selon la layer source de la feature.
