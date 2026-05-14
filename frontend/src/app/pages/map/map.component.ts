@@ -4355,12 +4355,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   }
 
   private initMap(): void {
-    // Build la View tôt pour que les TileWMS sources puissent récupérer la
-    // projection courante (sinon `this.map` n'existe pas encore quand on
-    // crée les sources → runtime crash 'Cannot read properties of undefined
-    // (reading getView)'). Fix 2026-05-14 post-refactor projection Lambert.
+    // Build la View tôt + on la réutilise en bas (au lieu de re-call
+    // buildInitialView() dans new Map). Pas besoin de viewProj sur les
+    // ImageWMS sources : OL inherit auto la projection de la view.
     const initialView = this.buildInitialView();
-    const viewProj = initialView.getProjection();
 
     // Attributions exposées via le contrôle Attribution OpenLayers (icône
     // (i) bas-droite). Chaque source déclare sa propre attribution → l'icône
@@ -4408,7 +4406,6 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.bathyLayer = new TileLayer({
       source: new TileWMS({
         url: '/wms-emodnet',
-        projection: viewProj,
         params: { LAYERS: 'mean_atlas_land', TILED: true, TRANSPARENT: true, FORMAT: 'image/png' },
         attributions: '© <a href="https://emodnet.ec.europa.eu/en/bathymetry">EMODnet Bathymetry</a>',
       }),
@@ -4423,7 +4420,6 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.eezLayer = new TileLayer({
       source: new TileWMS({
         url: '/wms-marineregions',
-        projection: viewProj,
         params: { LAYERS: 'MarineRegions:eez', TILED: true, TRANSPARENT: true, FORMAT: 'image/png' },
         attributions: '© <a href="https://www.marineregions.org/">Marine Regions</a> (VLIZ, CC BY-NC-SA 4.0)',
       }),
@@ -4436,7 +4432,6 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.mpaLayer = new TileLayer({
       source: new TileWMS({
         url: '/wms-emodnet-human',
-        projection: viewProj,
         params: { LAYERS: 'marineprotectedareas', TILED: true, TRANSPARENT: true, FORMAT: 'image/png' },
         attributions: '© <a href="https://emodnet.ec.europa.eu/en/human-activities">EMODnet Human Activities</a>',
       }),
@@ -4452,7 +4447,6 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.efasLayer = new TileLayer({
       source: new TileWMS({
         url: '/wms-efas',
-        projection: viewProj,
         params: { LAYERS: 'efas_forecast_flood_probability', TILED: true, TRANSPARENT: true, FORMAT: 'image/png' },
         attributions: '© <a href="https://www.efas.eu/">EFAS — Copernicus Emergency Management Service</a>',
       }),
@@ -4470,7 +4464,6 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // de currentTime.
     this.sstSource = new ImageWMS({
       url: '/geoserver/maritime/wms',
-      projection: viewProj,
       ratio: 1.2,  // léger over-fetch pour pre-cache pendant pan
       params: {
         LAYERS: 'maritime:sst-daily',
@@ -4499,7 +4492,6 @@ export class MapComponent implements AfterViewInit, OnDestroy {
                                                : 'maritime:wind-speed';
     this.windWmsSource = new ImageWMS({
       url: '/geoserver/maritime/wms',
-      projection: viewProj,
       ratio: 1.2,
       params: { LAYERS: initialWindLayer, TRANSPARENT: true, interpolations: 'bicubic' },
       serverType: 'geoserver',
@@ -4515,7 +4507,6 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // Vagues (hauteur sig., m) — WMS time-enabled.
     this.wavesSource = new ImageWMS({
       url: '/geoserver/maritime/wms',
-      projection: viewProj,
       ratio: 1.2,
       params: { LAYERS: 'maritime:wave-hs', TRANSPARENT: true, interpolations: 'bicubic' },
       serverType: 'geoserver',
