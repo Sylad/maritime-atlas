@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, input, output, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 
 /**
@@ -301,6 +301,12 @@ export class TimeSliderComponent {
    *  playClicked au parent (mode "AnimationPlayer externe"). */
   readonly externalAnimationActive = input<boolean>(false);
 
+  /** Optionnel — quand le parent pilote le temps de l'extérieur (anim
+   *  player, restore session…), il passe la Date courante ici et le
+   *  signal interne `currentTime` se sync. Sans cet input, le slider
+   *  reste piloté uniquement par ses propres interactions. */
+  readonly externalCurrentTime = input<Date | null>(null);
+
   // État interne
   readonly currentTime = signal<Date>(new Date());
   private readonly legacyPlaying = signal(false);
@@ -319,6 +325,18 @@ export class TimeSliderComponent {
         this.setTime(new Date());
       }
     }, 60_000);
+
+    // Sync externe → interne. Quand le parent pilote le temps (animation
+    // player notamment), le `currentTime` interne suit. On évite de
+    // ré-émettre timeChange pour ne pas boucler — c'est juste un mirror
+    // visuel (label date + position cursor).
+    effect(() => {
+      const ext = this.externalCurrentTime();
+      if (!ext) return;
+      if (ext.getTime() !== this.currentTime().getTime()) {
+        this.currentTime.set(ext);
+      }
+    });
   }
 
   // ─── Computed ──────────────────────────────────────────────────────

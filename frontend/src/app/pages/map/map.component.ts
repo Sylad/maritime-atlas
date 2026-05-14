@@ -1215,6 +1215,7 @@ function toIsoTimestamp(d: Date): string {
         [stepMs]="sliderConfig().stepMs"
         [statusLabel]="sliderConfig().label"
         [externalAnimationActive]="animPlayer.state() !== 'idle'"
+        [externalCurrentTime]="animPlayer.state() !== 'idle' ? currentTimeSig() : null"
         (timeChange)="onSliderTimeChange($event)"
         (playClicked)="onSliderPlayClicked()" />
     </div>
