@@ -74,9 +74,24 @@ export class QueueAutoscalerService implements OnModuleInit {
     this.logger.log(`Autoscaler initialized — ${this.targets.length} targets`);
   }
 
-  /** Cron toutes les 30s. Évalue chaque target indépendamment. */
+  /** Cron toutes les 30s. Évalue chaque target indépendamment.
+   *
+   * 2026-05-14 : disabled en K8s — ce service est du legacy Docker Swarm
+   * (Docker socket + dockerode scale API) qui ne marche pas sous K8s.
+   * Le scaling est désormais géré par K8s HPA si besoin (à brancher sur
+   * KEDA + RMQ pour scaler maritime-ais-decoder). Tant que c'est pas en
+   * place, on désactive proprement pour éviter le spam 1 error/30s qui
+   * pollue les logs et masque les vrais problèmes.
+   *
+   * Pour réactiver post-migration K8s :
+   *   1. Remplacer `Docker(/var/run/docker.sock)` par k8s client API
+   *      (kubectl scale deployment)
+   *   2. Changer `rabbitmqApi` default vers `http://rmq:15672/api`
+   *   3. Retirer la garde ci-dessous
+   */
   @Cron('*/30 * * * * *')
   async check() {
+    if (process.env.QUEUE_AUTOSCALER_ENABLED !== 'true') return;
     for (const target of this.targets) {
       try {
         await this.evaluateTarget(target);
