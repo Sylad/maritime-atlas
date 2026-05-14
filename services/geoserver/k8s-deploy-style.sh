@@ -67,20 +67,26 @@ run_rest() {
   fi
 }
 
-# 1) Check if style exists; create or update accordingly
+# 1) Check if style exists; create or update accordingly.
+#    IMPORTANT (2026-05-14) : NE PAS utiliser ?raw=true sur le PUT —
+#    ce flag dit à GS de stocker le SLD comme blob brut SANS le parser,
+#    et donc SANS créer le .xml descriptor sur disque. Résultat : le
+#    style apparaît dans REST /styles list mais le rendering WMS
+#    plante avec "StyleNotDefined: No such style". Pattern validé via
+#    la lib `geoserver-rest` (utilisée par mahdin75/geoserver-mcp).
 echo "→ Step 1/4 : Push SLD body via REST (catalog DB)..."
 if run_rest GET "/rest/workspaces/${WORKSPACE}/styles/${STYLE}.xml" "" 2>&1 | grep -q "HTTP 200"; then
-  echo "  (style exists → PUT raw body)"
-  run_rest PUT "/rest/workspaces/${WORKSPACE}/styles/${STYLE}?raw=true" "application/vnd.ogc.sld+xml" "$SLD_PATH"
+  echo "  (style exists → PUT body, GS re-parses)"
+  run_rest PUT "/rest/workspaces/${WORKSPACE}/styles/${STYLE}" "application/vnd.ogc.sld+xml" "$SLD_PATH"
 else
   echo "  (new style → POST create then PUT body)"
-  # Create style entry
+  # Create style entry (text/xml is what the lib uses + GS expects)
   kubectl exec -n "$NAMESPACE" "$POD" -- sh -c "curl -s -u ${GS_USER}:${GS_PASS} \
-    -X POST -H 'Content-Type: application/xml' \
+    -X POST -H 'Content-Type: text/xml' \
     -d '<style><name>${STYLE}</name><filename>${STYLE}.sld</filename></style>' \
     ${GS_URL_INTERNAL}/rest/workspaces/${WORKSPACE}/styles -w 'HTTP %{http_code}\n'"
-  # Then PUT the SLD content
-  run_rest PUT "/rest/workspaces/${WORKSPACE}/styles/${STYLE}?raw=true" "application/vnd.ogc.sld+xml" "$SLD_PATH"
+  # PUT SLD content — sans ?raw=true → GS parse, valide, écrit .xml descriptor
+  run_rest PUT "/rest/workspaces/${WORKSPACE}/styles/${STYLE}" "application/vnd.ogc.sld+xml" "$SLD_PATH"
 fi
 
 # 2) Copy the SLD file directly into the pod's data directory
