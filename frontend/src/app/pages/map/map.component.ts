@@ -3068,7 +3068,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
    *  set env=contourInterval:N quand le toggle isolignes est ON. Sinon
    *  reset au style user-pref ou default. Appelé via un effect réactif. */
   private applyContours(): void {
-    const restore = (source: TileWMS | undefined, kind: string) => {
+    const restore = (source: ImageWMS | undefined, kind: string) => {
       const userPref = this.palettesSvc.myPreferences()[kind] ?? null;
       source?.updateParams({ STYLES: userPref ? `maritime:${userPref}` : '', env: undefined });
     };
