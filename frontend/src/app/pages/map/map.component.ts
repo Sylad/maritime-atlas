@@ -4805,7 +4805,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.sstSource = new ImageWMS({
       url: '/geoserver/maritime/wms',
       projection: 'EPSG:3857',
-      ratio: 1.2,  // léger over-fetch pour pre-cache pendant pan
+      ratio: 1.0,  // 1.2 → 1.0 (Sylvain 2026-05-14 soir) — évite OOM heap GS
       params: {
         LAYERS: 'maritime:sst-daily',
         TRANSPARENT: true,
@@ -4838,7 +4838,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.windWmsSource = new ImageWMS({
       url: '/geoserver/maritime/wms',
       projection: 'EPSG:3857',
-      ratio: 1.2,
+      ratio: 1.0,  // 1.2 → 1.0 (Sylvain 2026-05-14 soir) — évite OOM heap GS
       params: { LAYERS: initialWindLayer, TRANSPARENT: true },
       serverType: 'geoserver',
       attributions: [ATTRIB_NOAA, ATTRIB_ARPEGE, ATTRIB_AROME],
@@ -4857,7 +4857,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.wavesSource = new ImageWMS({
       url: '/geoserver/maritime/wms',
       projection: 'EPSG:3857',
-      ratio: 1.2,
+      ratio: 1.0,  // 1.2 → 1.0 (Sylvain 2026-05-14 soir) — évite OOM heap GS
       params: { LAYERS: 'maritime:wave-hs', TRANSPARENT: true },
       serverType: 'geoserver',
       attributions: ATTRIB_NOAA,
