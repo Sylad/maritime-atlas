@@ -23,8 +23,8 @@ import { DatePipe } from '@angular/common';
   template: `
     <div class="time-slider">
       <div class="ts-controls">
-        <button type="button" class="ts-btn" (click)="step(-86400000)" title="-1 jour">⏮&#xFE0E;</button>
-        <button type="button" class="ts-btn" (click)="step(-3600000)" title="-1 heure">⏪&#xFE0E;</button>
+        <button type="button" class="ts-btn" (click)="step(-bigStepMs())" [title]="'-' + bigStepLabel()">⏮&#xFE0E;</button>
+        <button type="button" class="ts-btn" (click)="step(-smallStepMs())" [title]="'-' + smallStepLabel()">⏪&#xFE0E;</button>
         <button
           type="button"
           class="ts-btn ts-btn-play"
@@ -33,8 +33,8 @@ import { DatePipe } from '@angular/common';
           [title]="playing() ? 'Pause' : 'Play (6h/s)'">
           {{ playing() ? '⏸︎' : '▶︎' }}
         </button>
-        <button type="button" class="ts-btn" (click)="step(3600000)" title="+1 heure">⏩&#xFE0E;</button>
-        <button type="button" class="ts-btn" (click)="step(86400000)" title="+1 jour">⏭&#xFE0E;</button>
+        <button type="button" class="ts-btn" (click)="step(smallStepMs())" [title]="'+' + smallStepLabel()">⏩&#xFE0E;</button>
+        <button type="button" class="ts-btn" (click)="step(bigStepMs())" [title]="'+' + bigStepLabel()">⏭&#xFE0E;</button>
         <button
           type="button"
           class="ts-btn ts-btn-now"
@@ -51,6 +51,9 @@ import { DatePipe } from '@angular/common';
             <span class="ts-future">FORECAST</span>
           }
           {{ currentTime() | date:'EEE dd MMM yyyy · HH:mm' }}
+          @if (statusLabel()) {
+            <span class="ts-status">{{ statusLabel() }}</span>
+          }
         </div>
 
         <div class="ts-track" (pointerdown)="onTrackClick($event)" #track>
@@ -251,6 +254,14 @@ import { DatePipe } from '@angular/common';
       box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
     }
 
+    .ts-status {
+      margin-left: 1em;
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.1em;
+      color: var(--fg-dim);
+      opacity: 0.8;
+    }
     .ts-ticks {
       display: flex;
       justify-content: space-between;
@@ -270,6 +281,13 @@ export class TimeSliderComponent {
   // météo pour chaque position du cursor (au lieu du dégradé "rien").
   readonly minTime = input<Date>(new Date(Date.now() - 7 * 86400_000));
   readonly maxTime = input<Date>(new Date(Date.now() + 5 * 86400_000));
+  /** Step en ms — drive les boutons "+/- N" + le snap au drag/click.
+   *  0 (default) = pas de snap, step buttons = ±1h. Set par le parent
+   *  selon les layers actifs (cf sliderConfig dans map.component). */
+  readonly stepMs = input<number>(0);
+  /** Label compact affiché à côté du timestamp ("Δ 6h • -24h → +72h",
+   *  "LIVE", "FORECAST"). Drive par le parent selon les layers. */
+  readonly statusLabel = input<string>('');
 
   // Output : émet à chaque changement de cursor (drag, click track, btn).
   readonly timeChange = output<Date>();
@@ -312,11 +330,33 @@ export class TimeSliderComponent {
   readonly isLive = computed(() => Math.abs(Date.now() - this.currentTime().getTime()) < 5 * 60_000);
   readonly isFuture = computed(() => this.currentTime().getTime() > Date.now() + 5 * 60_000);
 
+  // ─── Step buttons computed ─────────────────────────────────────────
+  /** Small step = la granularité native (stepMs si fourni, sinon 1h). */
+  readonly smallStepMs = computed(() => this.stepMs() || 3_600_000);
+  /** Big step = 4× small step, plafonné à 24h. */
+  readonly bigStepMs = computed(() => Math.min(this.smallStepMs() * 4, 86_400_000));
+  readonly smallStepLabel = computed(() => this.formatDuration(this.smallStepMs()));
+  readonly bigStepLabel = computed(() => this.formatDuration(this.bigStepMs()));
+
+  private formatDuration(ms: number): string {
+    if (ms >= 86_400_000) return `${Math.round(ms / 86_400_000)}j`;
+    if (ms >= 3_600_000) return `${Math.round(ms / 3_600_000)}h`;
+    return `${Math.round(ms / 60_000)}min`;
+  }
+
+  /** Snap ms timestamp to multiple of stepMs (depuis epoch 0 UTC). */
+  private snapToStep(t: number): number {
+    const step = this.stepMs();
+    if (step <= 0) return t;
+    return Math.round(t / step) * step;
+  }
+
   // ─── Actions ───────────────────────────────────────────────────────
   setTime(t: Date): void {
     const min = this.minTime().getTime();
     const max = this.maxTime().getTime();
-    const clamped = new Date(Math.max(min, Math.min(max, t.getTime())));
+    const snapped = this.snapToStep(t.getTime());
+    const clamped = new Date(Math.max(min, Math.min(max, snapped)));
     this.currentTime.set(clamped);
     this.timeChange.emit(clamped);
   }

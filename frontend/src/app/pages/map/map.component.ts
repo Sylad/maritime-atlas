@@ -1191,7 +1191,12 @@ function toIsoTimestamp(d: Date): string {
 
       <!-- Attribution panel relocated into controls-dock-bottom-right -->
 
-      <app-time-slider (timeChange)="onTimeChange($event)" />
+      <app-time-slider
+        [minTime]="sliderConfig().minTime"
+        [maxTime]="sliderConfig().maxTime"
+        [stepMs]="sliderConfig().stepMs"
+        [statusLabel]="sliderConfig().label"
+        (timeChange)="onTimeChange($event)" />
     </div>
   `,
   styles: `
@@ -2351,6 +2356,88 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly showMpa = signal(false);
   // ─── V2 Hydrologie #3 — Prévisions crues EFAS Copernicus ────────
   readonly showEfas = signal(false);
+
+  // ─── Smart time slider — Phase 1 (2026-05-14) ───────────────────────
+  //
+  // Chaque layer déclare son profil temporel : granularité native +
+  // fenêtre passé/futur pertinente. Le slider drive `stepMs` et
+  // `[minTime, maxTime]` en fonction des layers actifs (max futurH +
+  // max pastH + min stepH). Affiche un statusLabel "Δ 6h • -24h → +72h".
+  //
+  // - kind 'live' : data temps réel (pas de slider utile)
+  // - kind 'obs' : observations rolling N heures dans le passé
+  // - kind 'forecast' : modèle prévisionnel future + parfois passé
+  private readonly LAYER_PROFILES: Record<string, { kind: 'live' | 'obs' | 'forecast'; stepH: number; pastH: number; futureH: number }> = {
+    vessels:       { kind: 'live',     stepH: 0,  pastH: 0,   futureH: 0 },
+    tracks:        { kind: 'obs',      stepH: 1,  pastH: 24,  futureH: 0 },
+    alerts:        { kind: 'live',     stepH: 0,  pastH: 24,  futureH: 0 },
+    buoys:         { kind: 'live',     stepH: 0,  pastH: 0,   futureH: 0 },
+    lightning:     { kind: 'live',     stepH: 0,  pastH: 1,   futureH: 0 },
+    metar:         { kind: 'obs',      stepH: 1,  pastH: 6,   futureH: 0 },
+    hubeau:        { kind: 'obs',      stepH: 1,  pastH: 24,  futureH: 0 },
+    piezo:         { kind: 'obs',      stepH: 1,  pastH: 24,  futureH: 0 },
+    quakes:        { kind: 'obs',      stepH: 1,  pastH: 24,  futureH: 0 },
+    firms:         { kind: 'obs',      stepH: 1,  pastH: 24,  futureH: 0 },
+    rain:          { kind: 'live',     stepH: 0,  pastH: 2,   futureH: 0 },
+    sst:           { kind: 'forecast', stepH: 24, pastH: 168, futureH: 0 },
+    wind:          { kind: 'forecast', stepH: 6,  pastH: 0,   futureH: 72 },
+    waves:         { kind: 'forecast', stepH: 6,  pastH: 0,   futureH: 72 },
+    windArrows:    { kind: 'forecast', stepH: 6,  pastH: 0,   futureH: 72 },
+    waveArrows:    { kind: 'forecast', stepH: 6,  pastH: 0,   futureH: 72 },
+    windParticles: { kind: 'forecast', stepH: 6,  pastH: 0,   futureH: 72 },
+  };
+
+  /** Computed : drive l'input du time-slider selon les layers actifs.
+   *  - minTime/maxTime : bornes du slider (now - maxPastH ... now + maxFutureH)
+   *  - stepMs : granularité min (drive snap + step buttons)
+   *  - label : monospace status "Δ 6h • -24h → +72h" ou "LIVE" */
+  readonly sliderConfig = computed(() => {
+    const active: string[] = [];
+    if (this.showVessels())       active.push('vessels');
+    if (this.showTracks())        active.push('tracks');
+    if (this.showAlerts())        active.push('alerts');
+    if (this.showBuoys())         active.push('buoys');
+    if (this.showLightning())     active.push('lightning');
+    if (this.showMetar())         active.push('metar');
+    if (this.showHubeau())        active.push('hubeau');
+    if (this.showPiezo())         active.push('piezo');
+    if (this.showQuakes())        active.push('quakes');
+    if (this.showFirms())         active.push('firms');
+    if (this.showRain())          active.push('rain');
+    if (this.showSST())           active.push('sst');
+    if (this.showWind())          active.push('wind');
+    if (this.showWaves())         active.push('waves');
+    if (this.showWindArrows())    active.push('windArrows');
+    if (this.showWaveArrows())    active.push('waveArrows');
+    if (this.showWindParticles()) active.push('windParticles');
+
+    const profiles = active.map((k) => this.LAYER_PROFILES[k]).filter(Boolean);
+    if (profiles.length === 0) {
+      return {
+        minTime: new Date(Date.now() - 86_400_000),
+        maxTime: new Date(Date.now() + 86_400_000),
+        stepMs: 3_600_000,
+        label: '',
+      };
+    }
+    const maxPastH = Math.max(0, ...profiles.map((p) => p.pastH));
+    const maxFutureH = Math.max(0, ...profiles.map((p) => p.futureH));
+    const stepHs = profiles.filter((p) => p.stepH > 0).map((p) => p.stepH);
+    const stepH = stepHs.length === 0 ? 1 : Math.min(...stepHs);
+    const allLive = profiles.every((p) => p.kind === 'live');
+
+    const now = Date.now();
+    // Garantit au moins ±6h de range pour éviter slider quasi-collapsé.
+    const padH = 6;
+    return {
+      minTime: new Date(now - Math.max(maxPastH, padH) * 3_600_000),
+      maxTime: new Date(now + Math.max(maxFutureH, padH) * 3_600_000),
+      stepMs: stepH * 3_600_000,
+      label: allLive
+        ? 'LIVE — pas de scrub utile'
+        : `Δ ${stepH}h${maxPastH > 0 ? ` • -${maxPastH}h` : ''}${maxFutureH > 0 ? ` → +${maxFutureH}h` : ''}`,
+    };
+  });
 
   // ─── Sprint Layer UX V2 — Phase A : opacity per layer + persist ──────
   //
