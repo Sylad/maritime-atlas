@@ -200,6 +200,7 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
       return;
     }
 
+    let recordsSkipped = 0;
     try {
       // FETCH
       const fetched = await this.fetch(src);
@@ -210,16 +211,22 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
       // SINK
       for (const r of records) {
         try {
-          await this.sink(src, r);
-          recordsOut++;
+          const outcome = await this.sink(src, r);
+          if (outcome === 'inserted') recordsOut++;
+          else recordsSkipped++;
         } catch (err) {
           status = 'partial';
           if (!errorMsg) errorMsg = `sink: ${(err as Error).message}`.slice(0, 500);
           if (!errorKind) errorKind = (err as Error).name;
         }
       }
-      if (recordsIn > 0 && recordsOut === 0) status = 'error';
-      meta = { kind: src.kind, parserKind: src.parserKind, sinkKind: src.sinkKind };
+      if (recordsIn > 0 && recordsOut === 0 && recordsSkipped === 0) status = 'error';
+      meta = {
+        kind: src.kind,
+        parserKind: src.parserKind,
+        sinkKind: src.sinkKind,
+        ...(recordsSkipped > 0 ? { recordsSkipped } : {}),
+      };
     } catch (err) {
       status = 'error';
       errorKind = (err as Error).name;
@@ -543,7 +550,14 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
   }
 
   // ─── SINK ───────────────────────────────────────────────────────────
-  private async sink(src: DataSource, record: unknown): Promise<void> {
+  /** Outcome :
+   *  - 'inserted' : record bien persisté
+   *  - 'skipped'  : record volontairement écarté (data quality rule), n'est
+   *                 PAS une erreur — incrémenter recordsSkipped pas
+   *                 recordsOut.
+   *  Throw : vraie erreur (network, contrainte DB, syntaxe), status partial.
+   */
+  private async sink(src: DataSource, record: unknown): Promise<'inserted' | 'skipped'> {
     const kind = src.sinkKind ?? 'rmq_publish';
     if (kind === 'rmq_publish') {
       if (!this.rmqChannel) throw new Error('RMQ channel not available');
@@ -556,7 +570,7 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
       this.rmqChannel.publish(exchange, routingKey, payload, {
         contentType: 'application/json', persistent: false,
       });
-      return;
+      return 'inserted';
     }
     if (kind === 'pg_insert') {
       const cfg = (src.sinkConfig ?? {}) as {
@@ -570,11 +584,23 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
          *  null (au lieu de laisser PG rejeter avec "invalid input syntax").
          *  Typique : METAR wdir = "VRB" quand le vent est variable. */
         nullifyNonNumeric?: string[];
+        /** V3 (2026-05-14) : srcKeys requises ; si null/undefined/empty
+         *  dans le record entrant, on SKIP la row sans erreur. Data quality
+         *  rule. Typique : hubeau-debits-fr renvoie ~50% des observations
+         *  sans `code_station` → pas une vraie observation, on les écarte
+         *  proprement au lieu de logger un partial NOT NULL constraint. */
+        skipIfMissing?: string[];
       };
       if (!cfg.table) throw new Error('sinkConfig.table required for pg_insert');
       const cols = cfg.columns ?? {};
       const nullifyNumeric = new Set(cfg.nullifyNonNumeric ?? []);
+      const skipKeys = cfg.skipIfMissing ?? [];
       const rec = (record ?? {}) as Record<string, unknown>;
+      // Data quality filter — drop records sans les champs requis.
+      for (const k of skipKeys) {
+        const v = rec[k];
+        if (v == null || v === '') return 'skipped';
+      }
       const dbColumns: string[] = [];
       const values: unknown[] = [];
       const placeholders: string[] = [];
@@ -595,7 +621,7 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
       // utilise le client pg direct via $client.
       const pgClient = (this.db as unknown as { $client: { unsafe: (sql: string, params: unknown[]) => Promise<unknown> } }).$client;
       await pgClient.unsafe(sql, values);
-      return;
+      return 'inserted';
     }
     throw new Error(`Unsupported sink kind: ${kind}`);
   }
