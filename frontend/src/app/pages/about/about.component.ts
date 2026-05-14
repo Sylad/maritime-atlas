@@ -20,11 +20,13 @@ import { RouterLink } from '@angular/router';
       <section class="hero">
         <div class="hero-overlay"></div>
         <div class="hero-content">
-          <div class="eyebrow">Atlas live · France métropole</div>
+          <img src="/aetherwx-logo.png" alt="AetherWX — see the atmosphere" class="hero-logo" />
+          <div class="eyebrow">Atlas live · France métropole · anciennement Maritime Atlas</div>
           <h1>Le matelot et le copilote</h1>
           <p class="lede">
-            Un atlas maritime construit en deux jours, par un dev curieux et un
-            agent IA. Pas une ligne d'humain dans le code — promis,
+            Un atlas live multi-source (AIS, météo GFS+AROME+ARPEGE, foudre,
+            vagues, courants) construit en deux jours, par un dev curieux et
+            un agent IA. Pas une ligne d'humain dans le code — promis,
             <a routerLink="/" class="inline-link">la carte est juste à côté</a>
             si tu veux vérifier.
           </p>

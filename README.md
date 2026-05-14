@@ -1,4 +1,10 @@
-# Maritime Atlas
+# AetherWX
+
+> *Anciennement Maritime Atlas, rebrandé AetherWX le 2026-05-14 — see the atmosphere.*
+
+<p align="center">
+  <img src="frontend/public/aetherwx-logo.png" alt="AetherWX — radar + storm + see the atmosphere" width="320" />
+</p>
 
 [![Built with Claude Code](https://img.shields.io/badge/Built%20with-Claude%20Code-D97757?logo=anthropic&logoColor=white)](https://claude.com/claude-code)
 [![100% Solo with Claude](https://img.shields.io/badge/100%25%20Solo%20with-Claude-2dd4bf?logo=anthropic&logoColor=white)](https://claude.com/claude-code)

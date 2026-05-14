@@ -1349,8 +1349,8 @@ function toIsoTimestamp(d: Date): string {
       border-bottom: 1px solid var(--border);
     }
     .data-catalog .catalog-logo {
-      width: 48px;
-      height: 48px;
+      width: 96px;
+      height: 96px;
       object-fit: contain;
       flex-shrink: 0;
     }
