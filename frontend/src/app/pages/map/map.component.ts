@@ -18,11 +18,13 @@ import { interval, startWith, Subscription, switchMap } from 'rxjs';
 import Map from 'ol/Map';
 import View from 'ol/View';
 import TileLayer from 'ol/layer/Tile';
+import ImageLayer from 'ol/layer/Image';
 import VectorLayer from 'ol/layer/Vector';
 import VectorSource from 'ol/source/Vector';
 import Cluster from 'ol/source/Cluster';
 import XYZ from 'ol/source/XYZ';
 import TileWMS from 'ol/source/TileWMS';
+import ImageWMS from 'ol/source/ImageWMS';
 import GeoJSON from 'ol/format/GeoJSON';
 import Overlay from 'ol/Overlay';
 import { fromLonLat } from 'ol/proj';
@@ -2836,21 +2838,27 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private trackSource?: VectorSource;
   private vesselLayer?: VectorLayer<Cluster>;
   private trackLayer?: VectorLayer<VectorSource>;
-  private sstLayer?: TileLayer<TileWMS>;
-  private sstSource?: TileWMS;
+  // Switched TileLayer/TileWMS → ImageLayer/ImageWMS pour rasters meteo
+  // (2026-05-14). ImageWMS = 1 fetch par viewport au lieu de tiling →
+  // marche nativement dans n'importe quelle projection (EPSG:3035 Lambert
+  // notamment, où TileWMS gardait son TileGrid 3857 même avec `projection`
+  // explicite → tiles mal positionnées). Tradeoff : pas de cache tile mais
+  // pour 7 rasters maritime c'est marginal.
+  private sstLayer?: ImageLayer<ImageWMS>;
+  private sstSource?: ImageWMS;
   private rainLayer?: TileLayer<XYZ>;
   private rainSource?: XYZ;
   private rainSnapshot?: RainViewerSnapshot;
   private rainSnapshotTimer?: ReturnType<typeof setInterval>;
   private currentRainPath?: string;
-  private windLayer?: TileLayer<TileWMS>;
+  private windLayer?: ImageLayer<ImageWMS>;
   // Renommé en sprint 11 (était `windSource`) pour libérer le nom au signal
   // user-facing `windSource: 'gfs' | 'arpege'`. Cette ref pointe vers le
-  // TileWMS du layer "Vent" — peu importe la source choisie, le LAYERS
+  // ImageWMS du layer "Vent" — peu importe la source choisie, le LAYERS
   // param est mis à jour dynamiquement via updateParams().
-  private windWmsSource?: TileWMS;
-  private wavesLayer?: TileLayer<TileWMS>;
-  private wavesSource?: TileWMS;
+  private windWmsSource?: ImageWMS;
+  private wavesLayer?: ImageLayer<ImageWMS>;
+  private wavesSource?: ImageWMS;
   private windArrowsLayer?: VectorLayer<VectorSource>;
   private windArrowsSource?: VectorSource;
   private waveArrowsLayer?: VectorLayer<VectorSource>;
@@ -4460,26 +4468,22 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // SST raster layer — WMS time-enabled depuis GeoServer ImageMosaic.
     // Le param TIME est mis à jour par refreshForTime() à chaque change
     // de currentTime.
-    this.sstSource = new TileWMS({
+    this.sstSource = new ImageWMS({
       url: '/geoserver/maritime/wms',
       projection: viewProj,
+      ratio: 1.2,  // léger over-fetch pour pre-cache pendant pan
       params: {
         LAYERS: 'maritime:sst-daily',
-        TILED: true,
         TRANSPARENT: true,
-        // V2 (2026-05-12) : bicubic interpolation côté GeoServer pour
-        // rendu lisse au lieu de carré-pixelisé. Standard météo.
-        // Le SLD <VendorOption interpolation> est ignoré, passer via
-        // le param WMS officiel `interpolations` qui marche.
         interpolations: 'bicubic',
       },
       serverType: 'geoserver',
       attributions: ATTRIB_NOAA,
     });
-    this.sstLayer = new TileLayer({
+    this.sstLayer = new ImageLayer({
       source: this.sstSource,
-      opacity: 0.6,           // semi-transparent pour voir base layer en dessous
-      zIndex: 30,             // sous les labels
+      opacity: 0.6,
+      zIndex: 30,
       visible: false,
     });
 
@@ -4493,14 +4497,15 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     const initialWindLayer = wsrc === 'arpege' ? 'maritime:wind-speed-arpege'
                            : wsrc === 'arome'  ? 'maritime:wind-speed-arome'
                                                : 'maritime:wind-speed';
-    this.windWmsSource = new TileWMS({
+    this.windWmsSource = new ImageWMS({
       url: '/geoserver/maritime/wms',
       projection: viewProj,
-      params: { LAYERS: initialWindLayer, TILED: true, TRANSPARENT: true, interpolations: 'bicubic' },
+      ratio: 1.2,
+      params: { LAYERS: initialWindLayer, TRANSPARENT: true, interpolations: 'bicubic' },
       serverType: 'geoserver',
       attributions: [ATTRIB_NOAA, ATTRIB_ARPEGE, ATTRIB_AROME],
     });
-    this.windLayer = new TileLayer({
+    this.windLayer = new ImageLayer({
       source: this.windWmsSource,
       opacity: 0.55,
       zIndex: 32,
@@ -4508,14 +4513,15 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     });
 
     // Vagues (hauteur sig., m) — WMS time-enabled.
-    this.wavesSource = new TileWMS({
+    this.wavesSource = new ImageWMS({
       url: '/geoserver/maritime/wms',
       projection: viewProj,
-      params: { LAYERS: 'maritime:wave-hs', TILED: true, TRANSPARENT: true, interpolations: 'bicubic' },
+      ratio: 1.2,
+      params: { LAYERS: 'maritime:wave-hs', TRANSPARENT: true, interpolations: 'bicubic' },
       serverType: 'geoserver',
       attributions: ATTRIB_NOAA,
     });
-    this.wavesLayer = new TileLayer({
+    this.wavesLayer = new ImageLayer({
       source: this.wavesSource,
       opacity: 0.55,
       zIndex: 33,
