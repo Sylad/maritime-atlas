@@ -4475,6 +4475,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // SST raster layer — WMS time-enabled depuis GeoServer ImageMosaic.
     // Le param TIME est mis à jour par refreshForTime() à chaque change
     // de currentTime.
+    //
+    // Cap zoom 8 : SST NOAA OISST a une résolution native 0.25° (~27 km
+    // /pixel). Au-delà de zoom 8 (~600 m/pixel en EPSG:3857), on demande
+    // à GeoServer un sur-échantillonnage ×40+ qui sature le pod et
+    // produit des timeouts (Cloudflare tunnel 100s max). Bug 2026-05-14.
     this.sstSource = new ImageWMS({
       url: '/geoserver/maritime/wms',
       projection: 'EPSG:3857',
@@ -4482,7 +4487,6 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       params: {
         LAYERS: 'maritime:sst-daily',
         TRANSPARENT: true,
-        interpolations: 'bicubic',
       },
       serverType: 'geoserver',
       attributions: ATTRIB_NOAA,
@@ -4492,6 +4496,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       opacity: 0.6,
       zIndex: 30,
       visible: false,
+      maxZoom: 8,
     });
 
     // Vent (force, m/s) — WMS time-enabled depuis ImageMosaic GeoServer.
@@ -4504,11 +4509,15 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     const initialWindLayer = wsrc === 'arpege' ? 'maritime:wind-speed-arpege'
                            : wsrc === 'arome'  ? 'maritime:wind-speed-arome'
                                                : 'maritime:wind-speed';
+    // Cap zoom 10 : GFS=0.25° (27 km), ARPEGE=0.1° (11 km), AROME=0.025°
+    // (2.5 km). Au-delà de zoom 10 (~150 m/pixel), sur-échantillonnage
+    // excessif même sur AROME. Le LAYERS bascule dynamique (GFS/ARPEGE/
+    // AROME), on prend la borne sécurisée pour la moins fine.
     this.windWmsSource = new ImageWMS({
       url: '/geoserver/maritime/wms',
       projection: 'EPSG:3857',
       ratio: 1.2,
-      params: { LAYERS: initialWindLayer, TRANSPARENT: true, interpolations: 'bicubic' },
+      params: { LAYERS: initialWindLayer, TRANSPARENT: true },
       serverType: 'geoserver',
       attributions: [ATTRIB_NOAA, ATTRIB_ARPEGE, ATTRIB_AROME],
     });
@@ -4517,14 +4526,17 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       opacity: 0.55,
       zIndex: 32,
       visible: false,
+      maxZoom: 10,
     });
 
     // Vagues (hauteur sig., m) — WMS time-enabled.
+    // Cap zoom 7 : NOAA WaveWatch III a une résolution native 0.5°
+    // (~55 km/pixel). zoom 7 = ~1.2 km/pixel, déjà ×45 sur-échantillonnage.
     this.wavesSource = new ImageWMS({
       url: '/geoserver/maritime/wms',
       projection: 'EPSG:3857',
       ratio: 1.2,
-      params: { LAYERS: 'maritime:wave-hs', TRANSPARENT: true, interpolations: 'bicubic' },
+      params: { LAYERS: 'maritime:wave-hs', TRANSPARENT: true },
       serverType: 'geoserver',
       attributions: ATTRIB_NOAA,
     });
@@ -4533,6 +4545,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       opacity: 0.55,
       zIndex: 33,
       visible: false,
+      maxZoom: 7,
     });
 
     // Sprint 10 : alertes maritimes. VectorSource peuplé toutes les 30s
