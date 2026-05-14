@@ -39,6 +39,9 @@ import { Router, RouterLink } from '@angular/router';
 import type { LayerKind, Palette } from '../../services/palettes.service';
 import { TimeSliderComponent } from '../../components/time-slider/time-slider.component';
 import { IngestionMiniChartComponent } from '../../components/ingestion-mini-chart/ingestion-mini-chart.component';
+import { AnimationPanelComponent } from '../../components/animation-panel/animation-panel.component';
+import { AnimationControlsComponent } from '../../components/animation-controls/animation-controls.component';
+import { AnimationPlayerService, AnimationOptions } from '../../services/animation-player.service';
 import { VesselsService, type VesselProperties } from '../../services/vessels.service';
 import { RainviewerService, type RainViewerSnapshot } from '../../services/rainviewer.service';
 import { AuthService } from '../../services/auth.service';
@@ -159,7 +162,7 @@ function toIsoTimestamp(d: Date): string {
 
 @Component({
   selector: 'app-map',
-  imports: [DatePipe, DecimalPipe, TimeSliderComponent, IngestionMiniChartComponent, RouterLink],
+  imports: [DatePipe, DecimalPipe, TimeSliderComponent, IngestionMiniChartComponent, RouterLink, AnimationPanelComponent, AnimationControlsComponent],
   template: `
     <div class="map-container">
       <div class="map" #mapEl></div>
@@ -193,7 +196,23 @@ function toIsoTimestamp(d: Date): string {
         <button type="button" class="recenter-btn"
                 (click)="recenterDefaultZone()"
                 [title]="recenterTooltip()">⊙</button>
+        <button type="button" class="anim-launcher-btn"
+                [class.is-running]="animPlayer.state() !== 'idle'"
+                [disabled]="animPlayer.state() !== 'idle'"
+                (click)="openAnimationPanel()"
+                title="Lancer une animation temporelle">▶</button>
       </div>
+
+      <!-- Animation : panel modal config + overlay contrôles lecture -->
+      @if (animPanelOpen()) {
+        <app-animation-panel
+          [anchor]="currentTime"
+          [forecastActive]="isForecastActive()"
+          (launch)="onAnimationLaunch($event)"
+          (cancel)="closeAnimationPanel()" />
+      }
+      <app-animation-controls />
+
 
       <!-- Dock controls BOTTOM-RIGHT (au-dessus de la time-slider) :
            HDMS coords (top), scale 100 NM, attribution (i) bottom.
@@ -1198,7 +1217,7 @@ function toIsoTimestamp(d: Date): string {
         [maxTime]="sliderConfig().maxTime"
         [stepMs]="sliderConfig().stepMs"
         [statusLabel]="sliderConfig().label"
-        (timeChange)="onTimeChange($event)" />
+        (timeChange)="onSliderTimeChange($event)" />
     </div>
   `,
   styles: `
@@ -2003,6 +2022,35 @@ function toIsoTimestamp(d: Date): string {
       outline: 2px solid var(--accent-bright);
       outline-offset: 2px;
     }
+    /* Bouton ▶ Animation — même look brut OL que recenter-btn pour
+       cohérence visuelle dans le dock top-right. */
+    .anim-launcher-btn {
+      width: 1.375em;
+      height: 1.375em;
+      margin: 0 0 4px 0;
+      padding: 0;
+      background: rgba(0, 60, 136, 0.5);
+      border: 1px solid transparent;
+      border-radius: 2px;
+      color: #fff;
+      font-size: 1em;
+      line-height: 1;
+      cursor: pointer;
+      transition: background 150ms, opacity 150ms;
+      font-variant-emoji: text;
+    }
+    .anim-launcher-btn:hover:not(:disabled) {
+      background: rgba(0, 60, 136, 0.7);
+    }
+    .anim-launcher-btn:disabled,
+    .anim-launcher-btn.is-running {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .anim-launcher-btn:focus-visible {
+      outline: 2px solid var(--accent-bright);
+      outline-offset: 2px;
+    }
     .controls-dock-bottom-right {
       bottom: 6em;             /* au-dessus de la time-slider (~5em haut) */
       align-items: flex-end;
@@ -2194,6 +2242,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private readonly prefsSync = inject(PreferencesSyncService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly animPlayer = inject(AnimationPlayerService);
 
   readonly currentUser = this.auth.currentUser;
   readonly isAuthenticated = this.auth.isAuthenticated;
@@ -3135,6 +3184,25 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // découvre la nouvelle frame avec 5min de retard, OK).
     this.refreshRainSnapshot();
     this.rainSnapshotTimer = setInterval(() => this.refreshRainSnapshot(), 5 * 60_000);
+
+    // ─── Animation player wiring ──────────────────────────────────────
+    // À chaque frame émise par le player, on déclenche le pipeline normal
+    // d'update (refreshForTime + slider). Le slider visuel suit donc
+    // automatiquement, et tous les fetches (vessels, WMS TIME) se mettent
+    // à jour comme si l'user avait drag le slider.
+    this.animPlayer.frameTime$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((t) => this.onTimeChange(t));
+
+    // Provider sliding-window : appelé au début de chaque loop si
+    // followRealTime est ON. Retourne "maintenant" arrondi à l'heure,
+    // ce qui ré-ancre la fenêtre d'animation sur l'instant courant et
+    // pickup donc les granules ingérés depuis le dernier loop.
+    this.animPlayer.setSlidingWindowProvider(async () => {
+      const now = new Date();
+      now.setUTCMinutes(0, 0, 0);
+      return now;
+    });
     // Bootstrap palette preferences si déjà connecté (le token est en
     // localStorage et restaure currentUser via signal au chargement).
     if (this.isAuthenticated()) {
@@ -3163,6 +3231,18 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   }
 
   // ─── Time slider callback ──────────────────────────────────────────
+  /** Appelé par l'utilisateur via le slider. Si une animation tourne,
+   *  on l'arrête (l'user reprend le contrôle manuel). */
+  onSliderTimeChange(t: Date): void {
+    if (this.animPlayer.state() !== 'idle') {
+      this.animPlayer.stop();
+    }
+    this.onTimeChange(t);
+  }
+
+  /** Pipeline d'update du temps courant. Appelé soit par le slider
+   *  (via onSliderTimeChange), soit par chaque frame de l'animation
+   *  (via animPlayer.frameTime$ subscribe). */
   onTimeChange(t: Date): void {
     this.currentTime = t;
     this.currentTimeSig.set(t);
@@ -4330,6 +4410,30 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     const z = findZone(zoneId);
     return `Recentrer sur ${z.label}`;
   });
+
+  // ─── Animation player ──────────────────────────────────────────────
+  readonly animPanelOpen = signal<boolean>(false);
+
+  /** True si au moins une couche forecast est actuellement active.
+   *  Sert au mode "Auto" du panel animation (past par défaut, future
+   *  si forecast). */
+  isForecastActive(): boolean {
+    return this.showWind() || this.showWaves() || this.showWindParticles();
+  }
+
+  openAnimationPanel(): void {
+    if (this.animPlayer.state() !== 'idle') return;
+    this.animPanelOpen.set(true);
+  }
+
+  closeAnimationPanel(): void {
+    this.animPanelOpen.set(false);
+  }
+
+  onAnimationLaunch(opts: AnimationOptions): void {
+    this.animPanelOpen.set(false);
+    this.animPlayer.start(opts);
+  }
 
   /** Phase C.3 + C.4 (2026-05-12) : construit la View initiale avec la
    *  zone d'arrivée + projection préférée du user (DB pour connectés,
