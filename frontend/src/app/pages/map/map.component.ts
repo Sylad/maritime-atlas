@@ -2470,31 +2470,30 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     if (this.showWaveArrows())    active.push('waveArrows');
     if (this.showWindParticles()) active.push('windParticles');
 
+    // Fenêtre fixe -1j / +7j (Sylvain 2026-05-15). Toutes les rétentions
+    // DB + nettoyages fichiers coverage sont alignés dessus, donc le
+    // slider doit refléter exactement la plage des données disponibles.
+    // Le step et le label restent dérivés des profils actifs pour info.
+    const PAST_H = 24;
+    const FUTURE_H = 7 * 24;
+    const now = Date.now();
+    const minTime = new Date(now - PAST_H * 3_600_000);
+    const maxTime = new Date(now + FUTURE_H * 3_600_000);
+
     const profiles = active.map((k) => this.LAYER_PROFILES[k]).filter(Boolean);
     if (profiles.length === 0) {
-      return {
-        minTime: new Date(Date.now() - 86_400_000),
-        maxTime: new Date(Date.now() + 86_400_000),
-        stepMs: 3_600_000,
-        label: '',
-      };
+      return { minTime, maxTime, stepMs: 3_600_000, label: '−1j → +7j' };
     }
-    const maxPastH = Math.max(0, ...profiles.map((p) => p.pastH));
-    const maxFutureH = Math.max(0, ...profiles.map((p) => p.futureH));
     const stepHs = profiles.filter((p) => p.stepH > 0).map((p) => p.stepH);
     const stepH = stepHs.length === 0 ? 1 : Math.min(...stepHs);
     const allLive = profiles.every((p) => p.kind === 'live');
-
-    const now = Date.now();
-    // Garantit au moins ±6h de range pour éviter slider quasi-collapsé.
-    const padH = 6;
     return {
-      minTime: new Date(now - Math.max(maxPastH, padH) * 3_600_000),
-      maxTime: new Date(now + Math.max(maxFutureH, padH) * 3_600_000),
+      minTime,
+      maxTime,
       stepMs: stepH * 3_600_000,
       label: allLive
-        ? 'LIVE — pas de scrub utile'
-        : `Δ ${stepH}h${maxPastH > 0 ? ` • -${maxPastH}h` : ''}${maxFutureH > 0 ? ` → +${maxFutureH}h` : ''}`,
+        ? 'LIVE • −1j → +7j'
+        : `Δ ${stepH}h • −1j → +7j`,
     };
   });
 
@@ -3683,7 +3682,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     if (this.lightningTimer || this.lightningSub) return;
     const fetchAndPaint = () => {
       this.lightningSub?.unsubscribe();
-      this.lightningSub = this.lightning.fetchRecent()
+      this.lightningSub = this.lightning.fetchRecent(this.currentTimeSig())
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: (fc) => {
@@ -3760,7 +3759,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     };
     const fetchObs = () => {
       this.buoysObsSub?.unsubscribe();
-      this.buoysObsSub = this.buoys.fetchRecentObservations()
+      this.buoysObsSub = this.buoys.fetchRecentObservations(this.currentTimeSig())
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: (fc) => {
@@ -4136,7 +4135,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     if (this.alertsTimer) return;
     const fetchAndPaint = async () => {
       try {
-        const fc = await this.alertsSvc.refresh();
+        // Fenêtre 1h ancrée sur la time-bar : permet replay temporel
+        // sans changer la sémantique "alertes récentes".
+        const fc = await this.alertsSvc.refresh(this.currentTimeSig());
         if (!this.alertsSource) return;
         this.alertsSource.clear();
         const features = this.geoJsonFmt.readFeatures(fc);

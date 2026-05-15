@@ -5,8 +5,11 @@
 -- vessel_positions (4M lignes/jour) — on lui donne des vues focalisées
 -- sur "ce que la map affiche".
 
--- ─── Live vessels (positions des 15 dernières minutes) ───────────────
--- Sert le layer "Vessels live" de la map. Refresh côté UI toutes les 30s.
+-- ─── Live vessels (vue sans filtre temporel) ─────────────────────────
+-- Sert le layer "Vessels live" de la map. Le frontend pose CQL_FILTER
+-- `last_seen BETWEEN [t-15min, t]` ancré sur la time-bar, qui sert
+-- aussi pour le replay temporel. La rétention -1j sur vessels (cleanup
+-- procedure) borne implicitement le volume scanné.
 CREATE OR REPLACE VIEW v_vessels_live AS
 SELECT
   v.mmsi,
@@ -20,8 +23,7 @@ SELECT
   v.last_seen,
   v.last_position::geometry AS geom
 FROM vessels v
-WHERE v.last_seen > now() - INTERVAL '15 minutes'
-  AND v.last_position IS NOT NULL;
+WHERE v.last_position IS NOT NULL;
 
 -- ─── Vessels par catégorie (pour styling GeoServer) ──────────────────
 -- AIS ship_type buckets standard :

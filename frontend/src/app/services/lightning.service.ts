@@ -25,17 +25,26 @@ export interface LightningFeatureCollection {
 }
 
 /**
- * Wrapper WFS pour la layer maritime:v_lightning_recent (eclairs des
- * 30 dernières minutes). Refresh frontend toutes les 30s — RabbitMQ
- * topic `lightning.strike` n'est pas encore poussé vers le browser
- * (sprint 8 si on veut push live via SSE/WS).
+ * Wrapper WFS pour la layer maritime:v_lightning_recent.
+ *
+ * La view n'a plus de filtre temporel hardcodé (cf migration
+ * 2026-05-15-uniform-retention.sql) : le frontend impose une fenêtre
+ * `[at - windowSecs, at]` ancrée sur la time-bar via CQL_FILTER. Permet
+ * le replay temporel (slider passé) sans bloquer GeoServer.
  */
 @Injectable({ providedIn: 'root' })
 export class LightningService {
   private readonly http = inject(HttpClient);
   private readonly wfsUrl = '/geoserver/maritime/ows';
 
-  fetchRecent(): Observable<LightningFeatureCollection> {
+  /**
+   * Récupère les strikes dans la fenêtre `[at - windowSecs, at]`.
+   * Default = 30 min avant maintenant — équivalent à l'ancien
+   * `WHERE ts > now() - INTERVAL '30 minutes'` hardcodé dans la vue.
+   */
+  fetchRecent(at: Date = new Date(), windowSecs = 1800): Observable<LightningFeatureCollection> {
+    const from = new Date(at.getTime() - windowSecs * 1000);
+    const cql = `ts BETWEEN '${from.toISOString()}' AND '${at.toISOString()}'`;
     return this.http.get<LightningFeatureCollection>(this.wfsUrl, {
       params: {
         service: 'WFS',
@@ -44,6 +53,7 @@ export class LightningService {
         typeName: 'maritime:v_lightning_recent',
         outputFormat: 'application/json',
         srsName: 'EPSG:4326',
+        CQL_FILTER: cql,
         count: '500',
       },
     });

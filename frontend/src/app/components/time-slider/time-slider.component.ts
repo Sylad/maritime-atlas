@@ -274,13 +274,12 @@ import { DatePipe } from '@angular/common';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TimeSliderComponent {
-  // Inputs : range [min, max]. Defaults [now-7d, now+5d] — fenêtre 12 jours
-  // alignée sur la rétention météo (GFS/ARPEGE/WW3 forecasts = 7j de passé).
-  // Choix volontaire : slider plus précis (chaque pixel = ~25min vs ~110min
-  // pour un slider 30j), et garantit qu'il existe toujours des données
-  // météo pour chaque position du cursor (au lieu du dégradé "rien").
-  readonly minTime = input<Date>(new Date(Date.now() - 7 * 86400_000));
-  readonly maxTime = input<Date>(new Date(Date.now() + 5 * 86400_000));
+  // Inputs : range [min, max]. Defaults [now-1d, now+7d] — fenêtre 8 jours
+  // alignée sur la rétention uniforme -1j/+7j (Sylvain 2026-05-15). Toutes
+  // les rétentions DB + cleanup files coverage convergent sur cette plage,
+  // le slider la reflète exactement.
+  readonly minTime = input<Date>(new Date(Date.now() - 86400_000));
+  readonly maxTime = input<Date>(new Date(Date.now() + 7 * 86400_000));
   /** Step en ms — drive les boutons "+/- N" + le snap au drag/click.
    *  0 (default) = pas de snap, step buttons = ±1h. Set par le parent
    *  selon les layers actifs (cf sliderConfig dans map.component). */

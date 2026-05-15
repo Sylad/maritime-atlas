@@ -30,12 +30,14 @@ SELECT create_hypertable(
   if_not_exists => true
 );
 SELECT add_retention_policy(
-  'alerts', INTERVAL '14 days',
+  'alerts', INTERVAL '1 day',
   if_not_exists => true
 );
 
--- ─── Vue "alertes récentes" (last 1h) exposée via GeoServer ─────────
--- Limite à 200 pour éviter qu'un orage massif sature la map.
+-- ─── Vue "alertes récentes" exposée via GeoServer ───────────────────
+-- Pas de filtre temporel hardcodé : le frontend pose CQL_FILTER ancré
+-- sur la time-bar (fenêtre par défaut 1h). La rétention 1j cap le
+-- volume sans tronquer le replay temporel.
 CREATE OR REPLACE VIEW v_alerts_recent AS
 SELECT
   id,
@@ -49,6 +51,4 @@ SELECT
   geom::geometry AS geom,
   detail
 FROM alerts
-WHERE ts > now() - INTERVAL '1 hour'
-ORDER BY ts DESC
-LIMIT 200;
+ORDER BY ts DESC;

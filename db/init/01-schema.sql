@@ -69,9 +69,10 @@ ALTER TABLE vessel_positions SET (
   timescaledb.compress_orderby = 'ts DESC'
 );
 
--- Retention : drop chunks > 30 jours. Modifiable via :
+-- Retention : drop chunks > 1 jour. La time-bar UI slide entre -1j et
+-- +7j, aucune donnée hors fenêtre ne sert au rendu. Modifiable via :
 --   SELECT remove_retention_policy('vessel_positions');
---   SELECT add_retention_policy('vessel_positions', INTERVAL '90 days');
+--   SELECT add_retention_policy('vessel_positions', INTERVAL '7 days');
 DO $$
 BEGIN
   -- Compression policy. TimescaleDB 2.18+ renomme `policy_compression`
@@ -92,7 +93,7 @@ BEGIN
     SELECT 1 FROM timescaledb_information.jobs
     WHERE proc_name = 'policy_retention' AND hypertable_name = 'vessel_positions'
   ) THEN
-    PERFORM add_retention_policy('vessel_positions', INTERVAL '30 days');
+    PERFORM add_retention_policy('vessel_positions', INTERVAL '1 day');
   END IF;
 END $$;
 

@@ -26,16 +26,17 @@ SELECT create_hypertable(
 CREATE INDEX IF NOT EXISTS lightning_strikes_geom_idx
   ON lightning_strikes USING GIST (geom);
 
--- Retention 7 jours — au-delà, ça n'apporte rien (les strikes ne se
--- consultent pas comme un track historique).
+-- Retention 1 jour — aligné sur la fenêtre time-bar -1j/+7j. Les
+-- strikes sont éphémères, pas d'usage historique.
 SELECT add_retention_policy(
-  'lightning_strikes', INTERVAL '7 days',
+  'lightning_strikes', INTERVAL '1 day',
   if_not_exists => true
 );
 
 -- ─── Vue "strikes récents" exposée via GeoServer WFS ─────────────────
--- 30 min = window logique. Affiché en frontend comme overlay punctual
--- pulsé pour signaler les éclairs très récents (<2min).
+-- Pas de filtre temporel hardcodé : le frontend pose CQL_FILTER ancré
+-- sur la time-bar (fenêtre par défaut 30 min). La rétention 1j cap
+-- implicitement le volume.
 CREATE OR REPLACE VIEW v_lightning_recent AS
 SELECT
   -- Pseudo-id stable pour OL feature tracking (basé sur ts+lat+lon)
@@ -46,5 +47,4 @@ SELECT
   alt,
   mcg,
   pol
-FROM lightning_strikes
-WHERE ts > now() - INTERVAL '30 minutes';
+FROM lightning_strikes;

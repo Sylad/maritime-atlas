@@ -200,7 +200,7 @@ def ensure_schema(conn: psycopg.Connection) -> None:
                 WHERE proc_name = 'policy_retention'
                   AND hypertable_name = 'buoy_observations'
               ) THEN
-                PERFORM add_retention_policy('buoy_observations', INTERVAL '30 days');
+                PERFORM add_retention_policy('buoy_observations', INTERVAL '1 day');
               END IF;
             END $$;
         """)
@@ -230,7 +230,6 @@ def ensure_schema(conn: psycopg.Connection) -> None:
         FROM (
           SELECT DISTINCT ON (candhis_id) *
           FROM buoy_observations
-          WHERE ts > now() - INTERVAL '6 hours'
           ORDER BY candhis_id, ts DESC
         ) o
         JOIN buoys b USING (candhis_id);

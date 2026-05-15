@@ -93,7 +93,17 @@ export class BuoysService {
     });
   }
 
-  fetchRecentObservations(): Observable<BuoyObservationFeatureCollection> {
+  /**
+   * Récupère la dernière observation par plateforme dans la fenêtre
+   * `[at - windowSecs, at]`. Default = 6h avant maintenant — équivalent
+   * à l'ancien `WHERE ts > now() - INTERVAL '6 hours'` hardcodé dans la
+   * vue (cf migration 2026-05-15-uniform-retention.sql). La vue
+   * applique DISTINCT ON (candhis_id) côté SQL, le CQL_FILTER ne
+   * change que la borne sup/inf scannée pour le DISTINCT ON.
+   */
+  fetchRecentObservations(at: Date = new Date(), windowSecs = 6 * 3600): Observable<BuoyObservationFeatureCollection> {
+    const from = new Date(at.getTime() - windowSecs * 1000);
+    const cql = `ts BETWEEN '${from.toISOString()}' AND '${at.toISOString()}'`;
     return this.http.get<BuoyObservationFeatureCollection>(this.wfsUrl, {
       params: {
         service: 'WFS',
@@ -102,6 +112,7 @@ export class BuoysService {
         typeName: 'maritime:v_buoy_observations_recent',
         outputFormat: 'application/json',
         srsName: 'EPSG:4326',
+        CQL_FILTER: cql,
         count: '500',
       },
     });
