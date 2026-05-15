@@ -12,7 +12,7 @@
 [![OpenLayers 10](https://img.shields.io/badge/OpenLayers-10-1F6B75?logo=openlayers&logoColor=white)](https://openlayers.org)
 [![NestJS 11](https://img.shields.io/badge/NestJS-11-E0234E?logo=nestjs&logoColor=white)](https://nestjs.com)
 [![GeoServer 2.28](https://img.shields.io/badge/GeoServer-2.28%20cluster-79AF00?logo=geoserver&logoColor=white)](https://geoserver.org)
-[![Custom WPS plugin](https://img.shields.io/badge/Custom%20WPS%20plugin-idw%3AIDW%20%2B%20IDWContour-D97757?logo=java&logoColor=white)](services/geoserver-idw-process/)
+[![Custom SLD plugin](https://img.shields.io/badge/Custom%20SLD%20plugin-idwInterpolate%20%2B%20idwContour-D97757?logo=java&logoColor=white)](services/geoserver-idw-process/)
 [![TimescaleDB](https://img.shields.io/badge/TimescaleDB-PG16-FDB515?logo=timescale&logoColor=white)](https://www.timescale.com)
 [![RabbitMQ](https://img.shields.io/badge/RabbitMQ-3.13-FF6600?logo=rabbitmq&logoColor=white)](https://www.rabbitmq.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -128,7 +128,7 @@ https://github.com/Sylad/maritime-atlas/raw/main/docs/screenshots/07-particles.m
 | Storage | PostgreSQL 16 + PostGIS 3.4 + TimescaleDB (hypertable retention 30j) |
 | Messaging | RabbitMQ 3.13 (`ais.raw` direct, `ais.positions` topic) |
 | Tile/WFS server | GeoServer 2.28.3 (cluster 3 replicas + LB nginx + image mosaic time-aware) avec extensions stable WPS / control-flow / gwc-s3 et community JDBCConfig / JDBCStore (catalog Postgres) |
-| WPS custom | Plugin Java 17 `gs-idw-process` (Maven + SPI + Spring) — 2 processes : `idw:IDW` (densification IDW parallel) + `idw:IDWContour` (densify + extraction isolignes combinés, contourne le bug GeoTools post-2.26.2 sur le SLD chaining) |
+| SLD rendering plugin | Plugin Java 17 `gs-idw-process` (Maven + SPI) — 2 SLD functions : `idwInterpolate` (densification IDW parallel) + `idwContour` (densify + extraction isolignes combinés). **Pattern `CoverageReadingTransformation`** (cf `FootprintsTransformation` GeoTools officiel) : la fonction lit elle-même le coverage à sa résolution NATIVE plutôt que d'être servie un upsample du pipeline GS → 0 double interpolation, smooth garanti à toutes les échelles |
 | Backend | NestJS 11 + TypeScript 5, Drizzle ORM (api), amqplib (ais), node-cron (track-builder) |
 | Raster pipeline | Python 3 + xarray + rioxarray + cfgrib + gdal natif |
 | Frontend | Angular 19 + OpenLayers 10 + nginx alpine |
@@ -151,6 +151,7 @@ https://github.com/Sylad/maritime-atlas/raw/main/docs/screenshots/07-particles.m
 | **Auth refonte** | Schema users `username` + `email_verified_at` + `role` + cron dormants · Google OAuth (`passport-google-oauth20`) · vérif email Resend SDK · `AdminUsersController` `/admin/users` list/promote/delete · RBAC 2 rôles strict |
 | **Sprint Europe** (2026-05-12, 5 chantiers) | bbox Europe étroite, ARPEGE 0.1° activé, EMODnet 612 plateformes, clustering OpenLayers, compression TimescaleDB 88.7% |
 | **GeoServer V3 IDW** (2026-05-13) | Plugin Java custom `idw:IDW` (densify parallel sur quad-core) + `idw:IDWContour` (combiné, contourne bug GeoTools chaining post-2.26.2) + extensions WPS / control-flow / JDBCConfig · isolignes lisses sur SST / wave-hs / wind-speed · burst test 30 req parallèles validé (P95 6s, zéro 502) |
+| **GeoServer V4 IDW native preservation** (2026-05-15) | Migration WPS `@DescribeProcess` → SLD Function `CoverageReadingTransformation`. Avant : pipeline GS upsamplait native (16×8 cells GFS Europe) à target res (532×533) en NN avant IDW → blocky visible. Après : la function lit native directement via `ReaderAndParams`, IDW densifie à factor=12 sur native pure → smooth à tous zooms. Bonus : wind plein écran 2560×1271 passe de **OOM JVM 6GB heap** à **0.9s + 50 MB peak** |
 
 ## Bbox
 
