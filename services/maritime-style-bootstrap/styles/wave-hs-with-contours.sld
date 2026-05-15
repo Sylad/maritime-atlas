@@ -8,7 +8,7 @@
       <sld:FeatureTypeStyle>
         <sld:Name>raster</sld:Name>
         <sld:Transformation>
-          <ogc:Function name="idw:IDW">
+          <ogc:Function name="idwInterpolate">
             <ogc:Function name="parameter"><ogc:Literal>data</ogc:Literal></ogc:Function>
             <ogc:Function name="parameter">
               <ogc:Literal>factor</ogc:Literal><ogc:Literal>12</ogc:Literal>
@@ -34,7 +34,7 @@
       <sld:FeatureTypeStyle>
         <sld:Name>contours</sld:Name>
         <sld:Transformation>
-          <ogc:Function name="idw:IDWContour">
+          <ogc:Function name="idwContour">
             <ogc:Function name="parameter"><ogc:Literal>data</ogc:Literal></ogc:Function>
             <ogc:Function name="parameter"><ogc:Literal>factor</ogc:Literal><ogc:Literal>12</ogc:Literal></ogc:Function>
             <ogc:Function name="parameter"><ogc:Literal>interval</ogc:Literal><ogc:Literal>0.5</ogc:Literal></ogc:Function>

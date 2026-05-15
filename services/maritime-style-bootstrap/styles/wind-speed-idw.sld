@@ -9,7 +9,7 @@
       <sld:FeatureTypeStyle>
         <sld:Name>raster</sld:Name>
         <sld:Transformation>
-          <ogc:Function name="idw:IDW">
+          <ogc:Function name="idwInterpolate">
             <ogc:Function name="parameter"><ogc:Literal>data</ogc:Literal></ogc:Function>
             <!-- factor=12 + BILINEAR : compromis pragmatique. La native
                  preservation par GS est bypassée en cross-CRS (target=3857,

@@ -69,7 +69,7 @@ public class IDWFunction extends FunctionImpl implements CoverageReadingTransfor
     private static final Logger LOGGER = Logger.getLogger(IDWFunction.class.getName());
 
     public static final FunctionName NAME = new FunctionNameImpl(
-            "idw:IDW",
+            "idwInterpolate",
             parameter("result", GridCoverage2D.class),
             parameter("data", Object.class, 0, 1),
             parameter("factor", Map.class, 0, 1),
@@ -89,7 +89,7 @@ public class IDWFunction extends FunctionImpl implements CoverageReadingTransfor
     public Object evaluate(Object object) {
         if (!(object instanceof CoverageReadingTransformation.ReaderAndParams rap)) {
             throw new IllegalArgumentException(
-                    "idw:IDW is a CoverageReadingTransformation, expected ReaderAndParams but got " + object);
+                    "idwInterpolate is a CoverageReadingTransformation, expected ReaderAndParams but got " + object);
         }
 
         Map<String, Object> args = parseArgs(object);
@@ -105,7 +105,7 @@ public class IDWFunction extends FunctionImpl implements CoverageReadingTransfor
             if (nativeCoverage == null) return null;
             return IDWProcess.applyIDW(nativeCoverage, factor, power, neighbors);
         } catch (IOException e) {
-            throw new RuntimeException("idw:IDW failed to read coverage at native resolution", e);
+            throw new RuntimeException("idwInterpolate failed to read coverage at native resolution", e);
         }
     }
 

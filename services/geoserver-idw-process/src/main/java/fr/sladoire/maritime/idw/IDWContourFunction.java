@@ -43,7 +43,7 @@ public class IDWContourFunction extends FunctionImpl implements CoverageReadingT
     private static final Logger LOGGER = Logger.getLogger(IDWContourFunction.class.getName());
 
     public static final FunctionName NAME = new FunctionNameImpl(
-            "idw:IDWContour",
+            "idwContour",
             parameter("result", SimpleFeatureCollection.class),
             parameter("data", Object.class, 0, 1),
             parameter("factor", Map.class, 0, 1),
@@ -64,7 +64,7 @@ public class IDWContourFunction extends FunctionImpl implements CoverageReadingT
     public Object evaluate(Object object) {
         if (!(object instanceof CoverageReadingTransformation.ReaderAndParams rap)) {
             throw new IllegalArgumentException(
-                    "idw:IDWContour expected ReaderAndParams but got " + object);
+                    "idwContour expected ReaderAndParams but got " + object);
         }
 
         Map<String, Object> args = parseArgs(object);
@@ -80,7 +80,7 @@ public class IDWContourFunction extends FunctionImpl implements CoverageReadingT
         final Boolean smooth = boolObj(args.get("smooth"), Boolean.TRUE);
 
         if (interval == null) {
-            throw new IllegalArgumentException("idw:IDWContour requires 'interval' parameter");
+            throw new IllegalArgumentException("idwContour requires 'interval' parameter");
         }
 
         try {
@@ -90,7 +90,7 @@ public class IDWContourFunction extends FunctionImpl implements CoverageReadingT
             return IDWContourProcess.applyIDWContour(
                     nativeCoverage, factor, power, neighbors, interval, simplify, smooth);
         } catch (IOException e) {
-            throw new RuntimeException("idw:IDWContour failed to read coverage at native resolution", e);
+            throw new RuntimeException("idwContour failed to read coverage at native resolution", e);
         }
     }
 
