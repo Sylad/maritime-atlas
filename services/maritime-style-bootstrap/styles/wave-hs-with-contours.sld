@@ -11,7 +11,7 @@
           <ogc:Function name="idw:IDW">
             <ogc:Function name="parameter"><ogc:Literal>data</ogc:Literal></ogc:Function>
             <ogc:Function name="parameter">
-              <ogc:Literal>factor</ogc:Literal><ogc:Literal>4</ogc:Literal>
+              <ogc:Literal>factor</ogc:Literal><ogc:Literal>8</ogc:Literal>
             </ogc:Function>
           </ogc:Function>
         </sld:Transformation>
@@ -37,7 +37,7 @@
         <sld:Transformation>
           <ogc:Function name="idw:IDWContour">
             <ogc:Function name="parameter"><ogc:Literal>data</ogc:Literal></ogc:Function>
-            <ogc:Function name="parameter"><ogc:Literal>factor</ogc:Literal><ogc:Literal>4</ogc:Literal></ogc:Function>
+            <ogc:Function name="parameter"><ogc:Literal>factor</ogc:Literal><ogc:Literal>8</ogc:Literal></ogc:Function>
             <ogc:Function name="parameter"><ogc:Literal>interval</ogc:Literal><ogc:Literal>0.5</ogc:Literal></ogc:Function>
             <ogc:Function name="parameter"><ogc:Literal>simplify</ogc:Literal><ogc:Literal>true</ogc:Literal></ogc:Function>
             <ogc:Function name="parameter"><ogc:Literal>smooth</ogc:Literal><ogc:Literal>true</ogc:Literal></ogc:Function>
