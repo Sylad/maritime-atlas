@@ -121,59 +121,36 @@ public class IDWFunction extends FunctionImpl implements CoverageReadingTransfor
     static GridCoverage2D readNative(GridCoverage2DReader reader, GeneralParameterValue[] params)
             throws IOException {
 
-        GridGeometry2D targetGG = extractReadGG(params);
-        if (targetGG == null) {
-            // CoverageReadingTransformation is invoked BEFORE GS populates
-            // READ_GRIDGEOMETRY2D (RTH:195 happens after our early-return).
-            // Fall back to a native-resolution read of the full coverage —
-            // for typical met/ocean rasters (≤300×200 cells over Europe),
-            // this is bounded and fast. IDW densifies the full coverage
-            // and GS post-renders to the target tile.
-            LOGGER.fine("idw: reading full coverage at native resolution");
-            return reader.read(params);
-        }
-
-        ReferencedEnvelope targetEnv = ReferencedEnvelope.reference(targetGG.getEnvelope2D());
-        CoordinateReferenceSystem sourceCRS = reader.getCoordinateReferenceSystem();
-
-        ReferencedEnvelope envInSource;
+        // Force reader to serve its NATIVE grid range + envelope. Sans ça, le
+        // reader peut resampler en NN sur l'envelope déclarée du featuretype
+        // (e.g. SST natif 64×42 sur [-6:10, 41:51.5] mais featuretype declared
+        // [-15:30, 35:65] → reader retourne 180×120 NN-replicated → IDW lisse
+        // les transitions de blocs mais les contours s'alignent sur la grille
+        // 180×120 = stair-step visible).
         try {
-            envInSource = (targetEnv.getCoordinateReferenceSystem() == null
-                    || CRS.equalsIgnoreMetadata(targetEnv.getCoordinateReferenceSystem(), sourceCRS))
-                    ? targetEnv
-                    : targetEnv.transform(sourceCRS, true);
+            var nativeRange = reader.getOriginalGridRange();
+            var nativeEnv = reader.getOriginalEnvelope();
+            if (nativeRange != null && nativeEnv != null) {
+                int w = nativeRange.getSpan(0);
+                int h = nativeRange.getSpan(1);
+                if (w > 1 && h > 1) {
+                    GridGeometry2D nativeGG = new GridGeometry2D(
+                            new GridEnvelope2D(0, 0, w, h),
+                            ReferencedEnvelope.reference(nativeEnv));
+                    LOGGER.info(() -> String.format(
+                            "idw: requesting native %dx%d over %s",
+                            nativeGG.getGridRange2D().width,
+                            nativeGG.getGridRange2D().height,
+                            nativeGG.getEnvelope2D().toString()));
+                    GeneralParameterValue[] updatedParams = updateReadGG(params, nativeGG);
+                    return reader.read(updatedParams);
+                }
+            }
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "idw: envelope transform failed, using target envelope as-is", e);
-            envInSource = targetEnv;
+            LOGGER.log(Level.WARNING, "idw: native GG request failed, falling back to default", e);
         }
-
-        AffineTransform g2w = (AffineTransform) reader.getOriginalGridToWorld(PixelInCell.CELL_CENTER);
-        double pixelX = Math.abs(g2w.getScaleX());
-        double pixelY = Math.abs(g2w.getScaleY());
-        if (pixelX <= 0 || pixelY <= 0) {
-            return reader.read(params);
-        }
-
-        int w = Math.max(2, (int) Math.ceil(envInSource.getWidth() / pixelX));
-        int h = Math.max(2, (int) Math.ceil(envInSource.getHeight() / pixelY));
-
-        if (w > SOURCE_CAP || h > SOURCE_CAP) {
-            double scale = Math.min((double) SOURCE_CAP / w, (double) SOURCE_CAP / h);
-            w = Math.max(2, (int) (w * scale));
-            h = Math.max(2, (int) (h * scale));
-        }
-
-        GridGeometry2D nativeGG = new GridGeometry2D(
-                new GridEnvelope2D(0, 0, w, h),
-                envInSource);
-
-        final int wF = w, hF = h;
-        LOGGER.info(() -> String.format(
-                "idw: reading native %dx%d cells over envelope (source CRS=%s)",
-                wF, hF, sourceCRS.getName().getCode()));
-
-        GeneralParameterValue[] updatedParams = updateReadGG(params, nativeGG);
-        return reader.read(updatedParams);
+        // Fallback (no native bounds available)
+        return reader.read(params);
     }
 
     static GridGeometry2D extractReadGG(GeneralParameterValue[] params) {
