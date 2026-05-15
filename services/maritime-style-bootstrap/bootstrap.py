@@ -73,6 +73,73 @@ STYLES_TO_DEPLOY = [
     },
 ]
 
+# ── Catalog déclaratif des feature types à reconfigurer ─────────────
+#
+# Ajouter une entrée ici quand un featuretype a besoin d'une liste
+# d'attributs explicite (au lieu de laisser GS auto-introspecter). Cas
+# d'usage : vessel_tracks_daily publié à l'origine sans mmsi/day car
+# auto-introspection à un moment où la table n'avait pas encore ces
+# colonnes. Le PUT déclaratif force GS à exposer les bonnes colonnes
+# en WFS DescribeFeatureType et permet de filtrer dessus.
+FEATURETYPES_TO_CONFIGURE = [
+    {
+        "datastore": "maritime-pg",
+        "name": "vessel_tracks_daily",
+        "attributes": [
+            {"name": "mmsi", "binding": "java.lang.Long", "nillable": False},
+            {"name": "day", "binding": "java.sql.Date", "nillable": False},
+            {"name": "geom", "binding": "org.locationtech.jts.geom.LineString", "nillable": True},
+            {"name": "points_n", "binding": "java.lang.Integer", "nillable": True},
+        ],
+    },
+]
+
+
+def _attribute_xml(attr: dict) -> str:
+    return (
+        f"    <attribute>\n"
+        f"      <name>{attr['name']}</name>\n"
+        f"      <binding>{attr['binding']}</binding>\n"
+        f"      <minOccurs>0</minOccurs>\n"
+        f"      <maxOccurs>1</maxOccurs>\n"
+        f"      <nillable>{'true' if attr.get('nillable', True) else 'false'}</nillable>\n"
+        f"    </attribute>"
+    )
+
+
+def configure_featuretype(entry: dict) -> bool:
+    """PUT le featuretype avec la liste d'attributs explicite. Idempotent."""
+    ds = entry["datastore"]
+    name = entry["name"]
+    attrs = entry["attributes"]
+
+    body = (
+        f"<featureType>\n"
+        f"  <attributes>\n"
+        + "\n".join(_attribute_xml(a) for a in attrs) + "\n"
+        f"  </attributes>\n"
+        f"</featureType>"
+    )
+
+    url = f"{GS_URL}/rest/workspaces/{WORKSPACE}/datastores/{ds}/featuretypes/{name}"
+    try:
+        r = requests.put(
+            url,
+            data=body,
+            headers={"Content-Type": "text/xml"},
+            auth=(GS_USER, GS_PASSWORD),
+            timeout=30,
+        )
+        if r.status_code in (200, 201):
+            attr_names = ", ".join(a["name"] for a in attrs)
+            print(f"  feature {name}: attributes set ({attr_names})", flush=True)
+            return True
+        print(f"  ✗ feature {name}: HTTP {r.status_code} — {r.text[:200]}", flush=True)
+        return False
+    except requests.RequestException as e:
+        print(f"  ✗ feature {name}: FAILED — {e}", flush=True)
+        return False
+
 
 def main() -> int:
     print(f"→ Connecting to {GS_URL} as {GS_USER} (workspace={WORKSPACE})…", flush=True)
@@ -153,6 +220,13 @@ def main() -> int:
             except GeoserverException as e:
                 print(f"  ✗ default-style {layer} → {name}: FAILED — {e}", flush=True)
                 failures.append(f"{layer}/{name}")
+
+    # ── Reconfigure feature types (attribute lists) ─────────────────
+    if FEATURETYPES_TO_CONFIGURE:
+        print(f"→ Reconfiguring {len(FEATURETYPES_TO_CONFIGURE)} featuretype(s)…", flush=True)
+        for ft_entry in FEATURETYPES_TO_CONFIGURE:
+            if not configure_featuretype(ft_entry):
+                failures.append(f"ft/{ft_entry['name']}")
 
     # 4. Reload to invalidate in-memory cache (single call for all)
     try:
