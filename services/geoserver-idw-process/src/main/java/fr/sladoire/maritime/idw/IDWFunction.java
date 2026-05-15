@@ -153,19 +153,6 @@ public class IDWFunction extends FunctionImpl implements CoverageReadingTransfor
         // forcer un read différent.
         GridCoverage2D coverage = reader.read(params);
 
-        // Diagnostic : sample 4 cellules adjacentes au milieu pour détecter
-        // NN-replication par le mosaic reader (cells identiques alignées).
-        try {
-            var img = coverage.getRenderedImage();
-            int w = img.getWidth(), h = img.getHeight();
-            int cx = w / 2, cy = h / 2;
-            float[] vals = new float[6];
-            img.getData().getSamples(cx, cy, 6, 1, 0, vals);
-            LOGGER.info(() -> String.format(
-                    "idw: coverage %dx%d, middle-row samples: %.3f %.3f %.3f %.3f %.3f %.3f",
-                    w, h, vals[0], vals[1], vals[2], vals[3], vals[4], vals[5]));
-        } catch (Exception ignored) { /* diagnostic only */ }
-
         // Cache pour la prochaine FTS du même request
         CACHED_READER.set(new java.lang.ref.WeakReference<>(reader));
         CACHED_COVERAGE.set(coverage);

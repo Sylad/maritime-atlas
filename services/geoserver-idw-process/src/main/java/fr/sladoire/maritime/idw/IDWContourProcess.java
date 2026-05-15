@@ -53,19 +53,9 @@ public class IDWContourProcess {
             throw new IllegalArgumentException("'interval' parameter is required");
         }
 
-        final long t0 = System.nanoTime();
+        final long t0 = LOGGER.isLoggable(Level.FINE) ? System.nanoTime() : 0L;
 
         final GridCoverage2D dense = IDWProcess.applyIDW(coverage, factor, power, neighbors);
-
-        // Log temporaire pour diagnostiquer le stair-step pattern observé
-        // 2026-05-15 par user. À retirer après stabilisation.
-        final var inGG = coverage.getGridGeometry().getGridRange2D();
-        final var outGG = dense.getGridGeometry().getGridRange2D();
-        LOGGER.info(() -> String.format(
-                "IDWContour: in=%dx%d → dense=%dx%d (factor=%d) env=%s",
-                inGG.width, inGG.height, outGG.width, outGG.height,
-                factor == null ? IDWProcess.DEFAULT_FACTOR : factor,
-                coverage.getEnvelope2D().toString()));
 
         final SimpleFeatureCollection contours = ContourProcess.process(
                 dense,
@@ -77,10 +67,12 @@ public class IDWContourProcess {
                 /* roi */ null,
                 /* listener */ null);
 
-        final long ms = (System.nanoTime() - t0) / 1_000_000L;
-        LOGGER.info(() -> String.format(
-                "IDWContour: interval=%.2f simplify=%s smooth=%s → %d features in %dms",
-                interval, simplify, smooth, contours.size(), ms));
+        if (LOGGER.isLoggable(Level.FINE)) {
+            final long ms = (System.nanoTime() - t0) / 1_000_000L;
+            LOGGER.fine(() -> String.format(
+                    "IDWContour: factor=%d interval=%.2f → %d features in %dms",
+                    factor == null ? IDWProcess.DEFAULT_FACTOR : factor, interval, contours.size(), ms));
+        }
 
         return contours;
     }
