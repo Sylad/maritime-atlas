@@ -143,38 +143,15 @@ public class IDWFunction extends FunctionImpl implements CoverageReadingTransfor
             }
         }
 
-        // Force reader to serve its NATIVE grid range + envelope. Sans ça, le
-        // reader peut resampler en NN sur l'envelope déclarée du featuretype
-        // (e.g. SST natif 64×42 sur [-6:10, 41:51.5] mais featuretype declared
-        // [-15:30, 35:65] → reader retourne 180×120 NN-replicated → IDW lisse
-        // les transitions de blocs mais les contours s'alignent sur la grille
-        // 180×120 = stair-step visible).
-        GridCoverage2D coverage = null;
-        try {
-            var nativeRange = reader.getOriginalGridRange();
-            var nativeEnv = reader.getOriginalEnvelope();
-            if (nativeRange != null && nativeEnv != null) {
-                int w = nativeRange.getSpan(0);
-                int h = nativeRange.getSpan(1);
-                if (w > 1 && h > 1) {
-                    GridGeometry2D nativeGG = new GridGeometry2D(
-                            new GridEnvelope2D(0, 0, w, h),
-                            ReferencedEnvelope.reference(nativeEnv));
-                    LOGGER.info(() -> String.format(
-                            "idw: requesting native %dx%d over %s",
-                            nativeGG.getGridRange2D().width,
-                            nativeGG.getGridRange2D().height,
-                            nativeGG.getEnvelope2D().toString()));
-                    GeneralParameterValue[] updatedParams = updateReadGG(params, nativeGG);
-                    coverage = reader.read(updatedParams);
-                }
-            }
-        } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "idw: native GG request failed, falling back to default", e);
-        }
-        if (coverage == null) {
-            coverage = reader.read(params);
-        }
+        // Approche : laisser le reader servir ce qu'il veut avec les params
+        // d'origine. Tentative précédente d'injecter une GG native explicite
+        // (reader.getOriginalGridRange + getOriginalEnvelope) faisait perdre
+        // les données — le reader retournait 180×120 de NaN (log diagnostic
+        // 2026-05-15 : middle-row samples: NaN NaN NaN...).
+        // Le NN-replication observé dans le rendu vient apparemment du reader
+        // lui-même qui résout les granules en NN — sans moyen propre de
+        // forcer un read différent.
+        GridCoverage2D coverage = reader.read(params);
 
         // Diagnostic : sample 4 cellules adjacentes au milieu pour détecter
         // NN-replication par le mosaic reader (cells identiques alignées).
