@@ -253,22 +253,57 @@ public class IDWProcess {
      * <p>Bug GeoTools post-2.26.2 contourné ici (confirmé sur cas pro Sylvain :
      * Contour sur résultat BarnesSurface, fix par ajout d'invertQuery/invertGridGeometry).
      *
-     * <p><b>FIX 2026-05-15</b> : retourner {@code targetGridGeometry} tel quel
-     * était un BUG. Effet : GS demande au coverage source de SE LIRE déjà à
-     * la résolution dst (e.g. 2560×1271). Le reader applique alors un
-     * upscaling NEAREST-NEIGHBOR du raster natif (GFS 0.25° ≈ 220×80)
-     * AVANT de passer au IDW. L'IDW lisse alors un raster déjà fake-upscaled,
-     * d'où les pixels carrés visibles à grande résolution malgré factor=16.
+     * <p><b>Saga 2026-05-15</b> — trois itérations pour trouver le bon contrat :
+     * <ol>
+     *   <li>Retourner {@code targetGridGeometry} tel quel : GS demande au reader
+     *       de produire {@code target} pixels (2560×1271 plein écran). Le reader
+     *       fait un upsample NN du raster natif (GFS 0.25° ≈ 220×80) AVANT IDW.
+     *       L'IDW lisse alors un raster déjà fake-upscaled → pixels visibles.</li>
+     *   <li>Retourner {@code null} : équivalent dans GeoTools à "use target".
+     *       Même effet que (1) + OOM si {@code factor} est élevé : reader
+     *       retourne 2560×1271, puis IDW alloue {@code 2560×1271×factor²} floats
+     *       = O(GB) → JVM ExitOnOutOfMemoryError.</li>
+     *   <li>Retourner {@code target / DEFAULT_FACTOR} borné à 1024px (cette
+     *       implémentation) : le reader reçoit une demande modeste, retourne
+     *       son résultat natif (e.g. 220×80 pour GFS) car native &lt; request,
+     *       l'IDW densifie ×factor → output ≈ target sans alloc explosive.</li>
+     * </ol>
      *
-     * <p>Correction : retourner {@code null} = contrat GeoTools
-     * "{@code RenderingProcess} ne contraint pas la grid geometry source".
-     * Le reader GS lit alors le coverage à sa résolution NATIVE (220×80
-     * pour GFS), {@code execute()} densifie ×factor à partir de cette
-     * source native, et le {@code RasterSymbolizer} downscale/match au
-     * besoin la grid dst. Résultat lisse à toute résolution.
+     * <p>Bornes mémoire en pratique : output IDW max = {@code source × factor}.
+     * Avec source bornée par {@code min(target / divider, CAP)} et factor ≤ 16 :
+     * sur display 2560 wide + divider=4 → source ≤ 640 → output ≤ 10240 wide.
+     * Si native &lt; source request (cas GFS) → output = native × factor ≈ target.
      */
     public GridGeometry invertGridGeometry(Query targetQuery, GridGeometry targetGridGeometry) {
-        return null;
+        if (!(targetGridGeometry instanceof GridGeometry2D)) {
+            return null;
+        }
+        final GridGeometry2D targetGG = (GridGeometry2D) targetGridGeometry;
+        final GridEnvelope2D targetRange = targetGG.getGridRange2D();
+
+        // divider = DEFAULT_FACTOR : on demande au reader target/N pixels en
+        // partant du principe que le SLD utilise factor ≈ DEFAULT_FACTOR.
+        // Si le SLD utilise factor &gt; divider (ex: 12), l'output IDW dépassera
+        // légèrement target → léger downscale BILINEAR par GS, smooth.
+        // Si factor &lt; divider, l'output sera plus petit → upscale GS jusqu'à
+        // target = mild pixelization (mais on a déjà mieux que sans invert).
+        final int divider = DEFAULT_FACTOR;
+
+        // Cap absolu pour borner mémoire au cas où target est gigantesque
+        // (clients exotiques 4K+, GeoWebCache full mosaic, etc).
+        final int CAP = 1024;
+
+        final int w = Math.min(CAP, Math.max(2, targetRange.width / divider));
+        final int h = Math.min(CAP, Math.max(2, targetRange.height / divider));
+
+        try {
+            return new GridGeometry2D(
+                    new GridEnvelope2D(targetRange.x, targetRange.y, w, h),
+                    targetGG.getEnvelope2D());
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "invertGridGeometry failed, falling back to null", e);
+            return null;
+        }
     }
 
     /** Clamp an Integer param to [min, max] with a default fallback if null. */
