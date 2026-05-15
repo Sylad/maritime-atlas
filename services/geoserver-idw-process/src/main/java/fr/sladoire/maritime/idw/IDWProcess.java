@@ -4,13 +4,21 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.IntStream;
 
+import java.awt.geom.AffineTransform;
+
+import org.geotools.api.coverage.grid.GridCoverageReader;
 import org.geotools.api.coverage.grid.GridGeometry;
 import org.geotools.api.data.Query;
+import org.geotools.api.parameter.GeneralParameterValue;
+import org.geotools.api.parameter.ParameterValue;
+import org.geotools.api.referencing.datum.PixelInCell;
 import org.geotools.coverage.CoverageFactoryFinder;
 import org.geotools.coverage.grid.GridCoverage2D;
 import org.geotools.coverage.grid.GridCoverageFactory;
 import org.geotools.coverage.grid.GridEnvelope2D;
 import org.geotools.coverage.grid.GridGeometry2D;
+import org.geotools.coverage.grid.io.AbstractGridFormat;
+import org.geotools.coverage.grid.io.GridCoverage2DReader;
 import org.geotools.geometry.jts.ReferencedEnvelope;
 import org.geotools.process.factory.DescribeParameter;
 import org.geotools.process.factory.DescribeProcess;
@@ -57,7 +65,7 @@ public class IDWProcess {
     /** Defaults + bounds — exposés en static final pour faciliter benchmarks et tests. */
     static final int DEFAULT_FACTOR = 4;
     static final int MIN_FACTOR = 1;
-    static final int MAX_FACTOR = 16;
+    static final int MAX_FACTOR = 32;
     static final double DEFAULT_POWER = 2.0;
     static final double MIN_POWER = 0.1;
     static final double MAX_POWER = 10.0;
@@ -281,19 +289,110 @@ public class IDWProcess {
      * Si native &lt; source request (cas GFS) → output = native × factor ≈ target.
      */
     public GridGeometry invertGridGeometry(Query targetQuery, GridGeometry targetGridGeometry) {
-        // Itération 5 sur ce hook — historique complet :
-        //   1. return targetGridGeometry : reader upscale NN à target res →
-        //      IDW reçoit du blocky → pas de lissage côté contour ni raster.
-        //   2. return null : SEMBLE le pattern canonique GeoTools mais en
-        //      réalité CASSE GeoServer : StreamingRenderer$GCRRenderingTransformationHelper.readCoverage
-        //      déréférence readGG sans null check → NPE + 500. (Bug GS connu.)
-        //   3. return target/N borné CAP : reader upsample partiel → toujours
-        //      blocky en sortie car IDW reçoit du fake-upsampled.
-        //   4. return null (2e essai) : même NPE qu'au point 2.
-        //   5. Retour à return targetGridGeometry (pattern actuel) + INFO log
-        //      pour confirmer ce que le reader nous sert vraiment.
-        //      L'OOM fullscreen 2560×1271 reste un cas pathologique non-supporté.
+        // Garde {@code targetGridGeometry} (et pas {@code null} qui plante GS via NPE
+        // dans StreamingRenderer.GCRRenderingTransformationHelper.readCoverage:4075).
+        // La vraie magie résolution-native est faite dans {@link #customizeReadParams}.
         return targetGridGeometry;
+    }
+
+    /**
+     * Hook RenderingProcess — force le reader à servir le coverage à sa résolution
+     * NATIVE plutôt qu'à la résolution d'affichage (target res). Sans cette méthode,
+     * la pipeline GS demande au reader d'upsampler le source 0.25°/pixel jusqu'à
+     * la grille du tile (e.g. 512×512), ce qui :
+     *   1. gâche du CPU (upsample reader puis re-densif IDW = double interpolation),
+     *   2. produit du blocky si l'interp du reader est NN (default sans VendorOption),
+     *   3. fait recevoir à IDW un raster déjà-fake-haute-résolution donc IDW ne peut
+     *      pas faire son boulot d'interpolation true sur native data.
+     *
+     * <p>En forçant native via {@link AbstractGridFormat#READ_GRIDGEOMETRY2D} :
+     *   - IDW reçoit les pixels SOURCE exacts (e.g. 11×8 pour OISST sur tile 4°×3°),
+     *   - IDW × factor produit une grille fine en partant de vraies données,
+     *   - GS reproject/render le résultat IDW (un seul stage d'interpolation final).
+     *
+     * <p>Pattern reconnu par AnnotationDrivenProcessFactory.lookupCustomizeReadParams
+     * via le nom de la méthode. Signature : derniers params = (reader, params),
+     * GS injecte le reader et les params runtime via réflexion.
+     */
+    public GeneralParameterValue[] customizeReadParams(
+            GridCoverageReader reader, GeneralParameterValue[] params) {
+        if (params == null) return params;
+
+        try {
+            // 1. Trouve READ_GRIDGEOMETRY2D dans les params
+            int ggIdx = -1;
+            ParameterValue<?> readGGparam = null;
+            final String targetCode = AbstractGridFormat.READ_GRIDGEOMETRY2D.getName().getCode();
+            for (int i = 0; i < params.length; i++) {
+                if (!(params[i] instanceof ParameterValue<?> pv)) continue;
+                if (targetCode.equals(pv.getDescriptor().getName().getCode())) {
+                    readGGparam = pv;
+                    ggIdx = i;
+                    break;
+                }
+            }
+            if (readGGparam == null || !(readGGparam.getValue() instanceof GridGeometry2D currentGG)) {
+                return params;
+            }
+
+            // 2. Cast vers GridCoverage2DReader (les APIs CRS / native pixel size
+            // sont sur la sous-classe 2D, pas sur GridCoverageReader générique)
+            if (!(reader instanceof GridCoverage2DReader gc2dReader)) {
+                return params;
+            }
+
+            // 3. Re-projette l'envelope target en CRS source (utile si target=3857
+            // et source=4326 typiquement)
+            ReferencedEnvelope targetEnv = ReferencedEnvelope.reference(currentGG.getEnvelope2D());
+            var sourceCRS = gc2dReader.getCoordinateReferenceSystem();
+            ReferencedEnvelope envInSource = targetEnv.getCoordinateReferenceSystem() != null
+                    && targetEnv.getCoordinateReferenceSystem().equals(sourceCRS)
+                    ? targetEnv
+                    : targetEnv.transform(sourceCRS, true);
+
+            // 4. Taille des pixels natifs (en CRS source)
+            AffineTransform g2w = (AffineTransform) gc2dReader.getOriginalGridToWorld(PixelInCell.CELL_CENTER);
+            double nativePixelX = Math.abs(g2w.getScaleX());
+            double nativePixelY = Math.abs(g2w.getScaleY());
+            if (nativePixelX <= 0 || nativePixelY <= 0) return params;
+
+            // 4. Compte de cellules natives nécessaires pour couvrir l'envelope target
+            int w = Math.max(2, (int) Math.ceil(envInSource.getWidth() / nativePixelX));
+            int h = Math.max(2, (int) Math.ceil(envInSource.getHeight() / nativePixelY));
+
+            // Cap pour borner mémoire : avec factor=16-24 SLD, on veut éviter
+            // que w×h×factor² explose au-delà de ~100 MB par buffer. Source ≤ 512
+            // → output ≤ 512×16 = 8192 → ~250 MB. Au-delà, on decimate (perd de
+            // la précision mais évite OOM sur GetMap fullscreen de coverage à
+            // grosse résolution native).
+            final int SOURCE_CAP = 512;
+            if (w > SOURCE_CAP || h > SOURCE_CAP) {
+                double scale = Math.min((double) SOURCE_CAP / w, (double) SOURCE_CAP / h);
+                w = Math.max(2, (int) (w * scale));
+                h = Math.max(2, (int) (h * scale));
+            }
+
+            // 5. Build new GridGeometry2D et remplace le param
+            GridGeometry2D nativeGG = new GridGeometry2D(
+                    new GridEnvelope2D(0, 0, w, h),
+                    (org.geotools.api.geometry.Bounds) envInSource);
+
+            @SuppressWarnings("unchecked")
+            ParameterValue<GridGeometry2D> newParam =
+                    (ParameterValue<GridGeometry2D>) AbstractGridFormat.READ_GRIDGEOMETRY2D.createValue();
+            newParam.setValue(nativeGG);
+            params[ggIdx] = newParam;
+
+            final int wF = w, hF = h;
+            final double pxF = nativePixelX, pyF = nativePixelY;
+            LOGGER.info(() -> String.format(
+                    "IDW.customizeReadParams forced native %dx%d (pixel size %.4fx%.4f source CRS)",
+                    wF, hF, pxF, pyF));
+            return params;
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "customizeReadParams failed, keeping default params", e);
+            return params;
+        }
     }
 
     /** Clamp an Integer param to [min, max] with a default fallback if null. */

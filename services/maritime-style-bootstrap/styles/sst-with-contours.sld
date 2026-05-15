@@ -6,15 +6,16 @@
       <sld:Name>sst-with-contours</sld:Name>
       <sld:Title>SST rainbow + isolignes (factor=12 lissé pleine résolution)</sld:Title>
 
-      <!-- Pass 1 : raster coloré densifié IDW factor=12 (matche affichage 2560 wide).
-           Données source intactes côté GetFeatureInfo/WCS. -->
+      <!-- Pass 1 : raster coloré densifié IDW factor=24 (depuis customizeReadParams
+           native preservation, le reader sert le coverage à sa résolution native
+           e.g. 11×8 pour OISST sur tile 4° → IDW × 24 = 264×192 = quasi-display). -->
       <sld:FeatureTypeStyle>
         <sld:Name>raster</sld:Name>
         <sld:Transformation>
           <ogc:Function name="idw:IDW">
             <ogc:Function name="parameter"><ogc:Literal>data</ogc:Literal></ogc:Function>
             <ogc:Function name="parameter">
-              <ogc:Literal>factor</ogc:Literal><ogc:Literal>12</ogc:Literal>
+              <ogc:Literal>factor</ogc:Literal><ogc:Literal>24</ogc:Literal>
             </ogc:Function>
           </ogc:Function>
         </sld:Transformation>
@@ -32,15 +33,9 @@
               <sld:ColorMapEntry color="#dc2626" opacity="0.9" quantity="26" label="26 °C"/>
               <sld:ColorMapEntry color="#7f1d1d" opacity="0.95" quantity="30" label="30 °C (Med été)"/>
             </sld:ColorMap>
-            <!-- 2026-05-15 itération 6 : VendorOption interpolation=BILINEAR
-                 contrôle l'interp DU READER quand il upsample native (e.g. 11×8)
-                 jusqu'à target res (e.g. 532×533) AVANT IDW. Sans cette option,
-                 le reader fait du NN-replicate → IDW reçoit du blocky →
-                 sortie blocky même avec factor=12. Avec BILINEAR, le reader
-                 produit une surface lisse, IDW densifie, sortie lisse.
-                 ContrastEnhancement reste EXCLU : il triggère un short-circuit
-                 du pipeline Transformation (raster brut affiché). -->
-            <sld:VendorOption name="interpolation">BILINEAR</sld:VendorOption>
+            <!-- 2026-05-15 itération 7 : plus besoin de VendorOption interpolation.
+                 customizeReadParams (Java plugin) force le reader à servir native →
+                 IDW interpole tout seul, single-pass. -->
           </sld:RasterSymbolizer>
         </sld:Rule>
       </sld:FeatureTypeStyle>
@@ -54,7 +49,7 @@
           <ogc:Function name="idw:IDWContour">
             <ogc:Function name="parameter"><ogc:Literal>data</ogc:Literal></ogc:Function>
             <ogc:Function name="parameter">
-              <ogc:Literal>factor</ogc:Literal><ogc:Literal>12</ogc:Literal>
+              <ogc:Literal>factor</ogc:Literal><ogc:Literal>24</ogc:Literal>
             </ogc:Function>
             <ogc:Function name="parameter">
               <ogc:Literal>interval</ogc:Literal><ogc:Literal>2.0</ogc:Literal>

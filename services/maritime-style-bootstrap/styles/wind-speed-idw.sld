@@ -11,13 +11,14 @@
         <sld:Transformation>
           <ogc:Function name="idw:IDW">
             <ogc:Function name="parameter"><ogc:Literal>data</ogc:Literal></ogc:Function>
-            <!-- factor=12 : sortie IDW ≈ 2640 wide (220×12) sur GFS Europe bbox,
-                 matche un affichage 2560 wide → upscale GS post-IDW ≈ 1.03x,
-                 invisible. Cf invertGridGeometry returns null (contrat
-                 GeoTools RenderingProcess) qui force la lecture du coverage à
-                 sa résolution NATIVE (220×80), pas la cible affichage. -->
+            <!-- factor=24 : depuis 2026-05-15 itération 7, customizeReadParams
+                 garantit que IDW reçoit le source à sa résolution NATIVE
+                 (e.g. 16×8 cells sur tile 4°). factor=24 produit alors une
+                 sortie 384×192 sur ce tile → upscale GS ≤ 1.33× = lissage
+                 visuellement parfait. Côté fullscreen Europe 30°, 120 cells
+                 natives × 24 = 2880 wide ≈ display 2560. -->
             <ogc:Function name="parameter">
-              <ogc:Literal>factor</ogc:Literal><ogc:Literal>12</ogc:Literal>
+              <ogc:Literal>factor</ogc:Literal><ogc:Literal>24</ogc:Literal>
             </ogc:Function>
           </ogc:Function>
         </sld:Transformation>
@@ -33,10 +34,10 @@
               <sld:ColorMapEntry color="#dc2626" opacity="0.9" quantity="25" label="25 m/s (tempête)"/>
               <sld:ColorMapEntry color="#7f1d1d" opacity="0.95" quantity="35" label="35 m/s (ouragan)"/>
             </sld:ColorMap>
-            <!-- 2026-05-15 itération 6 : BILINEAR pour interp du reader
-                 quand il upsample native vers target res avant IDW.
-                 ContrastEnhancement reste EXCLU (short-circuit IDW). -->
-            <sld:VendorOption name="interpolation">BILINEAR</sld:VendorOption>
+            <!-- 2026-05-15 itération 7 : plus besoin de VendorOption interpolation.
+                 customizeReadParams (Java plugin) force le reader à servir native →
+                 IDW interpole tout seul (single-pass), pas de pré-interp par
+                 le reader. ContrastEnhancement reste EXCLU. -->
           </sld:RasterSymbolizer>
         </sld:Rule>
       </sld:FeatureTypeStyle>

@@ -3,8 +3,10 @@ package fr.sladoire.maritime.idw;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.geotools.api.coverage.grid.GridCoverageReader;
 import org.geotools.api.coverage.grid.GridGeometry;
 import org.geotools.api.data.Query;
+import org.geotools.api.parameter.GeneralParameterValue;
 import org.geotools.coverage.grid.GridCoverage2D;
 import org.geotools.coverage.grid.GridGeometry2D;
 import org.geotools.data.simple.SimpleFeatureCollection;
@@ -140,8 +142,18 @@ public class IDWContourProcess {
      * {@code smooth=true}).
      */
     public GridGeometry invertGridGeometry(Query targetQuery, GridGeometry targetGridGeometry) {
-        // cf {@link IDWProcess#invertGridGeometry(Query, GridGeometry)} : null plante GS,
-        // target permet au moins de passer ; le reader décidera de la résolution servie.
+        // cf IDWProcess.invertGridGeometry — null plante GS (NPE), target = OK.
+        // La résolution native est forcée via {@link #customizeReadParams}.
         return targetGridGeometry;
+    }
+
+    /**
+     * Délègue à {@link IDWProcess#customizeReadParams} : même besoin de
+     * forcer la résolution native pour que l'IDW interne fasse son boulot
+     * sur de la vraie donnée plutôt qu'un upsample naïf du reader.
+     */
+    public GeneralParameterValue[] customizeReadParams(
+            GridCoverageReader reader, GeneralParameterValue[] params) {
+        return IDW.customizeReadParams(reader, params);
     }
 }
