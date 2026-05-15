@@ -32,10 +32,15 @@
               <sld:ColorMapEntry color="#dc2626" opacity="0.9" quantity="26" label="26 °C"/>
               <sld:ColorMapEntry color="#7f1d1d" opacity="0.95" quantity="30" label="30 °C (Med été)"/>
             </sld:ColorMap>
-            <!-- 2026-05-15 : pas de ContrastEnhancement / VendorOption
-                 interpolation — les deux court-circuitent la Transformation
-                 idw:IDW (raster brut affiché). Le lissage est entièrement
-                 délégué au plugin Java avec factor=12 (cf wind-speed-idw.sld). -->
+            <!-- 2026-05-15 itération 6 : VendorOption interpolation=BILINEAR
+                 contrôle l'interp DU READER quand il upsample native (e.g. 11×8)
+                 jusqu'à target res (e.g. 532×533) AVANT IDW. Sans cette option,
+                 le reader fait du NN-replicate → IDW reçoit du blocky →
+                 sortie blocky même avec factor=12. Avec BILINEAR, le reader
+                 produit une surface lisse, IDW densifie, sortie lisse.
+                 ContrastEnhancement reste EXCLU : il triggère un short-circuit
+                 du pipeline Transformation (raster brut affiché). -->
+            <sld:VendorOption name="interpolation">BILINEAR</sld:VendorOption>
           </sld:RasterSymbolizer>
         </sld:Rule>
       </sld:FeatureTypeStyle>

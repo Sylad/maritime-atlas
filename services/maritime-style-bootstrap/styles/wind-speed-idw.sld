@@ -33,12 +33,10 @@
               <sld:ColorMapEntry color="#dc2626" opacity="0.9" quantity="25" label="25 m/s (tempête)"/>
               <sld:ColorMapEntry color="#7f1d1d" opacity="0.95" quantity="35" label="35 m/s (ouragan)"/>
             </sld:ColorMap>
-            <!-- 2026-05-15 : pas de ContrastEnhancement / VendorOption
-                 interpolation ici (les deux court-circuitent la Transformation
-                 idw:IDW dans GS — observé empiriquement, raster brut affiché
-                 au lieu du résultat interpolé). Le lissage est entièrement
-                 délégué au plugin Java avec factor=12 qui garantit que la
-                 sortie IDW matche la résolution d'affichage typique (≤2640 wide). -->
+            <!-- 2026-05-15 itération 6 : BILINEAR pour interp du reader
+                 quand il upsample native vers target res avant IDW.
+                 ContrastEnhancement reste EXCLU (short-circuit IDW). -->
+            <sld:VendorOption name="interpolation">BILINEAR</sld:VendorOption>
           </sld:RasterSymbolizer>
         </sld:Rule>
       </sld:FeatureTypeStyle>
