@@ -129,31 +129,10 @@ public class IDWContourProcess {
         return contours;
     }
 
-    /**
-     * Hook RenderingProcess — borne la lecture source à target/N (CAP 1024)
-     * pour le même motif que {@link IDWProcess#invertGridGeometry(Query, GridGeometry)} :
-     * sans borne, retourner {@code target} ou {@code null} force le reader à
-     * lire à la résolution d'affichage entière, puis IDW × factor explose en
-     * mémoire et ContourProcess hérite d'une grille gigantesque (lignes
-     * lentes, contours à priori plus "fins" mais avec un coût RAM/CPU rédhibitoire).
-     *
-     * <p>Avec borne : reader → native, IDW × factor → grille raisonnable,
-     * Contour produit des lignes fluides (Bezier smoothing déjà actif via
-     * {@code smooth=true}).
-     */
     public GridGeometry invertGridGeometry(Query targetQuery, GridGeometry targetGridGeometry) {
         // cf IDWProcess.invertGridGeometry — null plante GS (NPE), target = OK.
-        // La résolution native est forcée via {@link #customizeReadParams}.
+        // Le reader sert target res, l'interp est contrôlée par
+        // <VendorOption name="interpolation">BILINEAR</> côté RasterSymbolizer SLD.
         return targetGridGeometry;
-    }
-
-    /**
-     * Délègue à {@link IDWProcess#customizeReadParams} : même besoin de
-     * forcer la résolution native pour que l'IDW interne fasse son boulot
-     * sur de la vraie donnée plutôt qu'un upsample naïf du reader.
-     */
-    public GeneralParameterValue[] customizeReadParams(
-            GridCoverageReader reader, GeneralParameterValue[] params) {
-        return IDW.customizeReadParams(reader, params);
     }
 }
