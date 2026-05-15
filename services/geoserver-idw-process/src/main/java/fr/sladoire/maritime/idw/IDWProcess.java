@@ -320,6 +320,17 @@ public class IDWProcess {
                 "IDW.customizeReadParams CALLED — reader=%s, params=%d items",
                 reader == null ? "null" : reader.getClass().getSimpleName(),
                 params == null ? 0 : params.length));
+        if (params != null) {
+            StringBuilder sb = new StringBuilder("IDW.customizeReadParams param names:");
+            for (GeneralParameterValue p : params) {
+                if (p instanceof ParameterValue<?> pv) {
+                    sb.append(" [").append(pv.getDescriptor().getName().getCode())
+                      .append("=").append(pv.getValue() == null ? "null" : pv.getValue().getClass().getSimpleName())
+                      .append("]");
+                }
+            }
+            LOGGER.info(sb::toString);
+        }
         if (params == null) return params;
 
         try {
