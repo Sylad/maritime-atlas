@@ -39,7 +39,6 @@
                  native (e.g. 11×8 cells) vers la grille readGG (target+padding).
                  Sans cette option, le reader fait du NN-replicate → IDW reçoit
                  du blocky → sortie blocky. ContrastEnhancement reste EXCLU. -->
-            <sld:VendorOption name="interpolation">BILINEAR</sld:VendorOption>
           </sld:RasterSymbolizer>
         </sld:Rule>
       </sld:FeatureTypeStyle>

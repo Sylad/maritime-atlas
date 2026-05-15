@@ -123,7 +123,13 @@ public class IDWFunction extends FunctionImpl implements CoverageReadingTransfor
 
         GridGeometry2D targetGG = extractReadGG(params);
         if (targetGG == null) {
-            LOGGER.warning("idw: no READ_GRIDGEOMETRY2D in params — falling back to default read");
+            // CoverageReadingTransformation is invoked BEFORE GS populates
+            // READ_GRIDGEOMETRY2D (RTH:195 happens after our early-return).
+            // Fall back to a native-resolution read of the full coverage —
+            // for typical met/ocean rasters (≤300×200 cells over Europe),
+            // this is bounded and fast. IDW densifies the full coverage
+            // and GS post-renders to the target tile.
+            LOGGER.fine("idw: reading full coverage at native resolution");
             return reader.read(params);
         }
 

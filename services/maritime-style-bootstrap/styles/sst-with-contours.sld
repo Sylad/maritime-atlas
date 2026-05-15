@@ -34,7 +34,6 @@
               <sld:ColorMapEntry color="#7f1d1d" opacity="0.95" quantity="30" label="30 °C (Med été)"/>
             </sld:ColorMap>
             <!-- BILINEAR : contrôle l'interp du reader sur upsample native→target. -->
-            <sld:VendorOption name="interpolation">BILINEAR</sld:VendorOption>
           </sld:RasterSymbolizer>
         </sld:Rule>
       </sld:FeatureTypeStyle>

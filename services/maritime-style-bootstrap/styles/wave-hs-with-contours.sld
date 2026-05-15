@@ -27,7 +27,6 @@
               <sld:ColorMapEntry color="#fb923c" opacity="0.9" quantity="6" label="6 m"/>
               <sld:ColorMapEntry color="#dc2626" opacity="0.95" quantity="9" label="9+ m (grosse mer)"/>
             </sld:ColorMap>
-            <sld:VendorOption name="interpolation">BILINEAR</sld:VendorOption>
           </sld:RasterSymbolizer>
         </sld:Rule>
       </sld:FeatureTypeStyle>
