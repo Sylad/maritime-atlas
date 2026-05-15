@@ -295,120 +295,18 @@ public class IDWProcess {
         return targetGridGeometry;
     }
 
-    /**
-     * Hook RenderingProcess — force le reader à servir le coverage à sa résolution
-     * NATIVE plutôt qu'à la résolution d'affichage (target res). Sans cette méthode,
-     * la pipeline GS demande au reader d'upsampler le source 0.25°/pixel jusqu'à
-     * la grille du tile (e.g. 512×512), ce qui :
-     *   1. gâche du CPU (upsample reader puis re-densif IDW = double interpolation),
-     *   2. produit du blocky si l'interp du reader est NN (default sans VendorOption),
-     *   3. fait recevoir à IDW un raster déjà-fake-haute-résolution donc IDW ne peut
-     *      pas faire son boulot d'interpolation true sur native data.
-     *
-     * <p>En forçant native via {@link AbstractGridFormat#READ_GRIDGEOMETRY2D} :
-     *   - IDW reçoit les pixels SOURCE exacts (e.g. 11×8 pour OISST sur tile 4°×3°),
-     *   - IDW × factor produit une grille fine en partant de vraies données,
-     *   - GS reproject/render le résultat IDW (un seul stage d'interpolation final).
-     *
-     * <p>Pattern reconnu par AnnotationDrivenProcessFactory.lookupCustomizeReadParams
-     * via le nom de la méthode. Signature : derniers params = (reader, params),
-     * GS injecte le reader et les params runtime via réflexion.
-     */
-    public GeneralParameterValue[] customizeReadParams(
-            GridCoverageReader reader, GeneralParameterValue[] params) {
-        LOGGER.info(() -> String.format(
-                "IDW.customizeReadParams CALLED — reader=%s, params=%d items",
-                reader == null ? "null" : reader.getClass().getSimpleName(),
-                params == null ? 0 : params.length));
-        if (params != null) {
-            StringBuilder sb = new StringBuilder("IDW.customizeReadParams param names:");
-            for (GeneralParameterValue p : params) {
-                if (p instanceof ParameterValue<?> pv) {
-                    sb.append(" [").append(pv.getDescriptor().getName().getCode())
-                      .append("=").append(pv.getValue() == null ? "null" : pv.getValue().getClass().getSimpleName())
-                      .append("]");
-                }
-            }
-            LOGGER.info(sb::toString);
-        }
-        if (params == null) return params;
-
-        try {
-            // 1. Trouve READ_GRIDGEOMETRY2D dans les params
-            int ggIdx = -1;
-            ParameterValue<?> readGGparam = null;
-            final String targetCode = AbstractGridFormat.READ_GRIDGEOMETRY2D.getName().getCode();
-            for (int i = 0; i < params.length; i++) {
-                if (!(params[i] instanceof ParameterValue<?> pv)) continue;
-                if (targetCode.equals(pv.getDescriptor().getName().getCode())) {
-                    readGGparam = pv;
-                    ggIdx = i;
-                    break;
-                }
-            }
-            if (readGGparam == null || !(readGGparam.getValue() instanceof GridGeometry2D currentGG)) {
-                return params;
-            }
-
-            // 2. Cast vers GridCoverage2DReader (les APIs CRS / native pixel size
-            // sont sur la sous-classe 2D, pas sur GridCoverageReader générique)
-            if (!(reader instanceof GridCoverage2DReader gc2dReader)) {
-                return params;
-            }
-
-            // 3. Re-projette l'envelope target en CRS source (utile si target=3857
-            // et source=4326 typiquement)
-            ReferencedEnvelope targetEnv = ReferencedEnvelope.reference(currentGG.getEnvelope2D());
-            var sourceCRS = gc2dReader.getCoordinateReferenceSystem();
-            ReferencedEnvelope envInSource = targetEnv.getCoordinateReferenceSystem() != null
-                    && targetEnv.getCoordinateReferenceSystem().equals(sourceCRS)
-                    ? targetEnv
-                    : targetEnv.transform(sourceCRS, true);
-
-            // 4. Taille des pixels natifs (en CRS source)
-            AffineTransform g2w = (AffineTransform) gc2dReader.getOriginalGridToWorld(PixelInCell.CELL_CENTER);
-            double nativePixelX = Math.abs(g2w.getScaleX());
-            double nativePixelY = Math.abs(g2w.getScaleY());
-            if (nativePixelX <= 0 || nativePixelY <= 0) return params;
-
-            // 4. Compte de cellules natives nécessaires pour couvrir l'envelope target
-            int w = Math.max(2, (int) Math.ceil(envInSource.getWidth() / nativePixelX));
-            int h = Math.max(2, (int) Math.ceil(envInSource.getHeight() / nativePixelY));
-
-            // Cap pour borner mémoire : avec factor=16-24 SLD, on veut éviter
-            // que w×h×factor² explose au-delà de ~100 MB par buffer. Source ≤ 512
-            // → output ≤ 512×16 = 8192 → ~250 MB. Au-delà, on decimate (perd de
-            // la précision mais évite OOM sur GetMap fullscreen de coverage à
-            // grosse résolution native).
-            final int SOURCE_CAP = 512;
-            if (w > SOURCE_CAP || h > SOURCE_CAP) {
-                double scale = Math.min((double) SOURCE_CAP / w, (double) SOURCE_CAP / h);
-                w = Math.max(2, (int) (w * scale));
-                h = Math.max(2, (int) (h * scale));
-            }
-
-            // 5. Build new GridGeometry2D et remplace le param
-            GridGeometry2D nativeGG = new GridGeometry2D(
-                    new GridEnvelope2D(0, 0, w, h),
-                    (org.geotools.api.geometry.Bounds) envInSource);
-
-            @SuppressWarnings("unchecked")
-            ParameterValue<GridGeometry2D> newParam =
-                    (ParameterValue<GridGeometry2D>) AbstractGridFormat.READ_GRIDGEOMETRY2D.createValue();
-            newParam.setValue(nativeGG);
-            params[ggIdx] = newParam;
-
-            final int wF = w, hF = h;
-            final double pxF = nativePixelX, pyF = nativePixelY;
-            LOGGER.info(() -> String.format(
-                    "IDW.customizeReadParams forced native %dx%d (pixel size %.4fx%.4f source CRS)",
-                    wF, hF, pxF, pyF));
-            return params;
-        } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "customizeReadParams failed, keeping default params", e);
-            return params;
-        }
-    }
+    // NOTE — pas de customizeReadParams ici. Investigation 2026-05-15 :
+    //   - Le hook EST bien appelé par GS via RenderingProcessFunction
+    //   - MAIS le params array reçu ne contient PAS READ_GRIDGEOMETRY2D
+    //     (vérifié via dump : 18 params de configuration ImageMosaicFormat,
+    //     aucun pour la résolution)
+    //   - GS passe en réalité readGG SÉPARÉMENT à readCoverage() — pas via params
+    //   - Donc le seul levier de contrôle résolution = invertGridGeometry, qui
+    //     malheureusement n'a pas accès au reader pour connaître la native res
+    //
+    // Conclusion : avec le pipeline GS actuel, le reader sert target res au IDW,
+    // c'est by design. Le contrôle de l'interpolation upsample du reader se fait
+    // via <VendorOption name="interpolation"> sur le RasterSymbolizer SLD.
 
     /** Clamp an Integer param to [min, max] with a default fallback if null. */
     private static int clamp(Integer val, int min, int max, int def) {
