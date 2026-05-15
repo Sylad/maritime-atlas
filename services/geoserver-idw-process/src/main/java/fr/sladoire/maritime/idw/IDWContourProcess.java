@@ -6,6 +6,7 @@ import java.util.logging.Logger;
 import org.geotools.api.coverage.grid.GridGeometry;
 import org.geotools.api.data.Query;
 import org.geotools.coverage.grid.GridCoverage2D;
+import org.geotools.coverage.grid.GridGeometry2D;
 import org.geotools.data.simple.SimpleFeatureCollection;
 import org.geotools.process.factory.DescribeParameter;
 import org.geotools.process.factory.DescribeProcess;
@@ -127,11 +128,37 @@ public class IDWContourProcess {
     }
 
     /**
-     * Méthode marqueur (cf IDWProcess.invertGridGeometry) — son existence déclenche
-     * le wrapping en InvokeMethodRenderingProcess par AnnotationDrivenProcessFactory,
-     * ce qui active l'auto-injection du coverage source au call evaluate(coverage).
+     * Hook RenderingProcess — borne la lecture source à target/N (CAP 1024)
+     * pour le même motif que {@link IDWProcess#invertGridGeometry(Query, GridGeometry)} :
+     * sans borne, retourner {@code target} ou {@code null} force le reader à
+     * lire à la résolution d'affichage entière, puis IDW × factor explose en
+     * mémoire et ContourProcess hérite d'une grille gigantesque (lignes
+     * lentes, contours à priori plus "fins" mais avec un coût RAM/CPU rédhibitoire).
+     *
+     * <p>Avec borne : reader → native, IDW × factor → grille raisonnable,
+     * Contour produit des lignes fluides (Bezier smoothing déjà actif via
+     * {@code smooth=true}).
      */
     public GridGeometry invertGridGeometry(Query targetQuery, GridGeometry targetGridGeometry) {
-        return targetGridGeometry;
+        if (!(targetGridGeometry instanceof GridGeometry2D)) {
+            return null;
+        }
+        final GridGeometry2D targetGG = (GridGeometry2D) targetGridGeometry;
+        final org.geotools.coverage.grid.GridEnvelope2D targetRange = targetGG.getGridRange2D();
+
+        final int divider = IDWProcess.DEFAULT_FACTOR;
+        final int CAP = 1024;
+
+        final int w = Math.min(CAP, Math.max(2, targetRange.width / divider));
+        final int h = Math.min(CAP, Math.max(2, targetRange.height / divider));
+
+        try {
+            return new GridGeometry2D(
+                    new org.geotools.coverage.grid.GridEnvelope2D(targetRange.x, targetRange.y, w, h),
+                    targetGG.getEnvelope2D());
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "IDWContour.invertGridGeometry failed, falling back to null", e);
+            return null;
+        }
     }
 }

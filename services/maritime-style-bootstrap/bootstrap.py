@@ -50,6 +50,14 @@ STYLES_TO_DEPLOY = [
         "name": "wind-speed-idw",
         "default_for": ["wind-speed", "wind-speed-arpege", "wind-speed-arome"],
     },
+    {
+        "name": "sst-with-contours",
+        "default_for": ["sst-daily"],
+    },
+    {
+        "name": "wave-hs-with-contours",
+        "default_for": ["wave-hs"],
+    },
 ]
 
 
