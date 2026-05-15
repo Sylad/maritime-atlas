@@ -140,7 +140,8 @@ public class IDWContourProcess {
      * {@code smooth=true}).
      */
     public GridGeometry invertGridGeometry(Query targetQuery, GridGeometry targetGridGeometry) {
-        // Pattern canonique cf {@link IDWProcess#invertGridGeometry(Query, GridGeometry)}.
-        return null;
+        // cf {@link IDWProcess#invertGridGeometry(Query, GridGeometry)} : null plante GS,
+        // target permet au moins de passer ; le reader décidera de la résolution servie.
+        return targetGridGeometry;
     }
 }

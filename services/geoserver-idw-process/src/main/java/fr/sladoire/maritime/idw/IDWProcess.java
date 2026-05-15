@@ -281,24 +281,19 @@ public class IDWProcess {
      * Si native &lt; source request (cas GFS) → output = native × factor ≈ target.
      */
     public GridGeometry invertGridGeometry(Query targetQuery, GridGeometry targetGridGeometry) {
-        // Pattern canonique GeoTools (BarnesSurface, ContourProcess, JiffleProcess
-        // — tous retournent null). Permet au reader de servir sa résolution
-        // native sans forcing par le rendering pipeline.
-        //
-        // Itération 4 sur ce hook :
-        //   1. return targetGridGeometry : reader upscale NN à target → IDW
-        //      reçoit déjà du blocky → pas de lissage.
-        //   2. return null (1er essai) : OOM sur GetMap fullscreen 2560×1271
-        //      car un overflow projection (Longitude 2147483287°W) ajouté à
-        //      un facteur 12 = alloc > 6 GB heap.
-        //   3. return target/N borné à CAP=1024 : reader doit upsampler son
-        //      native (16×16 OISST) jusqu'à 128×128 si on lui demande > native
-        //      → IDW reçoit du upsampled-NN-blocky × factor = toujours blocky.
-        //   4. return null (2e essai) : reader retourne SA résolution natale,
-        //      IDW ×factor produit une grille fine. L'OOM fullscreen est un
-        //      cas pathologique non-supporté (le frontend OL utilise des
-        //      tiles 256/512 qui ne trigger pas l'overflow).
-        return null;
+        // Itération 5 sur ce hook — historique complet :
+        //   1. return targetGridGeometry : reader upscale NN à target res →
+        //      IDW reçoit du blocky → pas de lissage côté contour ni raster.
+        //   2. return null : SEMBLE le pattern canonique GeoTools mais en
+        //      réalité CASSE GeoServer : StreamingRenderer$GCRRenderingTransformationHelper.readCoverage
+        //      déréférence readGG sans null check → NPE + 500. (Bug GS connu.)
+        //   3. return target/N borné CAP : reader upsample partiel → toujours
+        //      blocky en sortie car IDW reçoit du fake-upsampled.
+        //   4. return null (2e essai) : même NPE qu'au point 2.
+        //   5. Retour à return targetGridGeometry (pattern actuel) + INFO log
+        //      pour confirmer ce que le reader nous sert vraiment.
+        //      L'OOM fullscreen 2560×1271 reste un cas pathologique non-supporté.
+        return targetGridGeometry;
     }
 
     /** Clamp an Integer param to [min, max] with a default fallback if null. */
