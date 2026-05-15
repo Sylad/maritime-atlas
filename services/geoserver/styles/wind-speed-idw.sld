@@ -11,8 +11,13 @@
         <sld:Transformation>
           <ogc:Function name="idw:IDW">
             <ogc:Function name="parameter"><ogc:Literal>data</ogc:Literal></ogc:Function>
+            <!-- factor=12 : sortie IDW ≈ 2640 wide (220×12) sur GFS Europe bbox,
+                 matche un affichage 2560 wide → upscale GS post-IDW ≈ 1.03x,
+                 invisible. Cf invertGridGeometry returns null (contrat
+                 GeoTools RenderingProcess) qui force la lecture du coverage à
+                 sa résolution NATIVE (220×80), pas la cible affichage. -->
             <ogc:Function name="parameter">
-              <ogc:Literal>factor</ogc:Literal><ogc:Literal>3</ogc:Literal>
+              <ogc:Literal>factor</ogc:Literal><ogc:Literal>12</ogc:Literal>
             </ogc:Function>
           </ogc:Function>
         </sld:Transformation>
@@ -28,11 +33,12 @@
               <sld:ColorMapEntry color="#dc2626" opacity="0.9" quantity="25" label="25 m/s (tempête)"/>
               <sld:ColorMapEntry color="#7f1d1d" opacity="0.95" quantity="35" label="35 m/s (ouragan)"/>
             </sld:ColorMap>
-            <!-- 2026-05-15 : ContrastEnhancement vide + VendorOption
-                 interpolation=BICUBIC sur RasterSymbolizer court-circuitaient
-                 la Transformation idw:IDW (raster brut affiché au lieu du
-                 résultat interpolé). Retiré : IDW factor 3 fait déjà le
-                 lissage propre côté plugin Java, pas besoin d'interp post. -->
+            <!-- 2026-05-15 : pas de ContrastEnhancement / VendorOption
+                 interpolation ici (les deux court-circuitent la Transformation
+                 idw:IDW dans GS — observé empiriquement, raster brut affiché
+                 au lieu du résultat interpolé). Le lissage est entièrement
+                 délégué au plugin Java avec factor=12 qui garantit que la
+                 sortie IDW matche la résolution d'affichage typique (≤2640 wide). -->
           </sld:RasterSymbolizer>
         </sld:Rule>
       </sld:FeatureTypeStyle>
