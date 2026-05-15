@@ -316,6 +316,10 @@ public class IDWProcess {
      */
     public GeneralParameterValue[] customizeReadParams(
             GridCoverageReader reader, GeneralParameterValue[] params) {
+        LOGGER.info(() -> String.format(
+                "IDW.customizeReadParams CALLED — reader=%s, params=%d items",
+                reader == null ? "null" : reader.getClass().getSimpleName(),
+                params == null ? 0 : params.length));
         if (params == null) return params;
 
         try {
