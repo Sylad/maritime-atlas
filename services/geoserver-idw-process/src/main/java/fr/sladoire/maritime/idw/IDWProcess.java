@@ -4,33 +4,24 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.IntStream;
 
-import java.awt.geom.AffineTransform;
-
-import org.geotools.api.coverage.grid.GridCoverageReader;
-import org.geotools.api.coverage.grid.GridGeometry;
-import org.geotools.api.data.Query;
-import org.geotools.api.parameter.GeneralParameterValue;
-import org.geotools.api.parameter.ParameterValue;
-import org.geotools.api.referencing.datum.PixelInCell;
 import org.geotools.coverage.CoverageFactoryFinder;
 import org.geotools.coverage.grid.GridCoverage2D;
 import org.geotools.coverage.grid.GridCoverageFactory;
 import org.geotools.coverage.grid.GridEnvelope2D;
-import org.geotools.coverage.grid.GridGeometry2D;
-import org.geotools.coverage.grid.io.AbstractGridFormat;
-import org.geotools.coverage.grid.io.GridCoverage2DReader;
 import org.geotools.geometry.jts.ReferencedEnvelope;
-import org.geotools.process.factory.DescribeParameter;
-import org.geotools.process.factory.DescribeProcess;
-import org.geotools.process.factory.DescribeResult;
 
 /**
- * IDW (Inverse Distance Weighting) raster densifier — WPS process chainable.
+ * IDW (Inverse Distance Weighting) raster densifier — algorithme pur.
  *
  * <p>Densifie une grille raster source en interpolant chaque pixel destination
  * comme la moyenne pondérée 1/d^power des pixels source dans une fenêtre
  * autour de la position cible. Standard météo/océano pour adoucir les rasters
  * issus de modèles à grille régulière (GFS 0.25°, OISST 0.25°, ARPEGE 0.1°...).
+ *
+ * <p>Cette classe N'EST PAS exposée comme WPS process / SLD function directement.
+ * Le wiring rendu se fait via {@link IDWFunction} (qui implémente
+ * {@code CoverageReadingTransformation}) ; l'algo lui-même est ici, statique,
+ * pour pouvoir être appelé aussi par {@link IDWContourFunction}.
  *
  * <p><b>Données source intactes</b> : l'interpolation est rendering-side
  * uniquement. Les valeurs originales restent accessibles via
@@ -39,39 +30,21 @@ import org.geotools.process.factory.DescribeResult;
  * <p><b>V2 (perf)</b> : parallélisation par rangées dst + élimination
  * allocation 2D + cache factory + fast paths p=1/p=2 + dy² hissé hors boucle.
  * Gain mesuré × 4–6 sur NAS quad-core vs V1.
- *
- * <p>Usage SLD :
- * <pre>{@code
- *   <Transformation>
- *     <ogc:Function name="idw:IDW">
- *       <ogc:Function name="parameter"><ogc:Literal>data</ogc:Literal></ogc:Function>
- *       <ogc:Function name="parameter">
- *         <ogc:Literal>factor</ogc:Literal>
- *         <ogc:Function name="env">
- *           <ogc:Literal>idwFactor</ogc:Literal>
- *           <ogc:Literal>4</ogc:Literal>
- *         </ogc:Function>
- *       </ogc:Function>
- *     </ogc:Function>
- *   </Transformation>
- * }</pre>
  */
-@DescribeProcess(title = "IDW Raster Densifier",
-                 description = "Inverse Distance Weighting interpolation for raster densification.")
 public class IDWProcess {
 
     private static final Logger LOGGER = Logger.getLogger(IDWProcess.class.getName());
 
-    /** Defaults + bounds — exposés en static final pour faciliter benchmarks et tests. */
-    static final int DEFAULT_FACTOR = 4;
-    static final int MIN_FACTOR = 1;
-    static final int MAX_FACTOR = 32;
-    static final double DEFAULT_POWER = 2.0;
-    static final double MIN_POWER = 0.1;
-    static final double MAX_POWER = 10.0;
-    static final int DEFAULT_NEIGHBORS = 8;
-    static final int MIN_NEIGHBORS = 1;
-    static final int MAX_NEIGHBORS = 25;
+    /** Defaults + bounds — publics pour réutilisation par {@link IDWFunction}. */
+    public static final int DEFAULT_FACTOR = 4;
+    public static final int MIN_FACTOR = 1;
+    public static final int MAX_FACTOR = 32;
+    public static final double DEFAULT_POWER = 2.0;
+    public static final double MIN_POWER = 0.1;
+    public static final double MAX_POWER = 10.0;
+    public static final int DEFAULT_NEIGHBORS = 8;
+    public static final int MIN_NEIGHBORS = 1;
+    public static final int MAX_NEIGHBORS = 25;
 
     /** Seuil sous lequel un voisin source est considéré "exactement à la position
      *  destination" (évite division par zéro + permet le shortcut hit-direct). */
@@ -81,32 +54,19 @@ public class IDWProcess {
     private static final GridCoverageFactory FACTORY =
             CoverageFactoryFinder.getGridCoverageFactory(null);
 
-    @DescribeResult(name = "result", description = "Densified raster coverage")
-    public GridCoverage2D execute(
-            // min=0 contourne le bug GeoTools ≥2.26.2 où AnnotatedBeanProcessFactory
-            // valide la multiplicité AVANT l'injection auto du coverage source par la
-            // rendering transformation pipeline. Sans ça : "Parameter data is missing
-            // but has min multiplicity > 0". Régression introduite par un commit
-            // d'Andrea Aime dans cette période (non documentée sur internet, mais
-            // tous les builtin rasters processes de GeoTools ont reçu le même fix).
-            // Le coverage est de toute façon injecté au moment de l'invocation par la
-            // SLD pipeline ; le null-check ci-dessous protège l'appel direct (hors
-            // SLD) où l'utilisateur aurait oublié le param.
-            @DescribeParameter(name = "data",
-                               description = "Source raster coverage (auto-injected in SLD)",
-                               min = 0)
+    /**
+     * Apply IDW densification to a source coverage.
+     *
+     * @param coverage  source raster (must be non-null, ≥2×2 cells)
+     * @param factor    output multiplier — output size = source × factor
+     * @param power     distance exponent for IDW weighting
+     * @param neighbors number of source neighbors to consider per output pixel
+     * @return densified coverage, or {@code coverage} unchanged if factor=1 / source too small
+     */
+    public static GridCoverage2D applyIDW(
             GridCoverage2D coverage,
-            @DescribeParameter(name = "factor",
-                               description = "Resolution multiplier 1-16 (default 4)",
-                               min = 0, defaultValue = "4")
             Integer factor,
-            @DescribeParameter(name = "power",
-                               description = "Distance exponent 0.1-10 (default 2)",
-                               min = 0, defaultValue = "2.0")
             Double power,
-            @DescribeParameter(name = "neighbors",
-                               description = "Source neighbors per dest pixel 1-25 (default 8)",
-                               min = 0, defaultValue = "8")
             Integer neighbors) {
 
         if (coverage == null) {
@@ -129,12 +89,6 @@ public class IDWProcess {
         if (srcW < 2 || srcH < 2) {
             return coverage;
         }
-
-        // INFO log (forced, not FINE) pour diagnostiquer ce que le reader nous
-        // donne réellement. À retirer après stabilisation.
-        LOGGER.info(() -> String.format(
-                "IDW.execute received coverage %dx%d (factor=%d, will output %dx%d)",
-                srcW, srcH, f, srcW * f, srcH * f));
 
         final int dstW = srcW * f;
         final int dstH = srcH * f;
@@ -255,58 +209,6 @@ public class IDWProcess {
                 dst2d,
                 new ReferencedEnvelope(gg.getEnvelope2D()));
     }
-
-    /**
-     * Rendering-pipeline hook — l'EXISTENCE de cette méthode (vérifiée par
-     * réflexion dans {@code AnnotationDrivenProcessFactory.create}) déclenche
-     * le wrapping en {@code InvokeMethodRenderingProcess} (qui implémente
-     * {@link org.geotools.process.RenderingProcess}). Sans elle, notre process
-     * est un Process plain et le pipeline SLD ne fait pas l'auto-injection
-     * du coverage source via {@code transformation.evaluate(coverage)}.
-     *
-     * <p>Bug GeoTools post-2.26.2 contourné ici (confirmé sur cas pro Sylvain :
-     * Contour sur résultat BarnesSurface, fix par ajout d'invertQuery/invertGridGeometry).
-     *
-     * <p><b>Saga 2026-05-15</b> — trois itérations pour trouver le bon contrat :
-     * <ol>
-     *   <li>Retourner {@code targetGridGeometry} tel quel : GS demande au reader
-     *       de produire {@code target} pixels (2560×1271 plein écran). Le reader
-     *       fait un upsample NN du raster natif (GFS 0.25° ≈ 220×80) AVANT IDW.
-     *       L'IDW lisse alors un raster déjà fake-upscaled → pixels visibles.</li>
-     *   <li>Retourner {@code null} : équivalent dans GeoTools à "use target".
-     *       Même effet que (1) + OOM si {@code factor} est élevé : reader
-     *       retourne 2560×1271, puis IDW alloue {@code 2560×1271×factor²} floats
-     *       = O(GB) → JVM ExitOnOutOfMemoryError.</li>
-     *   <li>Retourner {@code target / DEFAULT_FACTOR} borné à 1024px (cette
-     *       implémentation) : le reader reçoit une demande modeste, retourne
-     *       son résultat natif (e.g. 220×80 pour GFS) car native &lt; request,
-     *       l'IDW densifie ×factor → output ≈ target sans alloc explosive.</li>
-     * </ol>
-     *
-     * <p>Bornes mémoire en pratique : output IDW max = {@code source × factor}.
-     * Avec source bornée par {@code min(target / divider, CAP)} et factor ≤ 16 :
-     * sur display 2560 wide + divider=4 → source ≤ 640 → output ≤ 10240 wide.
-     * Si native &lt; source request (cas GFS) → output = native × factor ≈ target.
-     */
-    public GridGeometry invertGridGeometry(Query targetQuery, GridGeometry targetGridGeometry) {
-        // Garde {@code targetGridGeometry} (et pas {@code null} qui plante GS via NPE
-        // dans StreamingRenderer.GCRRenderingTransformationHelper.readCoverage:4075).
-        // La vraie magie résolution-native est faite dans {@link #customizeReadParams}.
-        return targetGridGeometry;
-    }
-
-    // NOTE — pas de customizeReadParams ici. Investigation 2026-05-15 :
-    //   - Le hook EST bien appelé par GS via RenderingProcessFunction
-    //   - MAIS le params array reçu ne contient PAS READ_GRIDGEOMETRY2D
-    //     (vérifié via dump : 18 params de configuration ImageMosaicFormat,
-    //     aucun pour la résolution)
-    //   - GS passe en réalité readGG SÉPARÉMENT à readCoverage() — pas via params
-    //   - Donc le seul levier de contrôle résolution = invertGridGeometry, qui
-    //     malheureusement n'a pas accès au reader pour connaître la native res
-    //
-    // Conclusion : avec le pipeline GS actuel, le reader sert target res au IDW,
-    // c'est by design. Le contrôle de l'interpolation upsample du reader se fait
-    // via <VendorOption name="interpolation"> sur le RasterSymbolizer SLD.
 
     /** Clamp an Integer param to [min, max] with a default fallback if null. */
     private static int clamp(Integer val, int min, int max, int def) {
