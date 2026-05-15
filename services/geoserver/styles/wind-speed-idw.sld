@@ -28,8 +28,11 @@
               <sld:ColorMapEntry color="#dc2626" opacity="0.9" quantity="25" label="25 m/s (tempête)"/>
               <sld:ColorMapEntry color="#7f1d1d" opacity="0.95" quantity="35" label="35 m/s (ouragan)"/>
             </sld:ColorMap>
-            <sld:ContrastEnhancement/>
-            <sld:VendorOption name="interpolation">BICUBIC</sld:VendorOption>
+            <!-- 2026-05-15 : ContrastEnhancement vide + VendorOption
+                 interpolation=BICUBIC sur RasterSymbolizer court-circuitaient
+                 la Transformation idw:IDW (raster brut affiché au lieu du
+                 résultat interpolé). Retiré : IDW factor 3 fait déjà le
+                 lissage propre côté plugin Java, pas besoin d'interp post. -->
           </sld:RasterSymbolizer>
         </sld:Rule>
       </sld:FeatureTypeStyle>

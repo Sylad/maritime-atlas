@@ -128,8 +128,13 @@ public class IDWProcess {
         final long t0 = LOGGER.isLoggable(Level.FINE) ? System.nanoTime() : 0L;
 
         // Read source raster band 0 en row-major 1D — une seule lecture.
+        // FIX 2026-05-14 : après reprojection (EPSG:4326 → EPSG:3857 par GS au
+        // rendering), le Raster a un origin (minX, minY) qui n'est PAS (0, 0).
+        // getSamples(0, 0, ...) jetait ArrayIndexOutOfBoundsException "Invalid
+        // coordinates". On lit depuis l'origin réel du raster.
         final float[] src = new float[srcW * srcH];
-        coverage.getRenderedImage().getData().getSamples(0, 0, srcW, srcH, 0, src);
+        final var raster = coverage.getRenderedImage().getData();
+        raster.getSamples(raster.getMinX(), raster.getMinY(), srcW, srcH, 0, src);
 
         // Rayon recherche window : sqrt(nb)/2 arrondi → couvre les nb voisins
         // les plus proches dans ~99% des cas (suffisant en pratique).
@@ -248,13 +253,22 @@ public class IDWProcess {
      * <p>Bug GeoTools post-2.26.2 contourné ici (confirmé sur cas pro Sylvain :
      * Contour sur résultat BarnesSurface, fix par ajout d'invertQuery/invertGridGeometry).
      *
-     * <p>Pour IDW, on ne modifie pas la grid geometry — on lit le source à
-     * la résolution native (l'upsampling fait par execute()). Retourner
-     * {@code targetGridGeometry} tel quel : le reader décide selon ses propres
-     * règles (BICUBIC interpolation côté SLD si configuré).
+     * <p><b>FIX 2026-05-15</b> : retourner {@code targetGridGeometry} tel quel
+     * était un BUG. Effet : GS demande au coverage source de SE LIRE déjà à
+     * la résolution dst (e.g. 2560×1271). Le reader applique alors un
+     * upscaling NEAREST-NEIGHBOR du raster natif (GFS 0.25° ≈ 220×80)
+     * AVANT de passer au IDW. L'IDW lisse alors un raster déjà fake-upscaled,
+     * d'où les pixels carrés visibles à grande résolution malgré factor=16.
+     *
+     * <p>Correction : retourner {@code null} = contrat GeoTools
+     * "{@code RenderingProcess} ne contraint pas la grid geometry source".
+     * Le reader GS lit alors le coverage à sa résolution NATIVE (220×80
+     * pour GFS), {@code execute()} densifie ×factor à partir de cette
+     * source native, et le {@code RasterSymbolizer} downscale/match au
+     * besoin la grid dst. Résultat lisse à toute résolution.
      */
     public GridGeometry invertGridGeometry(Query targetQuery, GridGeometry targetGridGeometry) {
-        return targetGridGeometry instanceof GridGeometry2D gg2d ? gg2d : targetGridGeometry;
+        return null;
     }
 
     /** Clamp an Integer param to [min, max] with a default fallback if null. */
