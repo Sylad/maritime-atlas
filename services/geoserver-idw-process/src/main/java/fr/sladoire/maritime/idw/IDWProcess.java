@@ -122,6 +122,12 @@ public class IDWProcess {
             return coverage;
         }
 
+        // INFO log (forced, not FINE) pour diagnostiquer ce que le reader nous
+        // donne réellement. À retirer après stabilisation.
+        LOGGER.info(() -> String.format(
+                "IDW.execute received coverage %dx%d (factor=%d, will output %dx%d)",
+                srcW, srcH, f, srcW * f, srcH * f));
+
         final int dstW = srcW * f;
         final int dstH = srcH * f;
 
@@ -275,35 +281,24 @@ public class IDWProcess {
      * Si native &lt; source request (cas GFS) → output = native × factor ≈ target.
      */
     public GridGeometry invertGridGeometry(Query targetQuery, GridGeometry targetGridGeometry) {
-        if (!(targetGridGeometry instanceof GridGeometry2D)) {
-            return null;
-        }
-        final GridGeometry2D targetGG = (GridGeometry2D) targetGridGeometry;
-        final GridEnvelope2D targetRange = targetGG.getGridRange2D();
-
-        // divider = DEFAULT_FACTOR : on demande au reader target/N pixels en
-        // partant du principe que le SLD utilise factor ≈ DEFAULT_FACTOR.
-        // Si le SLD utilise factor &gt; divider (ex: 12), l'output IDW dépassera
-        // légèrement target → léger downscale BILINEAR par GS, smooth.
-        // Si factor &lt; divider, l'output sera plus petit → upscale GS jusqu'à
-        // target = mild pixelization (mais on a déjà mieux que sans invert).
-        final int divider = DEFAULT_FACTOR;
-
-        // Cap absolu pour borner mémoire au cas où target est gigantesque
-        // (clients exotiques 4K+, GeoWebCache full mosaic, etc).
-        final int CAP = 1024;
-
-        final int w = Math.min(CAP, Math.max(2, targetRange.width / divider));
-        final int h = Math.min(CAP, Math.max(2, targetRange.height / divider));
-
-        try {
-            return new GridGeometry2D(
-                    new GridEnvelope2D(targetRange.x, targetRange.y, w, h),
-                    targetGG.getEnvelope2D());
-        } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "invertGridGeometry failed, falling back to null", e);
-            return null;
-        }
+        // Pattern canonique GeoTools (BarnesSurface, ContourProcess, JiffleProcess
+        // — tous retournent null). Permet au reader de servir sa résolution
+        // native sans forcing par le rendering pipeline.
+        //
+        // Itération 4 sur ce hook :
+        //   1. return targetGridGeometry : reader upscale NN à target → IDW
+        //      reçoit déjà du blocky → pas de lissage.
+        //   2. return null (1er essai) : OOM sur GetMap fullscreen 2560×1271
+        //      car un overflow projection (Longitude 2147483287°W) ajouté à
+        //      un facteur 12 = alloc > 6 GB heap.
+        //   3. return target/N borné à CAP=1024 : reader doit upsampler son
+        //      native (16×16 OISST) jusqu'à 128×128 si on lui demande > native
+        //      → IDW reçoit du upsampled-NN-blocky × factor = toujours blocky.
+        //   4. return null (2e essai) : reader retourne SA résolution natale,
+        //      IDW ×factor produit une grille fine. L'OOM fullscreen est un
+        //      cas pathologique non-supporté (le frontend OL utilise des
+        //      tiles 256/512 qui ne trigger pas l'overflow).
+        return null;
     }
 
     /** Clamp an Integer param to [min, max] with a default fallback if null. */

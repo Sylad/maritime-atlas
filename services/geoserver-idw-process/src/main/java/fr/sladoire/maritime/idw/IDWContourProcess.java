@@ -140,25 +140,7 @@ public class IDWContourProcess {
      * {@code smooth=true}).
      */
     public GridGeometry invertGridGeometry(Query targetQuery, GridGeometry targetGridGeometry) {
-        if (!(targetGridGeometry instanceof GridGeometry2D)) {
-            return null;
-        }
-        final GridGeometry2D targetGG = (GridGeometry2D) targetGridGeometry;
-        final org.geotools.coverage.grid.GridEnvelope2D targetRange = targetGG.getGridRange2D();
-
-        final int divider = IDWProcess.DEFAULT_FACTOR;
-        final int CAP = 1024;
-
-        final int w = Math.min(CAP, Math.max(2, targetRange.width / divider));
-        final int h = Math.min(CAP, Math.max(2, targetRange.height / divider));
-
-        try {
-            return new GridGeometry2D(
-                    new org.geotools.coverage.grid.GridEnvelope2D(targetRange.x, targetRange.y, w, h),
-                    targetGG.getEnvelope2D());
-        } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "IDWContour.invertGridGeometry failed, falling back to null", e);
-            return null;
-        }
+        // Pattern canonique cf {@link IDWProcess#invertGridGeometry(Query, GridGeometry)}.
+        return null;
     }
 }
