@@ -26,6 +26,7 @@ import os
 import sys
 from pathlib import Path
 
+import requests
 from geo.Geoserver import Geoserver, GeoserverException
 
 GS_URL = os.environ.get("GS_URL", "http://geoserver:8080/geoserver")
@@ -83,7 +84,7 @@ def main() -> int:
             # 404 expected if style doesn't exist yet → no-op
             print(f"  cleanup {name}: skipped ({e})", flush=True)
 
-        # 2. Upload (POST entry + PUT body, no ?raw=true)
+        # 2a. POST entry + PUT body — crée le descriptor proprement
         try:
             geo.upload_style(
                 path=str(sld_path),
@@ -91,9 +92,31 @@ def main() -> int:
                 workspace=WORKSPACE,
                 sld_version="1.0.0",
             )
-            print(f"  upload {name}: OK", flush=True)
+            print(f"  upload {name}: OK (descriptor created)", flush=True)
         except GeoserverException as e:
             print(f"  ✗ upload {name}: FAILED — {e}", flush=True)
+            failures.append(name)
+            continue
+
+        # 2b. Re-PUT with ?raw=true to preserve the original SLD body
+        # (GeoServer réécrit le <NamedLayer><Name> au PUT non-raw pour
+        # le faire matcher le style name, ce qui casse le rendering si
+        # le SLD utilisait la chaîne magique "Default Styler"). Le PUT
+        # ?raw=true override la DB avec le SLD bit-exact du fichier.
+        try:
+            with open(sld_path, "rb") as f:
+                raw = f.read()
+            r = requests.put(
+                f"{GS_URL}/rest/workspaces/{WORKSPACE}/styles/{name}?raw=true",
+                data=raw,
+                auth=(GS_USER, GS_PASSWORD),
+                headers={"Content-Type": "application/vnd.ogc.sld+xml"},
+                timeout=30,
+            )
+            r.raise_for_status()
+            print(f"  raw-override {name}: OK (NamedLayer preserved)", flush=True)
+        except requests.RequestException as e:
+            print(f"  ✗ raw-override {name}: FAILED — {e}", flush=True)
             failures.append(name)
             continue
 
