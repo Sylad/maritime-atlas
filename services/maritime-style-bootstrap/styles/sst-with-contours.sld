@@ -32,9 +32,10 @@
               <sld:ColorMapEntry color="#dc2626" opacity="0.9" quantity="26" label="26 °C"/>
               <sld:ColorMapEntry color="#7f1d1d" opacity="0.95" quantity="30" label="30 °C (Med été)"/>
             </sld:ColorMap>
-            <sld:ContrastEnhancement/>
-            <!-- V2 (2026-05-12) : bicubic interpolation pour rendu lisse. -->
-            <sld:VendorOption name="interpolation">BICUBIC</sld:VendorOption>
+            <!-- 2026-05-15 : pas de ContrastEnhancement / VendorOption
+                 interpolation — les deux court-circuitent la Transformation
+                 idw:IDW (raster brut affiché). Le lissage est entièrement
+                 délégué au plugin Java avec factor=12 (cf wind-speed-idw.sld). -->
           </sld:RasterSymbolizer>
         </sld:Rule>
       </sld:FeatureTypeStyle>

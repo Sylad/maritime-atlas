@@ -27,8 +27,8 @@
               <sld:ColorMapEntry color="#fb923c" opacity="0.9" quantity="6" label="6 m"/>
               <sld:ColorMapEntry color="#dc2626" opacity="0.95" quantity="9" label="9+ m (grosse mer)"/>
             </sld:ColorMap>
-            <sld:ContrastEnhancement/>
-            <sld:VendorOption name="interpolation">BICUBIC</sld:VendorOption>
+            <!-- 2026-05-15 : pas de ContrastEnhancement / VendorOption
+                 interpolation — short-circuit IDW (cf sst-with-contours.sld). -->
           </sld:RasterSymbolizer>
         </sld:Rule>
       </sld:FeatureTypeStyle>
