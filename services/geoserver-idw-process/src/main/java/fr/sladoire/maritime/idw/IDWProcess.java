@@ -46,9 +46,21 @@ public class IDWProcess {
     public static final int MIN_NEIGHBORS = 1;
     public static final int MAX_NEIGHBORS = 25;
 
-    /** Seuil sous lequel un voisin source est considéré "exactement à la position
-     *  destination" (évite division par zéro + permet le shortcut hit-direct). */
-    private static final double EPSILON_SQUARED = 1e-12;
+    /**
+     * Régularisation de la distance dans la formule {@code w = 1/d^p} →
+     * {@code w = 1/(d² + SMOOTHING_SQUARED)^(p/2)}. Borne le poids maximum
+     * à {@code 1/SMOOTHING_SQUARED^(p/2)} au lieu d'exploser à {@code 1/0} = ∞
+     * quand l'output pixel tombe sur un pixel source.
+     *
+     * <p>Sans cette régularisation (Modified Shepard's method) : un seul
+     * pixel source domine totalement l'output autour de lui → artifact
+     * "points" visible où les positions natives "transpercent" le rendu
+     * (cf rapport user 2026-05-15 dot pattern dans wind speed Cantabrie).
+     *
+     * <p>Valeur 0.25 = {@code (0.5)²} = demi-pixel source. Suffisant pour
+     * lisser les peaks tout en préservant les variations de la donnée.
+     */
+    private static final double SMOOTHING_SQUARED = 0.25;
 
     /** Factory cache — la lookup CoverageFactoryFinder n'est pas gratuite (SPI scan). */
     private static final GridCoverageFactory FACTORY =
@@ -104,9 +116,11 @@ public class IDWProcess {
         final var raster = coverage.getRenderedImage().getData();
         raster.getSamples(raster.getMinX(), raster.getMinY(), srcW, srcH, 0, src);
 
-        // Rayon recherche window : sqrt(nb)/2 arrondi → couvre les nb voisins
-        // les plus proches dans ~99% des cas (suffisant en pratique).
-        final int rad = Math.max(1, (int) Math.ceil(Math.sqrt(nb) / 2.0));
+        // Rayon recherche window — généreux pour lisser les artifacts dot
+        // (régression observée 2026-05-15 sur petite window 5×5 qui laissait
+        // les peaks natifs dominer). sqrt(nb) sans /2 → window (2·rad+1)² ≈ nb×4
+        // voisins effectifs après filtrage no-data, bonne couverture.
+        final int rad = Math.max(2, (int) Math.ceil(Math.sqrt(nb)));
 
         // Fast paths : éviter Math.pow quand p ∈ {1, 2} (cas archi-fréquents).
         //  p=2 → w = 1/d²            (squared)
@@ -155,16 +169,10 @@ public class IDWProcess {
                         if (Float.isNaN(v)) continue;   // no-data skip
 
                         final double dxN = xi - sx;
-                        final double d2 = Math.fma(dxN, dxN, dy2);
-
-                        // Hit direct sur un pixel source → on prend sa valeur,
-                        // pas la peine de continuer (la div par 0 serait infinie).
-                        if (d2 < EPSILON_SQUARED) {
-                            sumWV = v;
-                            sumW = 1.0;
-                            kept = 1;
-                            break neighborScan;
-                        }
+                        // Modified Shepard's method : régularise d² par SMOOTHING_SQUARED
+                        // pour lisser le pic 1/0 quand l'output pixel tombe sur un pixel
+                        // source. Sans ça → artifact dot visible aux positions natives.
+                        final double d2 = Math.fma(dxN, dxN, dy2) + SMOOTHING_SQUARED;
 
                         final double w;
                         if (fastSquared) {
