@@ -46,17 +46,30 @@ STYLES_DIR = Path("/app/styles")
 # default. Vide [] = style disponible mais pas en default (le toggle
 # frontend peut le sélectionner explicitement via STYLES=...).
 STYLES_TO_DEPLOY = [
+    # Wind : style default raster-only ; with-contours déjà existant côté image GS,
+    # ne pas l'écraser ici (frontend swap STYLES quand isolignes ON).
     {
         "name": "wind-speed-idw",
         "default_for": ["wind-speed", "wind-speed-arpege", "wind-speed-arome"],
     },
+    # SST : default = raster-only. Le style with-contours est aussi déployé
+    # (sans default_for) pour rester sélectionnable par le toggle frontend.
     {
-        "name": "sst-with-contours",
+        "name": "sst-only",
         "default_for": ["sst-daily"],
     },
     {
-        "name": "wave-hs-with-contours",
+        "name": "sst-with-contours",
+        "default_for": [],
+    },
+    # Wave Hs : même pattern que SST.
+    {
+        "name": "wave-hs-only",
         "default_for": ["wave-hs"],
+    },
+    {
+        "name": "wave-hs-with-contours",
+        "default_for": [],
     },
 ]
 
