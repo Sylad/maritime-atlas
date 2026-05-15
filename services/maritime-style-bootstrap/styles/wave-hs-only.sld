@@ -5,14 +5,13 @@
     <sld:UserStyle>
       <sld:Name>wave-hs-only</sld:Name>
       <sld:Title>Wave Hs rainbow IDW smooth (sans isolignes) — default</sld:Title>
-      <sld:Abstract>Variante raster-only de wave-hs-with-contours. Default pour le layer wave-hs.</sld:Abstract>
       <sld:FeatureTypeStyle>
         <sld:Name>raster</sld:Name>
         <sld:Transformation>
-          <ogc:Function name="idwInterpolate">
+          <ogc:Function name="idw:IDW">
             <ogc:Function name="parameter"><ogc:Literal>data</ogc:Literal></ogc:Function>
             <ogc:Function name="parameter">
-              <ogc:Literal>factor</ogc:Literal><ogc:Literal>12</ogc:Literal>
+              <ogc:Literal>factor</ogc:Literal><ogc:Literal>4</ogc:Literal>
             </ogc:Function>
           </ogc:Function>
         </sld:Transformation>
@@ -28,6 +27,8 @@
               <sld:ColorMapEntry color="#fb923c" opacity="0.9" quantity="6" label="6 m"/>
               <sld:ColorMapEntry color="#dc2626" opacity="0.95" quantity="9" label="9+ m (grosse mer)"/>
             </sld:ColorMap>
+            <sld:ContrastEnhancement/>
+            <sld:VendorOption name="interpolation">BICUBIC</sld:VendorOption>
           </sld:RasterSymbolizer>
         </sld:Rule>
       </sld:FeatureTypeStyle>

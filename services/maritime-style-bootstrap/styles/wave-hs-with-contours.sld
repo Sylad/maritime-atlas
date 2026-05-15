@@ -4,14 +4,14 @@
     <sld:Name>Default Styler</sld:Name>
     <sld:UserStyle>
       <sld:Name>wave-hs-with-contours</sld:Name>
-      <sld:Title>Wave Hs rainbow + isolignes (factor=12 lissé pleine résolution)</sld:Title>
+      <sld:Title>Wave Hs rainbow + isolignes (factor=4)</sld:Title>
       <sld:FeatureTypeStyle>
         <sld:Name>raster</sld:Name>
         <sld:Transformation>
-          <ogc:Function name="idwInterpolate">
+          <ogc:Function name="idw:IDW">
             <ogc:Function name="parameter"><ogc:Literal>data</ogc:Literal></ogc:Function>
             <ogc:Function name="parameter">
-              <ogc:Literal>factor</ogc:Literal><ogc:Literal>12</ogc:Literal>
+              <ogc:Literal>factor</ogc:Literal><ogc:Literal>4</ogc:Literal>
             </ogc:Function>
           </ogc:Function>
         </sld:Transformation>
@@ -27,15 +27,17 @@
               <sld:ColorMapEntry color="#fb923c" opacity="0.9" quantity="6" label="6 m"/>
               <sld:ColorMapEntry color="#dc2626" opacity="0.95" quantity="9" label="9+ m (grosse mer)"/>
             </sld:ColorMap>
+            <sld:ContrastEnhancement/>
+            <sld:VendorOption name="interpolation">BICUBIC</sld:VendorOption>
           </sld:RasterSymbolizer>
         </sld:Rule>
       </sld:FeatureTypeStyle>
       <sld:FeatureTypeStyle>
         <sld:Name>contours</sld:Name>
         <sld:Transformation>
-          <ogc:Function name="idwContour">
+          <ogc:Function name="idw:IDWContour">
             <ogc:Function name="parameter"><ogc:Literal>data</ogc:Literal></ogc:Function>
-            <ogc:Function name="parameter"><ogc:Literal>factor</ogc:Literal><ogc:Literal>12</ogc:Literal></ogc:Function>
+            <ogc:Function name="parameter"><ogc:Literal>factor</ogc:Literal><ogc:Literal>4</ogc:Literal></ogc:Function>
             <ogc:Function name="parameter"><ogc:Literal>interval</ogc:Literal><ogc:Literal>0.5</ogc:Literal></ogc:Function>
             <ogc:Function name="parameter"><ogc:Literal>simplify</ogc:Literal><ogc:Literal>true</ogc:Literal></ogc:Function>
             <ogc:Function name="parameter"><ogc:Literal>smooth</ogc:Literal><ogc:Literal>true</ogc:Literal></ogc:Function>

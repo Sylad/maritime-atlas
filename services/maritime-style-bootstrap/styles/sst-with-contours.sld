@@ -4,18 +4,14 @@
     <sld:Name>Default Styler</sld:Name>
     <sld:UserStyle>
       <sld:Name>sst-with-contours</sld:Name>
-      <sld:Title>SST rainbow + isolignes (factor=12 lissé pleine résolution)</sld:Title>
-
-      <!-- Pass 1 : raster coloré densifié IDW factor=12. BILINEAR ci-dessous
-           contrôle l'upsample reader. La vraie native preservation nécessiterait
-           CoverageReadingTransformation — backlog. -->
+      <sld:Title>SST rainbow + isolignes (factor=4)</sld:Title>
       <sld:FeatureTypeStyle>
         <sld:Name>raster</sld:Name>
         <sld:Transformation>
-          <ogc:Function name="idwInterpolate">
+          <ogc:Function name="idw:IDW">
             <ogc:Function name="parameter"><ogc:Literal>data</ogc:Literal></ogc:Function>
             <ogc:Function name="parameter">
-              <ogc:Literal>factor</ogc:Literal><ogc:Literal>12</ogc:Literal>
+              <ogc:Literal>factor</ogc:Literal><ogc:Literal>4</ogc:Literal>
             </ogc:Function>
           </ogc:Function>
         </sld:Transformation>
@@ -33,21 +29,18 @@
               <sld:ColorMapEntry color="#dc2626" opacity="0.9" quantity="26" label="26 °C"/>
               <sld:ColorMapEntry color="#7f1d1d" opacity="0.95" quantity="30" label="30 °C (Med été)"/>
             </sld:ColorMap>
-            <!-- BILINEAR : contrôle l'interp du reader sur upsample native→target. -->
+            <sld:ContrastEnhancement/>
+            <sld:VendorOption name="interpolation">BICUBIC</sld:VendorOption>
           </sld:RasterSymbolizer>
         </sld:Rule>
       </sld:FeatureTypeStyle>
-
-      <!-- Pass 2 : isolignes via idw:IDWContour (IDW densify + Contour combinés
-           dans UN seul process pour contourner le bug GeoTools post-2.26.2 qui
-           empêche le chaining SLD natif ras:Contour(idw:IDW(...)). -->
       <sld:FeatureTypeStyle>
         <sld:Name>contours</sld:Name>
         <sld:Transformation>
-          <ogc:Function name="idwContour">
+          <ogc:Function name="idw:IDWContour">
             <ogc:Function name="parameter"><ogc:Literal>data</ogc:Literal></ogc:Function>
             <ogc:Function name="parameter">
-              <ogc:Literal>factor</ogc:Literal><ogc:Literal>12</ogc:Literal>
+              <ogc:Literal>factor</ogc:Literal><ogc:Literal>4</ogc:Literal>
             </ogc:Function>
             <ogc:Function name="parameter">
               <ogc:Literal>interval</ogc:Literal><ogc:Literal>2.0</ogc:Literal>
@@ -75,9 +68,7 @@
               <sld:CssParameter name="font-size">10</sld:CssParameter>
               <sld:CssParameter name="font-weight">600</sld:CssParameter>
             </sld:Font>
-            <sld:LabelPlacement>
-              <sld:LinePlacement/>
-            </sld:LabelPlacement>
+            <sld:LabelPlacement><sld:LinePlacement/></sld:LabelPlacement>
             <sld:Halo>
               <sld:Radius>1.5</sld:Radius>
               <sld:Fill>
@@ -85,9 +76,7 @@
                 <sld:CssParameter name="fill-opacity">0.7</sld:CssParameter>
               </sld:Fill>
             </sld:Halo>
-            <sld:Fill>
-              <sld:CssParameter name="fill">#ffffff</sld:CssParameter>
-            </sld:Fill>
+            <sld:Fill><sld:CssParameter name="fill">#ffffff</sld:CssParameter></sld:Fill>
             <sld:VendorOption name="followLine">true</sld:VendorOption>
             <sld:VendorOption name="repeat">120</sld:VendorOption>
             <sld:VendorOption name="maxAngleDelta">35</sld:VendorOption>

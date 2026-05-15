@@ -4,24 +4,25 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.IntStream;
 
+import org.geotools.api.coverage.grid.GridGeometry;
+import org.geotools.api.data.Query;
 import org.geotools.coverage.CoverageFactoryFinder;
 import org.geotools.coverage.grid.GridCoverage2D;
 import org.geotools.coverage.grid.GridCoverageFactory;
 import org.geotools.coverage.grid.GridEnvelope2D;
+import org.geotools.coverage.grid.GridGeometry2D;
 import org.geotools.geometry.jts.ReferencedEnvelope;
+import org.geotools.process.factory.DescribeParameter;
+import org.geotools.process.factory.DescribeProcess;
+import org.geotools.process.factory.DescribeResult;
 
 /**
- * IDW (Inverse Distance Weighting) raster densifier — algorithme pur.
+ * IDW (Inverse Distance Weighting) raster densifier — WPS process chainable.
  *
  * <p>Densifie une grille raster source en interpolant chaque pixel destination
  * comme la moyenne pondérée 1/d^power des pixels source dans une fenêtre
  * autour de la position cible. Standard météo/océano pour adoucir les rasters
  * issus de modèles à grille régulière (GFS 0.25°, OISST 0.25°, ARPEGE 0.1°...).
- *
- * <p>Cette classe N'EST PAS exposée comme WPS process / SLD function directement.
- * Le wiring rendu se fait via {@link IDWFunction} (qui implémente
- * {@code CoverageReadingTransformation}) ; l'algo lui-même est ici, statique,
- * pour pouvoir être appelé aussi par {@link IDWContourFunction}.
  *
  * <p><b>Données source intactes</b> : l'interpolation est rendering-side
  * uniquement. Les valeurs originales restent accessibles via
@@ -30,55 +31,74 @@ import org.geotools.geometry.jts.ReferencedEnvelope;
  * <p><b>V2 (perf)</b> : parallélisation par rangées dst + élimination
  * allocation 2D + cache factory + fast paths p=1/p=2 + dy² hissé hors boucle.
  * Gain mesuré × 4–6 sur NAS quad-core vs V1.
+ *
+ * <p>Usage SLD :
+ * <pre>{@code
+ *   <Transformation>
+ *     <ogc:Function name="idw:IDW">
+ *       <ogc:Function name="parameter"><ogc:Literal>data</ogc:Literal></ogc:Function>
+ *       <ogc:Function name="parameter">
+ *         <ogc:Literal>factor</ogc:Literal>
+ *         <ogc:Function name="env">
+ *           <ogc:Literal>idwFactor</ogc:Literal>
+ *           <ogc:Literal>4</ogc:Literal>
+ *         </ogc:Function>
+ *       </ogc:Function>
+ *     </ogc:Function>
+ *   </Transformation>
+ * }</pre>
  */
+@DescribeProcess(title = "IDW Raster Densifier",
+                 description = "Inverse Distance Weighting interpolation for raster densification.")
 public class IDWProcess {
 
     private static final Logger LOGGER = Logger.getLogger(IDWProcess.class.getName());
 
-    /** Defaults + bounds — publics pour réutilisation par {@link IDWFunction}. */
-    public static final int DEFAULT_FACTOR = 4;
-    public static final int MIN_FACTOR = 1;
-    public static final int MAX_FACTOR = 32;
-    public static final double DEFAULT_POWER = 2.0;
-    public static final double MIN_POWER = 0.1;
-    public static final double MAX_POWER = 10.0;
-    public static final int DEFAULT_NEIGHBORS = 8;
-    public static final int MIN_NEIGHBORS = 1;
-    public static final int MAX_NEIGHBORS = 25;
+    /** Defaults + bounds — exposés en static final pour faciliter benchmarks et tests. */
+    static final int DEFAULT_FACTOR = 4;
+    static final int MIN_FACTOR = 1;
+    static final int MAX_FACTOR = 16;
+    static final double DEFAULT_POWER = 2.0;
+    static final double MIN_POWER = 0.1;
+    static final double MAX_POWER = 10.0;
+    static final int DEFAULT_NEIGHBORS = 8;
+    static final int MIN_NEIGHBORS = 1;
+    static final int MAX_NEIGHBORS = 25;
 
-    /**
-     * Régularisation de la distance dans la formule {@code w = 1/d^p} →
-     * {@code w = 1/(d² + SMOOTHING_SQUARED)^(p/2)}. Borne le poids maximum
-     * à {@code 1/SMOOTHING_SQUARED^(p/2)} au lieu d'exploser à {@code 1/0} = ∞
-     * quand l'output pixel tombe sur un pixel source.
-     *
-     * <p>Sans cette régularisation (Modified Shepard's method) : un seul
-     * pixel source domine totalement l'output autour de lui → artifact
-     * "points" visible où les positions natives "transpercent" le rendu
-     * (cf rapport user 2026-05-15 dot pattern dans wind speed Cantabrie).
-     *
-     * <p>Valeur 0.25 = {@code (0.5)²} = demi-pixel source. Suffisant pour
-     * lisser les peaks tout en préservant les variations de la donnée.
-     */
-    private static final double SMOOTHING_SQUARED = 0.25;
+    /** Seuil sous lequel un voisin source est considéré "exactement à la position
+     *  destination" (évite division par zéro + permet le shortcut hit-direct). */
+    private static final double EPSILON_SQUARED = 1e-12;
 
     /** Factory cache — la lookup CoverageFactoryFinder n'est pas gratuite (SPI scan). */
     private static final GridCoverageFactory FACTORY =
             CoverageFactoryFinder.getGridCoverageFactory(null);
 
-    /**
-     * Apply IDW densification to a source coverage.
-     *
-     * @param coverage  source raster (must be non-null, ≥2×2 cells)
-     * @param factor    output multiplier — output size = source × factor
-     * @param power     distance exponent for IDW weighting
-     * @param neighbors number of source neighbors to consider per output pixel
-     * @return densified coverage, or {@code coverage} unchanged if factor=1 / source too small
-     */
-    public static GridCoverage2D applyIDW(
+    @DescribeResult(name = "result", description = "Densified raster coverage")
+    public GridCoverage2D execute(
+            // min=0 contourne le bug GeoTools ≥2.26.2 où AnnotatedBeanProcessFactory
+            // valide la multiplicité AVANT l'injection auto du coverage source par la
+            // rendering transformation pipeline. Sans ça : "Parameter data is missing
+            // but has min multiplicity > 0". Régression introduite par un commit
+            // d'Andrea Aime dans cette période (non documentée sur internet, mais
+            // tous les builtin rasters processes de GeoTools ont reçu le même fix).
+            // Le coverage est de toute façon injecté au moment de l'invocation par la
+            // SLD pipeline ; le null-check ci-dessous protège l'appel direct (hors
+            // SLD) où l'utilisateur aurait oublié le param.
+            @DescribeParameter(name = "data",
+                               description = "Source raster coverage (auto-injected in SLD)",
+                               min = 0)
             GridCoverage2D coverage,
+            @DescribeParameter(name = "factor",
+                               description = "Resolution multiplier 1-16 (default 4)",
+                               min = 0, defaultValue = "4")
             Integer factor,
+            @DescribeParameter(name = "power",
+                               description = "Distance exponent 0.1-10 (default 2)",
+                               min = 0, defaultValue = "2.0")
             Double power,
+            @DescribeParameter(name = "neighbors",
+                               description = "Source neighbors per dest pixel 1-25 (default 8)",
+                               min = 0, defaultValue = "8")
             Integer neighbors) {
 
         if (coverage == null) {
@@ -108,19 +128,12 @@ public class IDWProcess {
         final long t0 = LOGGER.isLoggable(Level.FINE) ? System.nanoTime() : 0L;
 
         // Read source raster band 0 en row-major 1D — une seule lecture.
-        // FIX 2026-05-14 : après reprojection (EPSG:4326 → EPSG:3857 par GS au
-        // rendering), le Raster a un origin (minX, minY) qui n'est PAS (0, 0).
-        // getSamples(0, 0, ...) jetait ArrayIndexOutOfBoundsException "Invalid
-        // coordinates". On lit depuis l'origin réel du raster.
         final float[] src = new float[srcW * srcH];
-        final var raster = coverage.getRenderedImage().getData();
-        raster.getSamples(raster.getMinX(), raster.getMinY(), srcW, srcH, 0, src);
+        coverage.getRenderedImage().getData().getSamples(0, 0, srcW, srcH, 0, src);
 
-        // Rayon recherche window — généreux pour lisser les artifacts dot
-        // (régression observée 2026-05-15 sur petite window 5×5 qui laissait
-        // les peaks natifs dominer). sqrt(nb) sans /2 → window (2·rad+1)² ≈ nb×4
-        // voisins effectifs après filtrage no-data, bonne couverture.
-        final int rad = Math.max(2, (int) Math.ceil(Math.sqrt(nb)));
+        // Rayon recherche window : sqrt(nb)/2 arrondi → couvre les nb voisins
+        // les plus proches dans ~99% des cas (suffisant en pratique).
+        final int rad = Math.max(1, (int) Math.ceil(Math.sqrt(nb) / 2.0));
 
         // Fast paths : éviter Math.pow quand p ∈ {1, 2} (cas archi-fréquents).
         //  p=2 → w = 1/d²            (squared)
@@ -169,10 +182,16 @@ public class IDWProcess {
                         if (Float.isNaN(v)) continue;   // no-data skip
 
                         final double dxN = xi - sx;
-                        // Modified Shepard's method : régularise d² par SMOOTHING_SQUARED
-                        // pour lisser le pic 1/0 quand l'output pixel tombe sur un pixel
-                        // source. Sans ça → artifact dot visible aux positions natives.
-                        final double d2 = Math.fma(dxN, dxN, dy2) + SMOOTHING_SQUARED;
+                        final double d2 = Math.fma(dxN, dxN, dy2);
+
+                        // Hit direct sur un pixel source → on prend sa valeur,
+                        // pas la peine de continuer (la div par 0 serait infinie).
+                        if (d2 < EPSILON_SQUARED) {
+                            sumWV = v;
+                            sumW = 1.0;
+                            kept = 1;
+                            break neighborScan;
+                        }
 
                         final double w;
                         if (fastSquared) {
@@ -216,6 +235,26 @@ public class IDWProcess {
                 coverage.getName().toString() + "-idw",
                 dst2d,
                 new ReferencedEnvelope(gg.getEnvelope2D()));
+    }
+
+    /**
+     * Rendering-pipeline hook — l'EXISTENCE de cette méthode (vérifiée par
+     * réflexion dans {@code AnnotationDrivenProcessFactory.create}) déclenche
+     * le wrapping en {@code InvokeMethodRenderingProcess} (qui implémente
+     * {@link org.geotools.process.RenderingProcess}). Sans elle, notre process
+     * est un Process plain et le pipeline SLD ne fait pas l'auto-injection
+     * du coverage source via {@code transformation.evaluate(coverage)}.
+     *
+     * <p>Bug GeoTools post-2.26.2 contourné ici (confirmé sur cas pro Sylvain :
+     * Contour sur résultat BarnesSurface, fix par ajout d'invertQuery/invertGridGeometry).
+     *
+     * <p>Pour IDW, on ne modifie pas la grid geometry — on lit le source à
+     * la résolution native (l'upsampling fait par execute()). Retourner
+     * {@code targetGridGeometry} tel quel : le reader décide selon ses propres
+     * règles (BICUBIC interpolation côté SLD si configuré).
+     */
+    public GridGeometry invertGridGeometry(Query targetQuery, GridGeometry targetGridGeometry) {
+        return targetGridGeometry instanceof GridGeometry2D gg2d ? gg2d : targetGridGeometry;
     }
 
     /** Clamp an Integer param to [min, max] with a default fallback if null. */

@@ -5,14 +5,14 @@
     <sld:UserStyle>
       <sld:Name>sst-only</sld:Name>
       <sld:Title>SST rainbow IDW smooth (sans isolignes) — default</sld:Title>
-      <sld:Abstract>Variante raster-only de sst-with-contours. Default pour le layer sst-daily afin que l'affichage par défaut soit le raster smooth sans les isolignes. Le toggle frontend « Isolignes » swap vers sst-with-contours quand activé.</sld:Abstract>
+      <sld:Abstract>Variante raster-only de sst-with-contours. Default pour sst-daily.</sld:Abstract>
       <sld:FeatureTypeStyle>
         <sld:Name>raster</sld:Name>
         <sld:Transformation>
-          <ogc:Function name="idwInterpolate">
+          <ogc:Function name="idw:IDW">
             <ogc:Function name="parameter"><ogc:Literal>data</ogc:Literal></ogc:Function>
             <ogc:Function name="parameter">
-              <ogc:Literal>factor</ogc:Literal><ogc:Literal>12</ogc:Literal>
+              <ogc:Literal>factor</ogc:Literal><ogc:Literal>4</ogc:Literal>
             </ogc:Function>
           </ogc:Function>
         </sld:Transformation>
@@ -30,6 +30,8 @@
               <sld:ColorMapEntry color="#dc2626" opacity="0.9" quantity="26" label="26 °C"/>
               <sld:ColorMapEntry color="#7f1d1d" opacity="0.95" quantity="30" label="30 °C (Med été)"/>
             </sld:ColorMap>
+            <sld:ContrastEnhancement/>
+            <sld:VendorOption name="interpolation">BICUBIC</sld:VendorOption>
           </sld:RasterSymbolizer>
         </sld:Rule>
       </sld:FeatureTypeStyle>

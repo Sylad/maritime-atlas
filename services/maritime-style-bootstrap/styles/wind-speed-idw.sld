@@ -4,22 +4,15 @@
     <sld:Name>Default Styler</sld:Name>
     <sld:UserStyle>
       <sld:Name>wind-speed-idw</sld:Name>
-      <sld:Title>Wind speed rainbow IDW smooth (sans contours)</sld:Title>
-      <sld:Abstract>Variante de wind-speed-with-contours sans le FeatureTypeStyle "contours" — IDW seul. Sert de default pour le layer maritime:wind-speed afin que le rendu raster soit toujours lissé même sans toggle « isolignes ».</sld:Abstract>
+      <sld:Title>Wind speed rainbow IDW smooth (sans contours) — factor=8</sld:Title>
+      <sld:Abstract>Variante raster-only de wind-speed-with-contours. factor=8 (vs default 4) pour atténuer la pixelisation au fullscreen sur GFS 0.25° natif.</sld:Abstract>
       <sld:FeatureTypeStyle>
         <sld:Name>raster</sld:Name>
         <sld:Transformation>
-          <ogc:Function name="idwInterpolate">
+          <ogc:Function name="idw:IDW">
             <ogc:Function name="parameter"><ogc:Literal>data</ogc:Literal></ogc:Function>
-            <!-- factor=12 + BILINEAR : compromis pragmatique. La native
-                 preservation par GS est bypassée en cross-CRS (target=3857,
-                 source=4326), donc le reader sert ~target res au IDW.
-                 BILINEAR contrôle l'interp du reader (sinon NN). factor=12
-                 multiplie pour densifier au-delà ; GS adjuste à la fin.
-                 La vraie solution architecturale (CoverageReadingTransformation)
-                 nécessite un rewrite du plugin — voir backlog. -->
             <ogc:Function name="parameter">
-              <ogc:Literal>factor</ogc:Literal><ogc:Literal>12</ogc:Literal>
+              <ogc:Literal>factor</ogc:Literal><ogc:Literal>8</ogc:Literal>
             </ogc:Function>
           </ogc:Function>
         </sld:Transformation>
@@ -35,10 +28,8 @@
               <sld:ColorMapEntry color="#dc2626" opacity="0.9" quantity="25" label="25 m/s (tempête)"/>
               <sld:ColorMapEntry color="#7f1d1d" opacity="0.95" quantity="35" label="35 m/s (ouragan)"/>
             </sld:ColorMap>
-            <!-- BILINEAR : contrôle l'interpolation du reader quand il upsample
-                 native (e.g. 11×8 cells) vers la grille readGG (target+padding).
-                 Sans cette option, le reader fait du NN-replicate → IDW reçoit
-                 du blocky → sortie blocky. ContrastEnhancement reste EXCLU. -->
+            <sld:ContrastEnhancement/>
+            <sld:VendorOption name="interpolation">BICUBIC</sld:VendorOption>
           </sld:RasterSymbolizer>
         </sld:Rule>
       </sld:FeatureTypeStyle>
