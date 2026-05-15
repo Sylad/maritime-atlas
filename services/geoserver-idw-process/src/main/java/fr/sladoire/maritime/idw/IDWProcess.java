@@ -128,8 +128,13 @@ public class IDWProcess {
         final long t0 = LOGGER.isLoggable(Level.FINE) ? System.nanoTime() : 0L;
 
         // Read source raster band 0 en row-major 1D — une seule lecture.
+        // FIX 2026-05-14 : après reprojection (EPSG:4326 → EPSG:3857 par GS au
+        // rendering), le Raster a un origin (minX, minY) qui n'est PAS (0, 0).
+        // getSamples(0, 0, ...) jetait ArrayIndexOutOfBoundsException "Invalid
+        // coordinates". On lit depuis l'origin réel du raster.
         final float[] src = new float[srcW * srcH];
-        coverage.getRenderedImage().getData().getSamples(0, 0, srcW, srcH, 0, src);
+        final var raster = coverage.getRenderedImage().getData();
+        raster.getSamples(raster.getMinX(), raster.getMinY(), srcW, srcH, 0, src);
 
         // Rayon recherche window : sqrt(nb)/2 arrondi → couvre les nb voisins
         // les plus proches dans ~99% des cas (suffisant en pratique).
