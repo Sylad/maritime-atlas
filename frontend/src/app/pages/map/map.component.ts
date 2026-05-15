@@ -4388,7 +4388,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.liveSub = interval(REFRESH_INTERVAL_MS)
       .pipe(
         startWith(0),
-        switchMap(() => this.vessels.fetchLiveVessels()),
+        switchMap(() => this.vessels.fetchLiveVessels(this.currentTimeSig())),
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe({

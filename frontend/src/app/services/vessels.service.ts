@@ -65,7 +65,19 @@ export class VesselsService {
   private readonly http = inject(HttpClient);
   private readonly wfsUrl = '/geoserver/maritime/ows';
 
-  fetchLiveVessels(): Observable<VesselsFeatureCollection> {
+  /**
+   * Positions live filtrées sur les `windowSecs` dernières secondes avant `at`
+   * (default : 15 min avant maintenant). Le CQL_FILTER côté WFS borne le volume
+   * pour éviter le OOM GeoServer quand la table contient bcp de vessels actifs
+   * récents (e.g. v_vessels_live alterée en prod pour fenêtre 24h → 20k+ rows).
+   *
+   * `at` permet d'aligner sur la barre de temps : en mode replay, le live-loop
+   * peut demander la fenêtre [t-15min, t] correspondant à la date sélectionnée
+   * plutôt que la fenêtre fixe DB-side.
+   */
+  fetchLiveVessels(at: Date = new Date(), windowSecs = 900): Observable<VesselsFeatureCollection> {
+    const from = new Date(at.getTime() - windowSecs * 1000);
+    const cql = `last_seen BETWEEN '${from.toISOString()}' AND '${at.toISOString()}'`;
     return this.http.get<VesselsFeatureCollection>(this.wfsUrl, {
       params: {
         service: 'WFS',
@@ -74,6 +86,8 @@ export class VesselsService {
         typeName: 'maritime:v_vessels_live',
         outputFormat: 'application/json',
         srsName: 'EPSG:4326',
+        CQL_FILTER: cql,
+        count: '5000',
       },
     });
   }
