@@ -118,8 +118,30 @@ public class IDWFunction extends FunctionImpl implements CoverageReadingTransfor
      *   4. override READ_GRIDGEOMETRY2D in params with the new native-res GG
      *   5. reader.read(params) returns native data, no pipeline upsample
      */
+    /**
+     * Thread-local cache : un même WMS request invoque la même rendering Function
+     * 2 fois (raster FTS + contour FTS) avec le MÊME reader. Sans cache, le
+     * second appel échoue avec "ImageMosaicReader already disposed" car GS
+     * dispose le reader après le premier read. On cache la coverage par
+     * (thread, reader identity) — WeakReference pour ne pas retenir le reader
+     * au-delà de son lifecycle naturel.
+     */
+    private static final ThreadLocal<java.lang.ref.WeakReference<GridCoverage2DReader>> CACHED_READER =
+            new ThreadLocal<>();
+    private static final ThreadLocal<GridCoverage2D> CACHED_COVERAGE = new ThreadLocal<>();
+
     static GridCoverage2D readNative(GridCoverage2DReader reader, GeneralParameterValue[] params)
             throws IOException {
+
+        // Cache hit ? Réutilise la coverage du premier read sur ce reader.
+        java.lang.ref.WeakReference<GridCoverage2DReader> cachedRef = CACHED_READER.get();
+        if (cachedRef != null && cachedRef.get() == reader) {
+            GridCoverage2D cached = CACHED_COVERAGE.get();
+            if (cached != null) {
+                LOGGER.fine("idw: reusing cached native coverage (same reader, multi-FTS pipeline)");
+                return cached;
+            }
+        }
 
         // Force reader to serve its NATIVE grid range + envelope. Sans ça, le
         // reader peut resampler en NN sur l'envelope déclarée du featuretype
@@ -127,6 +149,7 @@ public class IDWFunction extends FunctionImpl implements CoverageReadingTransfor
         // [-15:30, 35:65] → reader retourne 180×120 NN-replicated → IDW lisse
         // les transitions de blocs mais les contours s'alignent sur la grille
         // 180×120 = stair-step visible).
+        GridCoverage2D coverage = null;
         try {
             var nativeRange = reader.getOriginalGridRange();
             var nativeEnv = reader.getOriginalEnvelope();
@@ -143,14 +166,20 @@ public class IDWFunction extends FunctionImpl implements CoverageReadingTransfor
                             nativeGG.getGridRange2D().height,
                             nativeGG.getEnvelope2D().toString()));
                     GeneralParameterValue[] updatedParams = updateReadGG(params, nativeGG);
-                    return reader.read(updatedParams);
+                    coverage = reader.read(updatedParams);
                 }
             }
         } catch (Exception e) {
             LOGGER.log(Level.WARNING, "idw: native GG request failed, falling back to default", e);
         }
-        // Fallback (no native bounds available)
-        return reader.read(params);
+        if (coverage == null) {
+            coverage = reader.read(params);
+        }
+
+        // Cache pour la prochaine FTS du même request
+        CACHED_READER.set(new java.lang.ref.WeakReference<>(reader));
+        CACHED_COVERAGE.set(coverage);
+        return coverage;
     }
 
     static GridGeometry2D extractReadGG(GeneralParameterValue[] params) {
