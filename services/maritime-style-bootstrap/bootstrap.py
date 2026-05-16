@@ -46,31 +46,43 @@ STYLES_DIR = Path("/app/styles")
 # default. Vide [] = style disponible mais pas en default (le toggle
 # frontend peut le sélectionner explicitement via STYLES=...).
 STYLES_TO_DEPLOY = [
-    # Wind : style default raster-only ; with-contours déjà existant côté image GS,
-    # ne pas l'écraser ici (frontend swap STYLES quand isolignes ON).
+    # ── Styles "direct" (Sylvain 2026-05-15/16) — sans IDW + ColorMap simple.
+    # Render fullscreen ~0.5s vs 10-21s pour les IDW. Combinés avec
+    # `defaultWMSInterpolationMethod=Bicubic` côté LayerInfo (configuré par
+    # configure_layer_interpolation() ci-dessous), les couleurs sont lissées
+    # sans le coût IDW. Cf [[geoserver_idw_vs_bicubic_perf]].
     {
-        "name": "wind-speed-idw",
-        "default_for": ["wind-speed", "wind-speed-arpege", "wind-speed-arome"],
-    },
-    # SST : default = raster-only. Le style with-contours est aussi déployé
-    # (sans default_for) pour rester sélectionnable par le toggle frontend.
-    {
-        "name": "sst-only",
+        "name": "sst-direct",
         "default_for": ["sst-daily"],
     },
     {
-        "name": "sst-with-contours",
-        "default_for": [],
+        "name": "wind-direct",
+        "default_for": ["wind-speed", "wind-speed-arpege", "wind-speed-arome"],
     },
-    # Wave Hs : même pattern que SST.
     {
-        "name": "wave-hs-only",
+        "name": "wave-direct",
         "default_for": ["wave-hs"],
     },
-    {
-        "name": "wave-hs-with-contours",
-        "default_for": [],
-    },
+    # ── Styles IDW (gardés disponibles pour toggle isolignes / fallback)
+    # — pas en default_for.
+    {"name": "wind-speed-idw",        "default_for": []},
+    {"name": "sst-only",              "default_for": []},
+    {"name": "sst-with-contours",     "default_for": []},
+    {"name": "wave-hs-only",          "default_for": []},
+    {"name": "wave-hs-with-contours", "default_for": []},
+]
+
+# Configuration interpolation Layer-level (Sylvain 2026-05-16). Le SLD
+# direct n'interpole pas le ColorMap pixel-par-pixel — pour smoothes
+# transitions sans IDW, on set `defaultWMSInterpolationMethod=Bicubic`
+# côté LayerInfo via REST. Idempotent.
+RASTER_LAYERS_INTERPOLATION = [
+    {"layer": "sst-daily",         "method": "Bicubic"},
+    {"layer": "wave-hs",           "method": "Bicubic"},
+    {"layer": "wave-dir",          "method": "Bicubic"},
+    {"layer": "wind-speed",        "method": "Bicubic"},
+    {"layer": "wind-speed-arpege", "method": "Bicubic"},
+    {"layer": "wind-speed-arome",  "method": "Bicubic"},
 ]
 
 # ── Catalog déclaratif des feature types à reconfigurer ─────────────
@@ -227,6 +239,32 @@ def main() -> int:
         for ft_entry in FEATURETYPES_TO_CONFIGURE:
             if not configure_featuretype(ft_entry):
                 failures.append(f"ft/{ft_entry['name']}")
+
+    # ── Configure interpolation Layer-level (Bicubic) ──────────────
+    # Set sur LayerInfo via REST PUT. Le SLD direct n'interpole pas
+    # ColorMap par défaut — Bicubic ici lisse les transitions sans IDW.
+    if RASTER_LAYERS_INTERPOLATION:
+        print(f"→ Setting interpolation on {len(RASTER_LAYERS_INTERPOLATION)} raster layer(s)…", flush=True)
+        for entry in RASTER_LAYERS_INTERPOLATION:
+            layer = entry["layer"]
+            method = entry["method"]
+            url = f"{GS_URL}/rest/layers/{WORKSPACE}:{layer}"
+            body = f"<layer><defaultWMSInterpolationMethod>{method}</defaultWMSInterpolationMethod></layer>"
+            try:
+                r = requests.put(
+                    url, data=body,
+                    headers={"Content-Type": "application/xml"},
+                    auth=(GS_USER, GS_PASSWORD),
+                    timeout=15,
+                )
+                if r.status_code in (200, 201):
+                    print(f"  layer {layer} → interpolation {method}: OK", flush=True)
+                else:
+                    print(f"  ✗ layer {layer}: HTTP {r.status_code} — {r.text[:200]}", flush=True)
+                    failures.append(f"interp/{layer}")
+            except requests.RequestException as e:
+                print(f"  ✗ layer {layer}: {e}", flush=True)
+                failures.append(f"interp/{layer}")
 
     # 4. Reload to invalidate in-memory cache (single call for all)
     try:
