@@ -274,12 +274,11 @@ import { DatePipe } from '@angular/common';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TimeSliderComponent {
-  // Inputs : range [min, max]. Defaults [now-1d, now+7d] — fenêtre 8 jours
-  // alignée sur la rétention uniforme -1j/+7j (Sylvain 2026-05-15). Toutes
-  // les rétentions DB + cleanup files coverage convergent sur cette plage,
-  // le slider la reflète exactement.
-  readonly minTime = input<Date>(new Date(Date.now() - 86400_000));
-  readonly maxTime = input<Date>(new Date(Date.now() + 7 * 86400_000));
+  // Inputs : range [min, max]. Defaults ±6h — courtoisie quand aucun layer
+  // actif (le parent override avec sliderConfig() dérivé de LAYER_PROFILES
+  // dès qu'un layer est activé).
+  readonly minTime = input<Date>(new Date(Date.now() - 6 * 3_600_000));
+  readonly maxTime = input<Date>(new Date(Date.now() + 6 * 3_600_000));
   /** Step en ms — drive les boutons "+/- N" + le snap au drag/click.
    *  0 (default) = pas de snap, step buttons = ±1h. Set par le parent
    *  selon les layers actifs (cf sliderConfig dans map.component). */
@@ -348,8 +347,22 @@ export class TimeSliderComponent {
     return Math.max(0, Math.min(100, ((now - min) / (max - min)) * 100));
   });
 
-  readonly isLive = computed(() => Math.abs(Date.now() - this.displayTime().getTime()) < 5 * 60_000);
-  readonly isFuture = computed(() => this.displayTime().getTime() > Date.now() + 5 * 60_000);
+  // LIVE strict (Sylvain 2026-05-16) : true uniquement quand le cursor est
+  // sur l'instant le plus proche de maintenant compte tenu du pas. Avec
+  // stepMs=0 (live, pas de snap) on conserve une tolerance d'1 minute pour
+  // que le badge ne clignote pas durant nowTick. Avec stepMs > 0 (forecast/
+  // obs) on accepte ±stepMs/2 — le snap garantit qu'on tombe sur un
+  // multiple, l'écart max au "now snapped" est stepMs/2.
+  readonly isLive = computed(() => {
+    const delta = Math.abs(Date.now() - this.displayTime().getTime());
+    const tol = this.stepMs() > 0 ? this.stepMs() / 2 : 60_000;
+    return delta < tol;
+  });
+  readonly isFuture = computed(() => {
+    const delta = this.displayTime().getTime() - Date.now();
+    const tol = this.stepMs() > 0 ? this.stepMs() / 2 : 60_000;
+    return delta > tol;
+  });
 
   // ─── Step buttons computed ─────────────────────────────────────────
   /** Small step = la granularité native (stepMs si fourni, sinon 1h). */

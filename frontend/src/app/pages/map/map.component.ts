@@ -2427,23 +2427,30 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // - kind 'obs' : observations rolling N heures dans le passé
   // - kind 'forecast' : modèle prévisionnel future + parfois passé
   private readonly LAYER_PROFILES: Record<string, { kind: 'live' | 'obs' | 'forecast'; stepH: number; pastH: number; futureH: number }> = {
-    vessels:       { kind: 'live',     stepH: 0,  pastH: 0,   futureH: 0 },
+    // vessels/lightning/alerts/buoys : live AIS/Blitzortung. Retention DB
+    // 1j depuis 2026-05-15 → scrub utile sur les dernières 24h pour replay.
+    vessels:       { kind: 'live',     stepH: 0,  pastH: 24,  futureH: 0 },
     tracks:        { kind: 'obs',      stepH: 1,  pastH: 24,  futureH: 0 },
     alerts:        { kind: 'live',     stepH: 0,  pastH: 24,  futureH: 0 },
-    buoys:         { kind: 'live',     stepH: 0,  pastH: 0,   futureH: 0 },
-    lightning:     { kind: 'live',     stepH: 0,  pastH: 1,   futureH: 0 },
+    buoys:         { kind: 'live',     stepH: 0,  pastH: 24,  futureH: 0 },
+    lightning:     { kind: 'live',     stepH: 0,  pastH: 24,  futureH: 0 },
     metar:         { kind: 'obs',      stepH: 1,  pastH: 6,   futureH: 0 },
     hubeau:        { kind: 'obs',      stepH: 1,  pastH: 24,  futureH: 0 },
     piezo:         { kind: 'obs',      stepH: 1,  pastH: 24,  futureH: 0 },
     quakes:        { kind: 'obs',      stepH: 1,  pastH: 24,  futureH: 0 },
     firms:         { kind: 'obs',      stepH: 1,  pastH: 24,  futureH: 0 },
     rain:          { kind: 'live',     stepH: 0,  pastH: 2,   futureH: 0 },
+    // SST : observation NOAA OISST quotidienne, lag publication 14-21j (cf
+    // sst-fetcher v2-prelim). Retention 7j → fenêtre scrub -7j.
     sst:           { kind: 'forecast', stepH: 24, pastH: 168, futureH: 0 },
-    wind:          { kind: 'forecast', stepH: 6,  pastH: 0,   futureH: 72 },
-    waves:         { kind: 'forecast', stepH: 6,  pastH: 0,   futureH: 72 },
-    windArrows:    { kind: 'forecast', stepH: 6,  pastH: 0,   futureH: 72 },
-    waveArrows:    { kind: 'forecast', stepH: 6,  pastH: 0,   futureH: 72 },
-    windParticles: { kind: 'forecast', stepH: 6,  pastH: 0,   futureH: 72 },
+    // Wind/Wave : forecast GFS/ARPEGE/AROME/WW3 jusqu'à 7j (weather-fetcher*
+    // WEATHER_RETENTION_DAYS=7). futureH 72→168 pour aligner sur cette
+    // couverture réelle (2026-05-16).
+    wind:          { kind: 'forecast', stepH: 6,  pastH: 0,   futureH: 168 },
+    waves:         { kind: 'forecast', stepH: 6,  pastH: 0,   futureH: 168 },
+    windArrows:    { kind: 'forecast', stepH: 6,  pastH: 0,   futureH: 168 },
+    waveArrows:    { kind: 'forecast', stepH: 6,  pastH: 0,   futureH: 168 },
+    windParticles: { kind: 'forecast', stepH: 6,  pastH: 0,   futureH: 168 },
   };
 
   /** Computed : drive l'input du time-slider selon les layers actifs.
@@ -2470,30 +2477,40 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     if (this.showWaveArrows())    active.push('waveArrows');
     if (this.showWindParticles()) active.push('windParticles');
 
-    // Fenêtre fixe -1j / +7j (Sylvain 2026-05-15). Toutes les rétentions
-    // DB + nettoyages fichiers coverage sont alignés dessus, donc le
-    // slider doit refléter exactement la plage des données disponibles.
-    // Le step et le label restent dérivés des profils actifs pour info.
-    const PAST_H = 24;
-    const FUTURE_H = 7 * 24;
-    const now = Date.now();
-    const minTime = new Date(now - PAST_H * 3_600_000);
-    const maxTime = new Date(now + FUTURE_H * 3_600_000);
-
+    // Pattern adaptive (cf mémoire adaptive_time_slider_pattern.md) :
+    // la plage min/max + step + label sont dérivés des layers actifs.
+    // Chaque LAYER_PROFILES définit pastH/futureH/stepH ; on agrège en
+    // UNION (max des windows) + min des steps (granularité fine).
+    //
+    // Le hardcodage -1j/+7j (Sylvain 2026-05-15 phase 1) cassait ce
+    // pattern — reverted 2026-05-16. La plage doit refléter ce que les
+    // layers actifs peuvent réellement servir, pas une fenêtre arbitraire.
     const profiles = active.map((k) => this.LAYER_PROFILES[k]).filter(Boolean);
+    const now = Date.now();
     if (profiles.length === 0) {
-      return { minTime, maxTime, stepMs: 3_600_000, label: '−1j → +7j' };
+      // Aucun layer actif → plage de courtoisie ±6h pour ne pas collapser le slider.
+      return {
+        minTime: new Date(now - 6 * 3_600_000),
+        maxTime: new Date(now + 6 * 3_600_000),
+        stepMs: 3_600_000,
+        label: '',
+      };
     }
+    const maxPastH = Math.max(0, ...profiles.map((p) => p.pastH));
+    const maxFutureH = Math.max(0, ...profiles.map((p) => p.futureH));
     const stepHs = profiles.filter((p) => p.stepH > 0).map((p) => p.stepH);
     const stepH = stepHs.length === 0 ? 1 : Math.min(...stepHs);
     const allLive = profiles.every((p) => p.kind === 'live');
+
+    // Garantit au moins ±6h de range pour éviter slider quasi-collapsé.
+    const padH = 6;
     return {
-      minTime,
-      maxTime,
+      minTime: new Date(now - Math.max(maxPastH, padH) * 3_600_000),
+      maxTime: new Date(now + Math.max(maxFutureH, padH) * 3_600_000),
       stepMs: stepH * 3_600_000,
       label: allLive
-        ? 'LIVE • −1j → +7j'
-        : `Δ ${stepH}h • −1j → +7j`,
+        ? 'LIVE — pas de scrub utile'
+        : `Δ ${stepH}h${maxPastH > 0 ? ` • -${maxPastH}h` : ''}${maxFutureH > 0 ? ` → +${maxFutureH}h` : ''}`,
     };
   });
 
