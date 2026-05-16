@@ -338,14 +338,20 @@ export interface TimeSliderLayerCoverage {
       }
     }
 
-    /* Panneau expandable : sous-barres par layer actif */
+    /* Panneau expandable : sous-barres par layer actif. Affiche jusqu'à
+     * 3 lignes sans scroll ; au-delà, scroll vertical (cap 5 = limite UX
+     * coté map.component, mais le scroll gère proprement même en léger
+     * dépassement). */
     .ts-coverage {
       display: flex;
       flex-direction: column;
       gap: 0.2em;
       padding: 0.4em 0 0.2em;
-      max-height: 220px;
+      /* 3 lignes × (8px barre + 0.2em gap + label line-height ~14px) ≈ 90px */
+      max-height: 90px;
       overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: hsl(224 60% 35%) transparent;
     }
     .ts-coverage-row {
       display: grid;

@@ -274,7 +274,10 @@ function toIsoTimestamp(d: Date): string {
         }
       </button>
 
-      <div class="legend data-catalog" [class.legend--closed]="!legendOpen()">
+      <div class="legend data-catalog" [class.legend--closed]="!legendOpen()" (click)="onLegendClick($event)">
+        @if (cap5Warning(); as msg) {
+          <div class="cap5-toast" role="status">{{ msg }}</div>
+        }
         <div class="catalog-header" role="img" aria-label="AetherWX — see the atmosphere"></div>
 
 
@@ -1331,6 +1334,26 @@ function toIsoTimestamp(d: Date): string {
       width: 9px;
       height: 9px;
       accent-color: var(--accent);
+    }
+    .cap5-toast {
+      position: absolute;
+      top: -2.5em;
+      left: 0;
+      right: 0;
+      background: rgba(220, 38, 38, 0.92);
+      color: #fff;
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      padding: 0.5em 0.8em;
+      border-radius: 6px;
+      letter-spacing: 0.03em;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+      animation: cap5-toast-in 200ms ease-out;
+      z-index: 11;
+    }
+    @keyframes cap5-toast-in {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
     }
     .legend {
       position: absolute;
@@ -2514,6 +2537,50 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         : `Δ ${stepH}h${maxPastH > 0 ? ` • -${maxPastH}h` : ''}${maxFutureH > 0 ? ` → +${maxFutureH}h` : ''}`,
     };
   });
+
+  /** Cap UX 5 layers actifs simultanément (Sylvain 2026-05-16). Au-delà,
+   *  l'activation est refusée + toast 3s. Le user doit décocher un layer
+   *  avant d'en activer un autre. */
+  private readonly MAX_ACTIVE_LAYERS = 5;
+  readonly cap5Warning = signal<string | null>(null);
+
+  readonly activeLayersCount = computed(() => {
+    let n = 0;
+    if (this.showVessels())       n++;
+    if (this.showTracks())        n++;
+    if (this.showAlerts())        n++;
+    if (this.showBuoys())         n++;
+    if (this.showLightning())     n++;
+    if (this.showMetar())         n++;
+    if (this.showHubeau())        n++;
+    if (this.showPiezo())         n++;
+    if (this.showQuakes())        n++;
+    if (this.showFirms())         n++;
+    if (this.showRain())          n++;
+    if (this.showSST())           n++;
+    if (this.showWind())          n++;
+    if (this.showWaves())         n++;
+    if (this.showWindArrows())    n++;
+    if (this.showWaveArrows())    n++;
+    if (this.showWindParticles()) n++;
+    return n;
+  });
+
+  /** Intercepte les clicks sur les checkboxes du panneau legend. Si on
+   *  tente d'activer un (N+1)e layer alors qu'on est déjà au cap, on
+   *  revert target.checked AVANT que le (change) handler ne tourne
+   *  (l'ordre DOM est click → input → change → user code). */
+  onLegendClick(e: Event): void {
+    const target = e.target;
+    if (!(target instanceof HTMLInputElement) || target.type !== 'checkbox') return;
+    // target.checked = nouvel état après le toggle natif. On bloque
+    // uniquement si l'utilisateur essaie d'ACTIVER (true) au-dessus du cap.
+    if (target.checked && this.activeLayersCount() >= this.MAX_ACTIVE_LAYERS) {
+      target.checked = false;
+      this.cap5Warning.set(`Maximum ${this.MAX_ACTIVE_LAYERS} layers actifs simultanément — désactive-en un d'abord.`);
+      setTimeout(() => this.cap5Warning.set(null), 3000);
+    }
+  }
 
   /** Palette des sous-barres coverage (Sylvain 2026-05-16, time-bar expandable
    *  V1). Couleurs cohérentes avec les pictos legend (cyan vessels, ambre
