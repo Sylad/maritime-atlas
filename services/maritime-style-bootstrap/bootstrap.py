@@ -195,7 +195,12 @@ def main() -> int:
         except requests.RequestException as e:
             print(f"  cleanup {name}: skipped ({e})", flush=True)
 
-        # 2a. POST entry + PUT body — crée le descriptor proprement
+        # 2a. POST entry + PUT body — crée le descriptor proprement.
+        # Si "already exists" malgré le DELETE recurse+purge (le catalog
+        # JDBCConfig peut garder une trace fantôme post-DELETE 200), on
+        # fall-through vers 2b qui PUT raw=true le SLD body. L'entry existe
+        # déjà côté catalog, donc skip la recréation → le PUT raw=true qui
+        # suit override le body et garantit le SLD correct.
         try:
             geo.upload_style(
                 path=str(sld_path),
@@ -205,9 +210,12 @@ def main() -> int:
             )
             print(f"  upload {name}: OK (descriptor created)", flush=True)
         except GeoserverException as e:
-            print(f"  ✗ upload {name}: FAILED — {e}", flush=True)
-            failures.append(name)
-            continue
+            if "already exists" in str(e):
+                print(f"  upload {name}: descriptor déjà présent → fall-through raw-override", flush=True)
+            else:
+                print(f"  ✗ upload {name}: FAILED — {e}", flush=True)
+                failures.append(name)
+                continue
 
         # 2b. Re-PUT with ?raw=true to preserve the original SLD body
         # (GeoServer réécrit le <NamedLayer><Name> au PUT non-raw pour
