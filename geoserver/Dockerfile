@@ -15,7 +15,7 @@
 # On garde le VRAI gain du sprint : datasource JNDI Tomcat (context.xml.tpl)
 # qui centralise les credentials Postgres pour tous les plugins JDBC.
 
-ARG GS_VERSION=2.28.3
+ARG GS_VERSION=2.28.0
 FROM docker.osgeo.org/geoserver:${GS_VERSION}
 
 ARG GWC_S3_URL=https://downloads.sourceforge.net/project/geoserver/GeoServer/${GS_VERSION}/extensions/geoserver-${GS_VERSION}-gwc-s3-plugin.zip
