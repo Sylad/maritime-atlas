@@ -29,7 +29,7 @@
         type="javax.sql.DataSource"
         driverClassName="org.postgresql.Driver"
 
-        url="jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT:-5432}/${GEOSERVER_DB_NAME:-geoserver}"
+        url="jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${GEOSERVER_DB_NAME}"
         username="${GEOSERVER_DB_USER}"
         password="${GEOSERVER_DB_PASSWORD}"
 
