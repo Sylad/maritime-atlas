@@ -1,114 +1,152 @@
 #!/bin/bash
 set -e
 
-# ─── GeoServer cluster bootstrap (Sprint 9) ──────────────────────────
+# ─── GeoServer cluster bootstrap — sprint refacto archi 2026-05-16 ───
 #
-# Wrapper d'entrypoint pour les replicas geoserver. Rôle :
-#  1. Templater jdbcconfig.properties et jdbcstore.properties avec les
-#     credentials Postgres (envsubst sur les placeholders ${VAR}).
-#  2. Les déposer aux emplacements attendus par GeoServer :
-#        ${GEOSERVER_DATA_DIR}/jdbcconfig/jdbcconfig.properties
-#        ${GEOSERVER_DATA_DIR}/jdbcstore/jdbcstore.properties
-#  3. Marquer le replica avec son ID (utile pour les logs et l'audit
-#     côté provisioner) via un fichier `node-id`.
-#  4. Déléguer à l'entrypoint officiel de l'image (/opt/startup.sh).
+# Wrapper d'entrypoint pour les replicas geoserver. Rôle (dans l'ordre) :
+#  1. CREATE DATABASE `geoserver` si absente (idempotent côté Postgres).
+#  2. envsubst sur le template Tomcat context.xml.tpl → context.xml
+#     (datasource JNDI jdbc/geoserver, sessions store, etc.)
+#  3. CREATE TABLE `tomcat_sessions` (requis par JDBC sessions Tomcat).
+#  4. Templater jdbcconfig.properties / jdbcstore.properties en mode
+#     JNDI (jndiName référence le datasource Tomcat, pas de credentials
+#     hardcodés).
+#  5. Détection idempotence : si les tables JDBCConfig existent déjà
+#     (premier replica les a créées), bascule initdb=false / import=false
+#     pour éviter les race conditions multi-replica.
+#  6. Déléguer à l'entrypoint kartoza (/scripts/start.sh).
 #
-# Important : ce script tourne sur CHAQUE replica au boot. Comme les 3
-# replicas partagent le même volume `geoserver-data`, écrire le même
-# fichier 3× est OK (idempotent, contenu identique).
-#
-# Le templating utilise envsubst qui ne touche pas aux $ littéraux —
-# uniquement aux ${VAR_NAME}. C'est exactement ce qu'on veut.
+# Ce script est mounté via ConfigMap (cluster-bootstrap-script) en
+# /scripts/cluster-bootstrap.sh, et appelé comme entrypoint custom du
+# pod GS (override de l'ENTRYPOINT kartoza). Idempotent et safe à run
+# sur chaque restart.
 # ─────────────────────────────────────────────────────────────────────
 
 GEOSERVER_DATA_DIR="${GEOSERVER_DATA_DIR:-/opt/geoserver_data}"
-NODE_ID="${GEOSERVER_NODE_ID:-unknown}"
+TOMCAT_CONTEXT_TPL="${TOMCAT_CONTEXT_TPL:-/usr/local/tomcat/conf/context.xml.tpl}"
+TOMCAT_CONTEXT="${TOMCAT_CONTEXT:-/usr/local/tomcat/conf/context.xml}"
 
+NODE_ID="${GEOSERVER_NODE_ID:-${HOSTNAME:-unknown}}"
 echo "[cluster-bootstrap] node-id=${NODE_ID}"
 
-# Ensure the `geoserver` Postgres schema exists before JDBCStore/Config
-# tente CREATE TABLE. Idempotent (CREATE SCHEMA IF NOT EXISTS).
-# psql baké dans l'image custom via apt postgresql-client.
-if command -v psql >/dev/null 2>&1; then
-  echo "[cluster-bootstrap] ensure geoserver schema in Postgres…"
-  PGPASSWORD="${POSTGRES_PASSWORD}" psql \
-    -h "${POSTGRES_HOST}" -p "${POSTGRES_PORT}" \
-    -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" \
-    -c "CREATE SCHEMA IF NOT EXISTS geoserver;" \
-    -v ON_ERROR_STOP=1 \
-    2>&1 | sed 's/^/[cluster-bootstrap]   /' || \
-    echo "[cluster-bootstrap]   WARN: schema creation failed (continuing)"
-else
-  echo "[cluster-bootstrap] psql not available — skip schema bootstrap"
-fi
-
-echo "[cluster-bootstrap] templating JDBCConfig + JDBCStore properties…"
-
-# Crée les sous-dossiers si absents (premier boot).
-mkdir -p "${GEOSERVER_DATA_DIR}/jdbcconfig"
-mkdir -p "${GEOSERVER_DATA_DIR}/jdbcstore"
-mkdir -p "${GEOSERVER_DATA_DIR}/jdbcstore/scripts"
-mkdir -p "${GEOSERVER_DATA_DIR}/jdbcconfig/scripts"
-
-# Copy SQL init scripts (bakés dans l'image à /opt/jdbc-scripts/).
-# JDBCStore en a besoin pour CREATE TABLE resource au premier boot.
-if [ -d "/opt/jdbc-scripts/jdbcstore" ]; then
-  cp -n /opt/jdbc-scripts/jdbcstore/*.sql "${GEOSERVER_DATA_DIR}/jdbcstore/scripts/" 2>/dev/null || true
-fi
-if [ -d "/opt/jdbc-scripts/jdbcconfig" ]; then
-  cp -n /opt/jdbc-scripts/jdbcconfig/*.sql "${GEOSERVER_DATA_DIR}/jdbcconfig/scripts/" 2>/dev/null || true
-fi
-
-# Détection idempotence : si la table `object` (JDBCConfig) existe déjà
-# en DB, le premier replica a déjà initialisé. Les replicas suivants
-# doivent démarrer avec `initdb=false` / `import=false` pour ne pas
-# tenter de recréer les tables (CREATE TABLE sans IF NOT EXISTS → fail).
-# C'est LE fix de la race condition multi-replica détectée 2026-05-11.
-JDBC_INIT_FLAGS="initdb=true"
-JDBC_IMPORT_FLAGS="import=true"
-JDBCSTORE_INIT_FLAGS="initdb=true"
-if command -v psql >/dev/null 2>&1; then
-  TABLE_EXISTS=$(PGPASSWORD="${POSTGRES_PASSWORD}" psql \
-    -h "${POSTGRES_HOST}" -p "${POSTGRES_PORT}" \
-    -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" \
-    -tAc "SELECT to_regclass('geoserver.object') IS NOT NULL AND to_regclass('geoserver.resources') IS NOT NULL" 2>/dev/null || echo "f")
-  if [ "$TABLE_EXISTS" = "t" ]; then
-    echo "[cluster-bootstrap] JDBC tables already initialized — using initdb=false"
-    JDBC_INIT_FLAGS="initdb=false"
-    JDBC_IMPORT_FLAGS="import=false"
-    JDBCSTORE_INIT_FLAGS="initdb=false"
+# ── 1. CREATE DATABASE geoserver if missing ─────────────────────────
+# Note : on connecte initialement à la DB par défaut (POSTGRES_DB =
+# maritime habituellement) pour pouvoir lancer CREATE DATABASE. Postgres
+# ne supporte pas CREATE DATABASE IF NOT EXISTS, on simule via SELECT.
+if [ -n "${GEOSERVER_DB_NAME:-}" ] && command -v psql >/dev/null 2>&1; then
+  echo "[cluster-bootstrap] ensure DB '${GEOSERVER_DB_NAME}' exists in pg-catalog…"
+  DB_EXISTS=$(PGPASSWORD="${POSTGRES_PASSWORD}" psql \
+    -h "${POSTGRES_HOST}" -p "${POSTGRES_PORT:-5432}" \
+    -U "${POSTGRES_USER}" -d "${POSTGRES_DB:-postgres}" \
+    -tAc "SELECT 1 FROM pg_database WHERE datname='${GEOSERVER_DB_NAME}'" 2>/dev/null || echo "")
+  if [ "$DB_EXISTS" = "1" ]; then
+    echo "[cluster-bootstrap]   DB already exists, skipping CREATE"
   else
-    echo "[cluster-bootstrap] JDBC tables NOT yet initialized — using initdb=true (first replica)"
+    PGPASSWORD="${POSTGRES_PASSWORD}" psql \
+      -h "${POSTGRES_HOST}" -p "${POSTGRES_PORT:-5432}" \
+      -U "${POSTGRES_USER}" -d "${POSTGRES_DB:-postgres}" \
+      -c "CREATE DATABASE \"${GEOSERVER_DB_NAME}\";" \
+      2>&1 | sed 's/^/[cluster-bootstrap]   /' || \
+      echo "[cluster-bootstrap]   WARN: CREATE DATABASE failed (maybe race with another replica)"
   fi
 fi
 
-# Templating : on lit le template depuis /cluster-config (read-only, monté
-# via compose), envsubst injecte POSTGRES_HOST/PORT/DB/USER/PASSWORD,
-# on écrit le résultat dans le data_dir partagé. Le sed après envsubst
-# bascule initdb/import à false si les tables existent déjà.
-envsubst < /cluster-config/jdbcconfig.properties \
-  | sed -E "s/^initdb=true/${JDBC_INIT_FLAGS}/" \
-  | sed -E "s/^import=true/${JDBC_IMPORT_FLAGS}/" \
-  > "${GEOSERVER_DATA_DIR}/jdbcconfig/jdbcconfig.properties"
+# ── 2. envsubst sur context.xml.tpl → context.xml ──────────────────
+# Le template versionné contient ${POSTGRES_HOST}, ${GEOSERVER_DB_USER},
+# ${GEOSERVER_DB_PASSWORD}, etc. envsubst injecte depuis les env vars
+# du pod (qui viennent du Deployment + Secrets K8s).
+if [ -f "${TOMCAT_CONTEXT_TPL}" ]; then
+  echo "[cluster-bootstrap] templating Tomcat context.xml from ${TOMCAT_CONTEXT_TPL}"
+  envsubst < "${TOMCAT_CONTEXT_TPL}" > "${TOMCAT_CONTEXT}"
+  echo "[cluster-bootstrap]   wrote ${TOMCAT_CONTEXT}"
+fi
 
-envsubst < /cluster-config/jdbcstore.properties \
-  | sed -E "s/^initdb=true/${JDBCSTORE_INIT_FLAGS}/" \
-  > "${GEOSERVER_DATA_DIR}/jdbcstore/jdbcstore.properties"
+# ── 3. CREATE TABLE tomcat_sessions if missing ──────────────────────
+# Tomcat PersistentManager + DataSourceStore ne crée PAS la table tout
+# seul (contrairement à JDBCConfig/JDBCStore). On s'en occupe ici en SQL
+# idempotent. Schema standard Tomcat 9 docs.
+if command -v psql >/dev/null 2>&1; then
+  echo "[cluster-bootstrap] ensure tomcat_sessions table in DB '${GEOSERVER_DB_NAME}'…"
+  PGPASSWORD="${GEOSERVER_DB_PASSWORD}" psql \
+    -h "${POSTGRES_HOST}" -p "${POSTGRES_PORT:-5432}" \
+    -U "${GEOSERVER_DB_USER}" -d "${GEOSERVER_DB_NAME}" \
+    -v ON_ERROR_STOP=0 \
+    -c "CREATE TABLE IF NOT EXISTS tomcat_sessions (
+          session_id     VARCHAR(100) NOT NULL PRIMARY KEY,
+          valid_session  CHAR(1)      NOT NULL,
+          max_inactive   INT          NOT NULL,
+          last_access    BIGINT       NOT NULL,
+          app_name       VARCHAR(255),
+          session_data   BYTEA
+        );
+        CREATE INDEX IF NOT EXISTS idx_tomcat_sessions_app
+          ON tomcat_sessions(app_name);" \
+    2>&1 | sed 's/^/[cluster-bootstrap]   /' || \
+    echo "[cluster-bootstrap]   WARN: tomcat_sessions create failed (continuing)"
+fi
 
-# Control-Flow extension config : limites concurrent requests par service.
-# Copié direct (pas de templating, valeurs hardcodées calibrées NAS quad-core).
-# Idempotent : 3 replicas écrivent le même fichier.
+# ── 4. JDBCConfig / JDBCStore properties — mode JNDI ───────────────
+# Le mode JNDI évite de hardcoder les credentials dans des properties
+# files au format texte. Le datasource jdbc/geoserver déclaré dans
+# context.xml est référencé par jndiName.
+#
+# JDBCConfig docs : https://docs.geoserver.org/latest/en/user/community/jdbcconfig/installation.html
+mkdir -p "${GEOSERVER_DATA_DIR}/jdbcconfig"
+mkdir -p "${GEOSERVER_DATA_DIR}/jdbcstore"
+mkdir -p "${GEOSERVER_DATA_DIR}/jdbcstore/scripts"
+
+# Détection idempotence multi-replica : si les tables JDBCConfig ont
+# déjà été créées (le premier replica est passé avant nous), bascule
+# initdb=false / import=false pour éviter les CREATE TABLE en collision.
+JDBC_INIT=true
+JDBC_IMPORT=true
+if command -v psql >/dev/null 2>&1; then
+  TABLE_EXISTS=$(PGPASSWORD="${GEOSERVER_DB_PASSWORD}" psql \
+    -h "${POSTGRES_HOST}" -p "${POSTGRES_PORT:-5432}" \
+    -U "${GEOSERVER_DB_USER}" -d "${GEOSERVER_DB_NAME}" \
+    -tAc "SELECT to_regclass('object') IS NOT NULL AND to_regclass('resource') IS NOT NULL" 2>/dev/null || echo "f")
+  if [ "$TABLE_EXISTS" = "t" ]; then
+    echo "[cluster-bootstrap] JDBCConfig tables already initialized → initdb=false import=false"
+    JDBC_INIT=false
+    JDBC_IMPORT=false
+  fi
+fi
+
+cat > "${GEOSERVER_DATA_DIR}/jdbcconfig/jdbcconfig.properties" <<EOF
+# Generated by cluster-bootstrap.sh — JNDI mode (datasource jdbc/geoserver)
+enabled=true
+initdb=${JDBC_INIT}
+import=${JDBC_IMPORT}
+jndiName=java:comp/env/jdbc/geoserver
+EOF
+
+cat > "${GEOSERVER_DATA_DIR}/jdbcstore/jdbcstore.properties" <<EOF
+# Generated by cluster-bootstrap.sh — JNDI mode (datasource jdbc/geoserver)
+enabled=true
+initdb=${JDBC_INIT}
+jndiName=java:comp/env/jdbc/geoserver
+EOF
+
+# ── 5. ControlFlow config — copie depuis ConfigMap (si présent) ────
 if [ -f /cluster-config/controlflow.properties ]; then
   cp /cluster-config/controlflow.properties "${GEOSERVER_DATA_DIR}/controlflow.properties"
   echo "[cluster-bootstrap] control-flow config installed"
 fi
 
-# Marqueur d'identité pour debug — visible dans les logs Docker via
-# l'env CLUSTER_NODE_ID que chaque replica expose.
-echo "${NODE_ID}" > "${GEOSERVER_DATA_DIR}/node-id-${NODE_ID}"
+# Marqueur d'identité pour debug — visible dans les logs Docker et
+# corrélable avec l'env GEOSERVER_NODE_ID (= ${HOSTNAME} = nom du pod).
+echo "${NODE_ID}" > "${GEOSERVER_DATA_DIR}/.node-id-${NODE_ID}"
 
-echo "[cluster-bootstrap] done, handing over to GeoServer startup…"
+echo "[cluster-bootstrap] done, handing over to GeoServer (kartoza entrypoint)…"
 
-# Délègue à l'entrypoint officiel de l'image. Le path /opt/startup.sh
-# est documenté dans https://github.com/geoserver/docker.
-exec /opt/startup.sh "$@"
+# ── 6. Délègue à l'entrypoint kartoza ───────────────────────────────
+# Kartoza utilise /scripts/start.sh comme entrypoint. Ne pas le shunter.
+# Si on tourne sur l'image OSGeo c'est /opt/startup.sh — détection.
+if [ -x /scripts/start.sh ]; then
+  exec /scripts/start.sh "$@"
+elif [ -x /opt/startup.sh ]; then
+  exec /opt/startup.sh "$@"
+else
+  echo "[cluster-bootstrap] FATAL : no known GS entrypoint found"
+  exit 1
+fi
