@@ -46,43 +46,48 @@ STYLES_DIR = Path("/app/styles")
 # default. Vide [] = style disponible mais pas en default (le toggle
 # frontend peut le sélectionner explicitement via STYLES=...).
 STYLES_TO_DEPLOY = [
-    # ── Styles "direct" (Sylvain 2026-05-15/16) — sans IDW + ColorMap simple.
-    # Render fullscreen ~0.5s vs 10-21s pour les IDW. Combinés avec
-    # `defaultWMSInterpolationMethod=Bicubic` côté LayerInfo (configuré par
-    # configure_layer_interpolation() ci-dessous), les couleurs sont lissées
-    # sans le coût IDW. Cf [[geoserver_idw_vs_bicubic_perf]].
+    # ── SST : style "direct" sans IDW (Sylvain 2026-05-16) — validé visuellement.
+    # Render fullscreen ~0.5s vs 10-21s. Combiné avec `defaultWMSInterpolationMethod
+    # =Bicubic` côté LayerInfo, les couleurs sont lissées sans le coût IDW.
     {
         "name": "sst-direct",
         "default_for": ["sst-daily"],
     },
+    # ── Wind / Wave : retour aux styles IDW (Sylvain 2026-05-16 PM) — les
+    # variantes "direct" rendaient un gris uniforme sur les data wind-speed/
+    # wave-hs (résolution native trop sparse pour ColorMap direct + Bicubic
+    # produit des artefacts négatifs). On garde wind-direct / wave-direct
+    # disponibles (default_for=[]) pour toggle frontend explicit, mais le
+    # default revient sur les IDW qui rendent correctement (au prix de 10-21s).
     {
-        "name": "wind-direct",
+        "name": "wind-speed-idw",
         "default_for": ["wind-speed", "wind-speed-arpege", "wind-speed-arome"],
     },
     {
-        "name": "wave-direct",
+        "name": "wave-hs-only",
         "default_for": ["wave-hs"],
     },
-    # ── Styles IDW (gardés disponibles pour toggle isolignes / fallback)
-    # — pas en default_for.
-    {"name": "wind-speed-idw",        "default_for": []},
+    # ── Styles "direct" wind/wave : disponibles, pas en default
+    {"name": "wind-direct",           "default_for": []},
+    {"name": "wave-direct",           "default_for": []},
+    # ── Autres styles legacy (toggle isolignes etc.) — disponibles, pas en default
     {"name": "sst-only",              "default_for": []},
     {"name": "sst-with-contours",     "default_for": []},
-    {"name": "wave-hs-only",          "default_for": []},
     {"name": "wave-hs-with-contours", "default_for": []},
 ]
 
-# Configuration interpolation Layer-level (Sylvain 2026-05-16). Le SLD
-# direct n'interpole pas le ColorMap pixel-par-pixel — pour smoothes
-# transitions sans IDW, on set `defaultWMSInterpolationMethod=Bicubic`
-# côté LayerInfo via REST. Idempotent.
+# Configuration interpolation Layer-level (Sylvain 2026-05-16). Bicubic
+# uniquement sur sst-daily où sst-direct rend correctement. Pour wind* /
+# wave* on retire Bicubic (revert Nearest implicite) parce que combiné aux
+# styles wind-speed-idw / wave-hs-only il produit du gris uniforme. À
+# ré-activer si on revient sur wind-direct / wave-direct un jour.
 RASTER_LAYERS_INTERPOLATION = [
     {"layer": "sst-daily",         "method": "Bicubic"},
-    {"layer": "wave-hs",           "method": "Bicubic"},
-    {"layer": "wave-dir",          "method": "Bicubic"},
-    {"layer": "wind-speed",        "method": "Bicubic"},
-    {"layer": "wind-speed-arpege", "method": "Bicubic"},
-    {"layer": "wind-speed-arome",  "method": "Bicubic"},
+    {"layer": "wave-hs",           "method": "Nearest"},
+    {"layer": "wave-dir",          "method": "Nearest"},
+    {"layer": "wind-speed",        "method": "Nearest"},
+    {"layer": "wind-speed-arpege", "method": "Nearest"},
+    {"layer": "wind-speed-arome",  "method": "Nearest"},
 ]
 
 # ── Catalog déclaratif des feature types à reconfigurer ─────────────
