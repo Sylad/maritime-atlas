@@ -1,0 +1,76 @@
+# Mini-stack DÉDIÉ au test du sprint refacto GS sandbox (2026-05-16 soir).
+#
+# But : valider EN LOCAL le combo image OSGeo + JNDI native + JDBCConfig +
+# JDBCStore + ImageMosaic JDBC AVANT promotion K8s. Si tout marche ici,
+# le déploiement K8s = bump tag + sync ArgoCD + Rancher pour vérif rollout.
+#
+# Workflow (à la Sylvain au taff) :
+#   docker compose -f compose.gs-refacto.yml up -d
+#   # tester, itérer le code Dockerfile / wrapper
+#   docker compose -f compose.gs-refacto.yml logs -f gs
+#   docker compose -f compose.gs-refacto.yml exec gs curl ...
+#   # quand ça marche → promotion K8s
+
+name: gs-refacto
+
+services:
+  # ─── Postgres dédié au catalog GS (image PostGIS = spatial_ref_sys) ──
+  pg-gs:
+    image: ghcr.io/cloudnative-pg/postgis:16-3.4
+    environment:
+      POSTGRES_USER: geoserver
+      POSTGRES_PASSWORD: geoserver-test
+      POSTGRES_DB: geoserver
+    volumes:
+      - pg-gs-data:/var/lib/postgresql/data
+      # Init script qui crée l'extension postgis dans la DB geoserver
+      - ./geoserver/cluster/pg-gs-init.sql:/docker-entrypoint-initdb.d/01-postgis.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U geoserver -d geoserver"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "15433:5432"   # exposed for debug : psql -h localhost -p 15433 -U geoserver
+
+  # ─── GeoServer custom image OSGeo + JNDI + plugins JDBC ────────────
+  gs:
+    image: ghcr.io/sylad/maritime-geoserver:sha-a2b2c5b
+    depends_on:
+      pg-gs:
+        condition: service_healthy
+    # Override entrypoint pour passer par notre wrapper avant le startup.sh
+    entrypoint: ["/bin/bash", "/scripts-extra/cluster-bootstrap.sh"]
+    environment:
+      # Conventions OSGeo natives (cf mémoire maritime_sandbox_acquis_2026_05_16)
+      POSTGRES_HOST: pg-gs
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: geoserver
+      POSTGRES_USERNAME: geoserver         # (PAS POSTGRES_USER, c'est USERNAME chez OSGeo)
+      POSTGRES_PASSWORD: geoserver-test
+      POSTGRES_JNDI_ENABLED: "true"        # active la datasource JNDI native
+      # GS admin
+      GEOSERVER_ADMIN_USER: admin
+      GEOSERVER_ADMIN_PASSWORD: geoserver
+      # JVM tuning minimal pour test local
+      JAVA_OPTS: "-Xms512m -Xmx2g -XX:+UseG1GC -Dorg.geotools.referencing.forceXY=true -Duser.timezone=UTC -Dfile.encoding=UTF-8"
+      EXTRA_JAVA_OPTS: "-Xms512m -Xmx2g"
+    volumes:
+      - gs-data:/opt/geoserver_data
+      # Mount notre wrapper bootstrap depuis le repo (itère sans rebuild image)
+      - ./geoserver/cluster/cluster-bootstrap.sh:/scripts-extra/cluster-bootstrap.sh:ro
+      # Coverage dir pour tester ImageMosaic JDBC
+      - gs-coverage:/coverage
+    ports:
+      - "18080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8080/geoserver/index.html > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+volumes:
+  pg-gs-data:
+  gs-data:
+  gs-coverage:
