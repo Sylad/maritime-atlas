@@ -2540,7 +2540,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
   /** Cap UX 5 layers actifs simultanément (Sylvain 2026-05-16). Au-delà,
    *  l'activation est refusée + toast 3s. Le user doit décocher un layer
-   *  avant d'en activer un autre. */
+   *  avant d'en activer un autre. NB : le concept de "maître du temps"
+   *  est déjà géré via activationOrder + masterLayerKey ligne ~2335 (avec
+   *  l'effect réconciliateur sur animatableLayers). */
   private readonly MAX_ACTIVE_LAYERS = 5;
   readonly cap5Warning = signal<string | null>(null);
 
@@ -3171,6 +3173,44 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       }
       prevActive = currentActive;
     }, { allowSignalWrites: true });
+
+    // V2.1 cursor snap selon maître du temps (Sylvain 2026-05-16). Quand
+    // le master change (premier layer activé), on snap le cursor au timestep
+    // le plus pertinent. Garde-fous :
+    //  1. Pas pendant animation (animPlayer != idle)
+    //  2. Pas si user a drag loin de now (>1h) — on respecte son intention
+    //  3. Tracking prevMaster pour ne snap qu'au CHANGEMENT (pas à chaque tick)
+    //  4. queueMicrotask pour respecter Angular signal-write rules
+    let prevMaster: string | null = null;
+    effect(() => {
+      const masterKey = this.masterLayerKey();
+      if (masterKey === prevMaster) return;
+      prevMaster = masterKey;
+      if (!masterKey) return;
+      if (this.animPlayer.state() !== 'idle') return;
+
+      const now = Date.now();
+      const curT = this.currentTime?.getTime() ?? now;
+      if (Math.abs(now - curT) > 3_600_000) return;  // user away from live → respect
+
+      const profile = this.LAYER_PROFILES[masterKey];
+      if (!profile) return;
+
+      let target: Date;
+      if (profile.kind === 'live') {
+        target = new Date(now);
+      } else if (profile.kind === 'obs' && profile.stepH > 0) {
+        // Observation : recule d'un tick pour pointer la dernière data factuelle
+        target = new Date(now - profile.stepH * 3_600_000);
+      } else if (profile.stepH > 0) {
+        // Forecast : snap au multiple stepMs ≤ now (frontière passé/futur)
+        const stepMs = profile.stepH * 3_600_000;
+        target = new Date(Math.floor(now / stepMs) * stepMs);
+      } else {
+        target = new Date(now);
+      }
+      queueMicrotask(() => this.onTimeChange(target));
+    });
 
     // Effect réactif : à chaque changement de signal toggle, on ré-applique
     // la visibility des layers OL. Sans ça, cocher/décocher un toggle ne
