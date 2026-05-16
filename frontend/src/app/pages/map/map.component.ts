@@ -2465,8 +2465,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     firms:         { kind: 'obs',      stepH: 1,  pastH: 24,  futureH: 0 },
     rain:          { kind: 'live',     stepH: 0,  pastH: 2,   futureH: 0 },
     // SST : observation NOAA OISST quotidienne, lag publication 14-21j (cf
-    // sst-fetcher v2-prelim). Retention 7j → fenêtre scrub -7j.
-    sst:           { kind: 'forecast', stepH: 24, pastH: 168, futureH: 0 },
+    // sst-fetcher v2-prelim). Retention 7j → fenêtre scrub -7j. kind 'obs'
+    // (et pas 'forecast' qui était une erreur 2026-05-15) → l'effect
+    // cursor-snap V2.1 recule d'1 tick (24h) pour pointer la donnée la
+    // plus récente factuellement disponible, pas un timestep futur vide.
+    sst:           { kind: 'obs',      stepH: 24, pastH: 168, futureH: 0 },
     // Wind/Wave : forecast GFS/ARPEGE/AROME/WW3 jusqu'à 7j (weather-fetcher*
     // WEATHER_RETENTION_DAYS=7). futureH 72→168 pour aligner sur cette
     // couverture réelle (2026-05-16).
