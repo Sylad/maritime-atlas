@@ -37,7 +37,7 @@ import type { Geometry, Point } from 'ol/geom';
 
 import { Router, RouterLink } from '@angular/router';
 import type { LayerKind, Palette } from '../../services/palettes.service';
-import { TimeSliderComponent } from '../../components/time-slider/time-slider.component';
+import { TimeSliderComponent, TimeSliderLayerCoverage } from '../../components/time-slider/time-slider.component';
 import { IngestionMiniChartComponent } from '../../components/ingestion-mini-chart/ingestion-mini-chart.component';
 import { AnimationPanelComponent } from '../../components/animation-panel/animation-panel.component';
 import { AnimationControlsComponent } from '../../components/animation-controls/animation-controls.component';
@@ -1215,6 +1215,7 @@ function toIsoTimestamp(d: Date): string {
         [maxTime]="sliderConfig().maxTime"
         [stepMs]="sliderConfig().stepMs"
         [statusLabel]="sliderConfig().label"
+        [layerCoverage]="sliderLayerCoverage()"
         [externalAnimationActive]="animPlayer.state() !== 'idle'"
         [externalCurrentTime]="animPlayer.state() !== 'idle' ? currentTimeSig() : null"
         (timeChange)="onSliderTimeChange($event)"
@@ -2512,6 +2513,58 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         ? 'LIVE — pas de scrub utile'
         : `Δ ${stepH}h${maxPastH > 0 ? ` • -${maxPastH}h` : ''}${maxFutureH > 0 ? ` → +${maxFutureH}h` : ''}`,
     };
+  });
+
+  /** Palette des sous-barres coverage (Sylvain 2026-05-16, time-bar expandable
+   *  V1). Couleurs cohérentes avec les pictos legend (cyan vessels, ambre
+   *  lightning, etc.). V1 = rectangle continu pastH→futureH ; V2 ajoutera
+   *  les timesteps réels via WMS GetCapabilities / WFS DISTINCT. */
+  private readonly LAYER_COLORS: Record<string, string> = {
+    vessels:       '#0ea5e9', // cyan
+    tracks:        '#06b6d4',
+    alerts:        '#dc2626', // rouge
+    buoys:         '#f59e0b', // ambre
+    lightning:     '#fde047', // jaune électrique
+    metar:         '#a78bfa', // violet
+    hubeau:        '#3b82f6', // bleu
+    piezo:         '#22d3ee',
+    quakes:        '#ef4444',
+    firms:         '#f97316',
+    rain:          '#60a5fa',
+    sst:           '#fb923c', // orange chaud
+    wind:          '#10b981', // vert
+    waves:         '#06b6d4', // cyan
+    windArrows:    '#34d399',
+    waveArrows:    '#67e8f9',
+    windParticles: '#86efac',
+  };
+
+  readonly sliderLayerCoverage = computed((): TimeSliderLayerCoverage[] => {
+    const out: TimeSliderLayerCoverage[] = [];
+    const push = (active: boolean, key: keyof typeof this.LAYER_PROFILES, label: string) => {
+      if (!active) return;
+      const p = this.LAYER_PROFILES[key];
+      if (!p || (p.pastH === 0 && p.futureH === 0)) return;
+      out.push({ name: label, color: this.LAYER_COLORS[key] ?? '#94a3b8', pastH: p.pastH, futureH: p.futureH });
+    };
+    push(this.showVessels(),       'vessels',       'vessels');
+    push(this.showTracks(),        'tracks',        'tracks');
+    push(this.showAlerts(),        'alerts',        'alerts');
+    push(this.showBuoys(),         'buoys',         'buoys');
+    push(this.showLightning(),     'lightning',     'lightning');
+    push(this.showMetar(),         'metar',         'metar');
+    push(this.showHubeau(),        'hubeau',        'hubeau');
+    push(this.showPiezo(),         'piezo',         'piezo');
+    push(this.showQuakes(),        'quakes',        'quakes');
+    push(this.showFirms(),         'firms',         'firms');
+    push(this.showRain(),          'rain',          'rain');
+    push(this.showSST(),           'sst',           'sst');
+    push(this.showWind(),          'wind',          'wind');
+    push(this.showWaves(),         'waves',         'waves');
+    push(this.showWindArrows(),    'windArrows',    'wind-arrows');
+    push(this.showWaveArrows(),    'waveArrows',    'wave-arrows');
+    push(this.showWindParticles(), 'windParticles', 'wind-particles');
+    return out;
   });
 
   // ─── Sprint Layer UX V2 — Phase A : opacity per layer + persist ──────

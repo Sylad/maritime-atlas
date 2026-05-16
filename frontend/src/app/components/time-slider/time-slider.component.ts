@@ -2,6 +2,22 @@ import { ChangeDetectionStrategy, Component, computed, input, output, signal } f
 import { DatePipe } from '@angular/common';
 
 /**
+ * Une ligne de couverture pour un layer actif (V1 : window continue).
+ *  - name       : identifiant utilisé pour le label monospace
+ *  - color      : couleur CSS de la sous-barre (alignée avec la legend)
+ *  - pastH      : extension dans le passé en heures (0 = pas de coverage passé)
+ *  - futureH    : extension dans le futur en heures (0 = pas de coverage futur)
+ *
+ * V2 ajoutera `ticks: Date[]` pour les timesteps réels WMS/WFS.
+ */
+export interface TimeSliderLayerCoverage {
+  name: string;
+  color: string;
+  pastH: number;
+  futureH: number;
+}
+
+/**
  * Time slider globale pour explorer le passé / présent / futur.
  *
  * Range : [minTime, maxTime] (par défaut [now-30d, now+5d]).
@@ -65,12 +81,40 @@ import { DatePipe } from '@angular/common';
           <div class="ts-cursor" [style.left.%]="cursorPercent()" (pointerdown)="onCursorDrag($event)"></div>
         </div>
 
+        <!-- Panneau expandable : sous-barres coverage par layer actif -->
+        @if (expanded() && layerCoverage().length > 0) {
+          <div class="ts-coverage">
+            @for (cov of layerCoverage(); track cov.name) {
+              <div class="ts-coverage-row">
+                <span class="ts-coverage-label">{{ cov.name }}</span>
+                <div class="ts-coverage-track">
+                  <div
+                    class="ts-coverage-bar"
+                    [style.background]="cov.color"
+                    [style.left.%]="coverageLeftPercent(cov)"
+                    [style.width.%]="coverageWidthPercent(cov)"
+                    [title]="cov.name + ' : -' + cov.pastH + 'h → +' + cov.futureH + 'h'"></div>
+                </div>
+              </div>
+            }
+          </div>
+        }
+
         <div class="ts-ticks">
           <span class="ts-tick-min">{{ minTime() | date:'dd/MM' }}</span>
           <span class="ts-tick-mid">{{ midTime() | date:'dd/MM' }}</span>
           <span class="ts-tick-max">{{ maxTime() | date:'dd/MM' }}</span>
         </div>
       </div>
+
+      <button
+        type="button"
+        class="ts-expand-btn"
+        (click)="toggleExpanded()"
+        [class.expanded]="expanded()"
+        [title]="expanded() ? 'Réduire' : 'Voir la couverture data par layer'">
+        {{ expanded() ? '▼' : '▲' }}
+      </button>
     </div>
   `,
   styles: `
@@ -270,6 +314,71 @@ import { DatePipe } from '@angular/common';
       color: var(--fg-dim);
       padding: 0 2px;
     }
+
+    /* Bouton expand : à droite du grid, vertical hauteur match track-wrap */
+    .time-slider {
+      grid-template-columns: auto 1fr auto;
+    }
+    .ts-expand-btn {
+      align-self: stretch;
+      background: var(--bg-3);
+      border: 1px solid var(--border);
+      color: var(--fg-dim);
+      width: 28px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.75rem;
+      font-family: var(--font-mono);
+      transition: all 150ms;
+      &:hover { color: var(--fg); border-color: var(--accent); }
+      &.expanded {
+        color: var(--accent-bright);
+        border-color: var(--accent);
+        background: rgba(45, 212, 191, 0.1);
+      }
+    }
+
+    /* Panneau expandable : sous-barres par layer actif */
+    .ts-coverage {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2em;
+      padding: 0.4em 0 0.2em;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+    .ts-coverage-row {
+      display: grid;
+      grid-template-columns: 7em 1fr;
+      gap: 0.5em;
+      align-items: center;
+    }
+    .ts-coverage-label {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      color: var(--fg-dim);
+      text-align: right;
+      letter-spacing: 0.05em;
+      text-overflow: ellipsis;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+    .ts-coverage-track {
+      position: relative;
+      height: 8px;
+      background: var(--bg-3);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .ts-coverage-bar {
+      position: absolute;
+      top: 1px;
+      bottom: 1px;
+      border-radius: 3px;
+      opacity: 0.7;
+      transition: opacity 150ms;
+      &:hover { opacity: 1; }
+    }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -304,6 +413,16 @@ export class TimeSliderComponent {
    *  signal interne `currentTime` se sync. Sans cet input, le slider
    *  reste piloté uniquement par ses propres interactions. */
   readonly externalCurrentTime = input<Date | null>(null);
+
+  /** Liste des layers actifs avec leur coverage (V1 : window continue
+   *  basée sur pastH/futureH de LAYER_PROFILES). Quand l'utilisateur
+   *  expand le slider, ces layers sont rendus comme sous-barres alignées
+   *  avec l'axe temps principal. V2 (TODO) : timesteps discrets via WMS
+   *  GetCapabilities ou WFS DISTINCT(ts). */
+  readonly layerCoverage = input<TimeSliderLayerCoverage[]>([]);
+
+  readonly expanded = signal(false);
+  toggleExpanded(): void { this.expanded.update((v) => !v); }
 
   // État interne
   readonly currentTime = signal<Date>(new Date());
@@ -346,6 +465,26 @@ export class TimeSliderComponent {
     const now = Date.now();
     return Math.max(0, Math.min(100, ((now - min) / (max - min)) * 100));
   });
+
+  /** Position du début de la sous-barre coverage en % de l'axe slider.
+   *  Aligned avec la track principale (même minTime/maxTime). */
+  coverageLeftPercent(cov: TimeSliderLayerCoverage): number {
+    const min = this.minTime().getTime();
+    const max = this.maxTime().getTime();
+    const start = Date.now() - cov.pastH * 3_600_000;
+    return Math.max(0, Math.min(100, ((start - min) / (max - min)) * 100));
+  }
+
+  coverageWidthPercent(cov: TimeSliderLayerCoverage): number {
+    const min = this.minTime().getTime();
+    const max = this.maxTime().getTime();
+    const start = Date.now() - cov.pastH * 3_600_000;
+    const end = Date.now() + cov.futureH * 3_600_000;
+    const clampedStart = Math.max(start, min);
+    const clampedEnd = Math.min(end, max);
+    const width = Math.max(0, ((clampedEnd - clampedStart) / (max - min)) * 100);
+    return width;
+  }
 
   // LIVE strict (Sylvain 2026-05-16) : true uniquement quand le cursor est
   // sur l'instant le plus proche de maintenant compte tenu du pas. Avec
