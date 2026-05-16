@@ -1,77 +1,43 @@
-# ─── Custom GeoServer image — sprint refacto archi 2026-05-16 v2 ────
+# ─── Custom GeoServer image — sprint refacto 2026-05-16 v3 ──────────
 #
-# Décision pragmatique 2026-05-16 17h : on abandonne kartoza/geoserver
-# (3 pièges identifiés : download plugins runtime depuis build.geoserver.org
-# qui retourne 404 par moments, volume /settings non-documenté, bug
-# postgres_ready_status appelé hors short-circuit DB_BACKEND).
+# Décision pragmatique 2026-05-16 17h30 :
+# - L'image docker.osgeo.org/geoserver supporte nativement l'install
+#   d'extensions au boot via INSTALL_EXTENSIONS=true + STABLE_EXTENSIONS=...
+#   + COMMUNITY_EXTENSIONS=... — téléchargement depuis OSGeo Nexus
+#   (source stable, pas SourceForge qui sort des 404 transients).
+# - Donc on ne bake PAS les plugins dans l'image (zéro 404 au build).
+# - Plugins activés via env vars dans le Deployment K8s.
 #
-# Retour sur l'image officielle docker.osgeo.org/geoserver qui :
-#  - N'a PAS de plugin download runtime (zéro 404 surprise)
-#  - N'a PAS de bug HOST/DB_BACKEND
-#  - Démarre via /opt/startup.sh (déterministe)
-#  - Avait DÉJÀ les plugins gwc-s3, jdbcconfig, jdbcstore, control-flow,
-#    wps, idw-custom préinstallés via Maven Nexus (cf Dockerfile v1)
+# Cette image custom ne fait QUE :
+#  1. Ajouter pg-jdbc driver dans tomcat/lib/ (requis JNDI Tomcat datasource)
+#  2. Installer postgresql-client + gettext-base (requis par cluster-bootstrap.sh)
+#  3. Copier le template context.xml.tpl (datasource JNDI jdbc/geoserver)
+#  4. Copier le custom IDW process JAR (V2 2026-05-12)
 #
-# On garde le VRAI gain du sprint : datasource JNDI Tomcat (context.xml.tpl)
-# qui centralise les credentials Postgres pour tous les plugins JDBC.
+# Le rest = défauts de l'image officielle GS, déterministe.
 
 ARG GS_VERSION=2.28.3
 FROM docker.osgeo.org/geoserver:${GS_VERSION}
 
-ARG GWC_S3_URL=https://downloads.sourceforge.net/project/geoserver/GeoServer/${GS_VERSION}/extensions/geoserver-${GS_VERSION}-gwc-s3-plugin.zip
-ARG WPS_URL=https://downloads.sourceforge.net/project/geoserver/GeoServer/${GS_VERSION}/extensions/geoserver-${GS_VERSION}-wps-plugin.zip
-ARG CONTROLFLOW_URL=https://downloads.sourceforge.net/project/geoserver/GeoServer/${GS_VERSION}/extensions/geoserver-${GS_VERSION}-control-flow-plugin.zip
-ARG NEXUS_BASE=https://repo.osgeo.org/repository/release/org/geoserver/community
-ARG JDBCCONFIG_JAR_URL=${NEXUS_BASE}/gs-jdbcconfig/${GS_VERSION}/gs-jdbcconfig-${GS_VERSION}.jar
-ARG JDBCSTORE_JAR_URL=${NEXUS_BASE}/gs-jdbcstore/${GS_VERSION}/gs-jdbcstore-${GS_VERSION}.jar
-
 USER root
 
-# postgresql-client + gettext-base nécessaires pour cluster-bootstrap.sh
-# (psql + envsubst).
+# postgresql-client + gettext-base pour cluster-bootstrap.sh (psql + envsubst)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends unzip curl ca-certificates postgresql-client gettext-base && \
+    apt-get install -y --no-install-recommends curl ca-certificates postgresql-client gettext-base && \
     rm -rf /var/lib/apt/lists/*
 
-# ── Plugins préinstallés (zéro runtime download) ────────────────────
-# curl avec --retry 5 --retry-delay 3 pour résister aux 404 transients
-# SourceForge (mirror selection peut retourner 404 ponctuel sur un mirror
-# qui n'a pas encore le fichier ; --retry-all-errors retry sur tout).
-RUN mkdir -p /tmp/plugins && cd /tmp/plugins && \
-    # gwc-s3 stable depuis SourceForge (NON depuis build.geoserver.org)
-    curl -fL --retry 5 --retry-delay 3 --retry-all-errors -o gwc-s3.zip "$GWC_S3_URL" && \
-    unzip -o gwc-s3.zip "*.jar" -d gwc-s3-jars/ && \
-    cp gwc-s3-jars/*.jar /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/ && \
-    # wps stable
-    curl -fL --retry 5 --retry-delay 3 --retry-all-errors -o wps.zip "$WPS_URL" && \
-    unzip -o wps.zip "*.jar" -d wps-jars/ && \
-    cp wps-jars/*.jar /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/ && \
-    # control-flow stable (rate-limiting requêtes concurrentes)
-    curl -fL --retry 5 --retry-delay 3 --retry-all-errors -o cf.zip "$CONTROLFLOW_URL" && \
-    unzip -o cf.zip "*.jar" -d cf-jars/ && \
-    cp cf-jars/*.jar /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/ && \
-    # JDBCConfig + JDBCStore community via Maven Nexus (JAR direct)
-    curl -fL -o /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-jdbcconfig-${GS_VERSION}.jar "$JDBCCONFIG_JAR_URL" && \
-    curl -fL -o /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-jdbcstore-${GS_VERSION}.jar "$JDBCSTORE_JAR_URL" && \
-    # Extract SQL init scripts depuis JARs JDBC* pour bootstrap au runtime
-    mkdir -p /opt/jdbc-scripts/jdbcstore /opt/jdbc-scripts/jdbcconfig && \
-    unzip -o -j /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-jdbcstore-${GS_VERSION}.jar \
-      "org/geoserver/jdbcstore/internal/*.sql" -d /opt/jdbc-scripts/jdbcstore/ && \
-    unzip -o -j /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-jdbcconfig-${GS_VERSION}.jar \
-      "org/geoserver/jdbcconfig/internal/*.sql" -d /opt/jdbc-scripts/jdbcconfig/ && \
-    cd / && rm -rf /tmp/plugins && \
-    apt-get remove --purge -y unzip && apt-get autoremove --purge -y && \
-    echo "Plugins installed in WEB-INF/lib : gwc-s3 + wps + control-flow + jdbcconfig + jdbcstore ${GS_VERSION}"
-
-# ── PostgreSQL JDBC driver pour Tomcat JNDI datasource ──────────────
-# Le driver DOIT être dans tomcat/lib/ (ClassLoader Tomcat racine, pas webapp)
-# pour que la datasource JNDI <Resource> du context.xml fonctionne.
+# pg-jdbc driver pour Tomcat JNDI datasource (DOIT être dans tomcat/lib/
+# pour le ClassLoader Tomcat racine, pas le webapp ClassLoader).
 ARG PG_JDBC_VERSION=42.7.4
-RUN curl -fL -o /usr/local/tomcat/lib/postgresql-${PG_JDBC_VERSION}.jar \
+RUN curl -fL --retry 5 --retry-delay 3 --retry-all-errors \
+      -o /usr/local/tomcat/lib/postgresql-${PG_JDBC_VERSION}.jar \
       "https://jdbc.postgresql.org/download/postgresql-${PG_JDBC_VERSION}.jar" && \
     ls -lh /usr/local/tomcat/lib/postgresql-*.jar
 
-# ── Custom IDW process (V2 2026-05-12) ──────────────────────────────
+# Tomcat context.xml template — datasource JNDI jdbc/geoserver centralisée
+COPY tomcat-context.xml.tpl /usr/local/tomcat/conf/context.xml.tpl
+
+# Custom IDW process (V2 2026-05-12)
 COPY plugins/ /tmp/idw-plugins/
 RUN if ls /tmp/idw-plugins/*.jar 1> /dev/null 2>&1; then \
       cp /tmp/idw-plugins/*.jar /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/ && \
@@ -81,15 +47,6 @@ RUN if ls /tmp/idw-plugins/*.jar 1> /dev/null 2>&1; then \
       echo "No custom plugins in plugins/, skipping"; \
     fi && rm -rf /tmp/idw-plugins
 
-# ── Tomcat context.xml template — datasource JNDI jdbc/geoserver ────
-# Le wrapper cluster-bootstrap.sh (monté via ConfigMap dans K8s) fait
-# envsubst → context.xml au boot, ce qui centralise tous les credentials
-# Postgres dans 1 endroit unique (au lieu de 4 properties files).
-COPY tomcat-context.xml.tpl /usr/local/tomcat/conf/context.xml.tpl
-
-# ── Sanity check des plugins ──────────────────────────────────────
-RUN ls /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/ | \
-      grep -E "jdbcconfig|jdbcstore|gwc-s3|control-flow|wps|idw" | \
-      sort && \
-    ls /usr/local/tomcat/lib/postgresql-*.jar && \
-    echo "──── Build OK ────"
+# Sanity check
+RUN ls -lh /usr/local/tomcat/lib/postgresql-*.jar /usr/local/tomcat/conf/context.xml.tpl && \
+    echo "──── Build OK : pg-jdbc + context.xml.tpl + custom IDW ────"
