@@ -176,12 +176,23 @@ def main() -> int:
             failures.append(name)
             continue
 
-        # 1. Delete existing (idempotent)
+        # 1. Delete existing (idempotent) — raw REST avec recurse=true&purge=true
+        # geoserver-rest delete_style ne passe pas ces query params → si le
+        # style est default_for d'un layer ou a un SLD persistant disque, le
+        # DELETE silently retourne 200 sans purger, puis upload POST fail
+        # avec "already exists". Recurse force GS à clear les références
+        # depuis les layers, purge=true vire les SLDs sur disque.
         try:
-            geo.delete_style(style_name=name, workspace=WORKSPACE)
-            print(f"  cleanup {name}: OK", flush=True)
-        except GeoserverException as e:
-            # 404 expected if style doesn't exist yet → no-op
+            r = requests.delete(
+                f"{GS_URL}/rest/workspaces/{WORKSPACE}/styles/{name}?recurse=true&purge=true",
+                auth=(GS_USER, GS_PASSWORD),
+                timeout=15,
+            )
+            if r.status_code in (200, 404):
+                print(f"  cleanup {name}: OK (HTTP {r.status_code})", flush=True)
+            else:
+                print(f"  cleanup {name}: HTTP {r.status_code} — {r.text[:200]}", flush=True)
+        except requests.RequestException as e:
             print(f"  cleanup {name}: skipped ({e})", flush=True)
 
         # 2a. POST entry + PUT body — crée le descriptor proprement
