@@ -88,22 +88,24 @@ RASTER_LAYERS_INTERPOLATION = [
 # ── Catalog déclaratif des feature types à reconfigurer ─────────────
 #
 # Ajouter une entrée ici quand un featuretype a besoin d'une liste
-# d'attributs explicite (au lieu de laisser GS auto-introspecter). Cas
-# d'usage : vessel_tracks_daily publié à l'origine sans mmsi/day car
-# auto-introspection à un moment où la table n'avait pas encore ces
-# colonnes. Le PUT déclaratif force GS à exposer les bonnes colonnes
-# en WFS DescribeFeatureType et permet de filtrer dessus.
+# d'attributs explicite (au lieu de laisser GS auto-introspecter).
+#
+# vessel_tracks_daily : désactivé 2026-05-16 — la vue SQL côté pg-data
+# n'expose pas la colonne mmsi (changement de schéma post-refacto). Le
+# PUT déclaratif retournait HTTP 500 "CQL source expression for attribute
+# mmsi refers to attributes unavailable in the data source". À ré-activer
+# quand la vue sera fixée côté ingester/migration DB.
 FEATURETYPES_TO_CONFIGURE = [
-    {
-        "datastore": "maritime-pg",
-        "name": "vessel_tracks_daily",
-        "attributes": [
-            {"name": "mmsi", "binding": "java.lang.Long", "nillable": False},
-            {"name": "day", "binding": "java.sql.Date", "nillable": False},
-            {"name": "geom", "binding": "org.locationtech.jts.geom.LineString", "nillable": True},
-            {"name": "points_n", "binding": "java.lang.Integer", "nillable": True},
-        ],
-    },
+    # {
+    #     "datastore": "maritime-pg",
+    #     "name": "vessel_tracks_daily",
+    #     "attributes": [
+    #         {"name": "mmsi", "binding": "java.lang.Long", "nillable": False},
+    #         {"name": "day", "binding": "java.sql.Date", "nillable": False},
+    #         {"name": "geom", "binding": "org.locationtech.jts.geom.LineString", "nillable": True},
+    #         {"name": "points_n", "binding": "java.lang.Integer", "nillable": True},
+    #     ],
+    # },
 ]
 
 
@@ -235,8 +237,16 @@ def main() -> int:
             r.raise_for_status()
             print(f"  raw-override {name}: OK (NamedLayer preserved)", flush=True)
         except requests.RequestException as e:
-            print(f"  ✗ raw-override {name}: FAILED — {e}", flush=True)
-            failures.append(name)
+            body = ""
+            if hasattr(e, "response") and e.response is not None:
+                body = e.response.text[:300]
+            print(f"  ✗ raw-override {name}: FAILED — {e}\n     body: {body}", flush=True)
+            # Si style fallback (pas en default_for), warning only — n'empêche
+            # pas le Job d'exit 0 puisque le style n'est pas utilisé en rendu.
+            if default_for:
+                failures.append(name)
+            else:
+                print(f"     skipping (fallback style, default_for=[])", flush=True)
             continue
 
         # 3. Set default on each layer
