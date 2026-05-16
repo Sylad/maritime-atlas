@@ -34,6 +34,23 @@ RUN curl -fL --retry 5 --retry-delay 3 --retry-all-errors \
       "https://jdbc.postgresql.org/download/postgresql-${PG_JDBC_VERSION}.jar" && \
     ls -lh /usr/local/tomcat/lib/postgresql-*.jar
 
+# ── Plugins GeoServer community via OSGeo Nexus (URLs stables) ─────
+# On NE prend que JDBCConfig + JDBCStore ici (community), nécessaires pour
+# centraliser le catalog GS dans la DB Postgres. gwc-s3, wps, control-flow
+# seront ajoutés plus tard si besoin (Brique 5 sprint refacto).
+#
+# Nexus expose les JARs individuels (pas de ZIP avec deps). JDBCConfig et
+# JDBCStore n'ont pas de deps externes hors pg-jdbc (déjà dans tomcat/lib).
+ARG GS_VERSION=2.28.3
+ARG NEXUS_BASE=https://repo.osgeo.org/repository/release/org/geoserver/community
+RUN curl -fL --retry 5 --retry-delay 3 --retry-all-errors \
+      -o /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-jdbcconfig-${GS_VERSION}.jar \
+      "${NEXUS_BASE}/gs-jdbcconfig/${GS_VERSION}/gs-jdbcconfig-${GS_VERSION}.jar" && \
+    curl -fL --retry 5 --retry-delay 3 --retry-all-errors \
+      -o /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-jdbcstore-${GS_VERSION}.jar \
+      "${NEXUS_BASE}/gs-jdbcstore/${GS_VERSION}/gs-jdbcstore-${GS_VERSION}.jar" && \
+    ls -lh /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-jdbc*
+
 # Tomcat context.xml template — datasource JNDI jdbc/geoserver centralisée
 COPY tomcat-context.xml.tpl /usr/local/tomcat/conf/context.xml.tpl
 
