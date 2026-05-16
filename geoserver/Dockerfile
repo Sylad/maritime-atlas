@@ -15,7 +15,7 @@
 # On garde le VRAI gain du sprint : datasource JNDI Tomcat (context.xml.tpl)
 # qui centralise les credentials Postgres pour tous les plugins JDBC.
 
-ARG GS_VERSION=2.28.0
+ARG GS_VERSION=2.28.3
 FROM docker.osgeo.org/geoserver:${GS_VERSION}
 
 ARG GWC_S3_URL=https://downloads.sourceforge.net/project/geoserver/GeoServer/${GS_VERSION}/extensions/geoserver-${GS_VERSION}-gwc-s3-plugin.zip
@@ -34,17 +34,20 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # ── Plugins préinstallés (zéro runtime download) ────────────────────
+# curl avec --retry 5 --retry-delay 3 pour résister aux 404 transients
+# SourceForge (mirror selection peut retourner 404 ponctuel sur un mirror
+# qui n'a pas encore le fichier ; --retry-all-errors retry sur tout).
 RUN mkdir -p /tmp/plugins && cd /tmp/plugins && \
     # gwc-s3 stable depuis SourceForge (NON depuis build.geoserver.org)
-    curl -fL -o gwc-s3.zip "$GWC_S3_URL" && \
+    curl -fL --retry 5 --retry-delay 3 --retry-all-errors -o gwc-s3.zip "$GWC_S3_URL" && \
     unzip -o gwc-s3.zip "*.jar" -d gwc-s3-jars/ && \
     cp gwc-s3-jars/*.jar /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/ && \
     # wps stable
-    curl -fL -o wps.zip "$WPS_URL" && \
+    curl -fL --retry 5 --retry-delay 3 --retry-all-errors -o wps.zip "$WPS_URL" && \
     unzip -o wps.zip "*.jar" -d wps-jars/ && \
     cp wps-jars/*.jar /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/ && \
     # control-flow stable (rate-limiting requêtes concurrentes)
-    curl -fL -o cf.zip "$CONTROLFLOW_URL" && \
+    curl -fL --retry 5 --retry-delay 3 --retry-all-errors -o cf.zip "$CONTROLFLOW_URL" && \
     unzip -o cf.zip "*.jar" -d cf-jars/ && \
     cp cf-jars/*.jar /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/ && \
     # JDBCConfig + JDBCStore community via Maven Nexus (JAR direct)
