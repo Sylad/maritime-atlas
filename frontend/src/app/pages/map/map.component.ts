@@ -3044,6 +3044,15 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // pour 7 rasters maritime c'est marginal.
   private sstLayer?: ImageLayer<ImageWMS>;
   private sstSource?: ImageWMS;
+  // 2026-05-17 perf : layer OL séparée pour les contours SST. Le SLD
+  // sst-with-contours côté GS faisait 2× IDW factor=8 (raster + contours)
+  // = 26s/req qui saturait le control-flow GS et faisait disparaître les
+  // autres layers par timeout en cascade. Le nouveau SLD sst-contours-only
+  // contient UNIQUEMENT le 2ème FeatureTypeStyle (IDWContour factor=4
+  // + LineSymbolizer + labels). Mesuré : 6.6s → 1.1s (-83%).
+  // La layer raster sstLayer reste affichée sous, sans swap STYLES.
+  private sstContoursLayer?: ImageLayer<ImageWMS>;
+  private sstContoursSource?: ImageWMS;
   private rainLayer?: TileLayer<XYZ>;
   private rainSource?: XYZ;
   private rainSnapshot?: RainViewerSnapshot;
@@ -3354,12 +3363,22 @@ export class MapComponent implements AfterViewInit, OnDestroy {
    *  set env=contourInterval:N quand le toggle isolignes est ON. Sinon
    *  reset au style user-pref ou default. Appelé via un effect réactif. */
   private applyContours(): void {
-    // Quand contours ON : on force INTERPOLATIONS=nearest neighbor pour
-    // éviter que GS resample bicubic l'intégralité du raster AVANT
-    // d'appliquer la rendering transformation ras:Contour. Bicubic + contour
-    // = double passage lourd O(viewport pixels × levels) → réponse 20+ s.
-    // Nearest = contouring sur la grille native, beaucoup plus rapide.
-    // Quand contours OFF : on restore bicubic pour le rendu raster lissé.
+    // 2026-05-17 refonte : avant on swappait STYLES de sstSource vers
+    // sst-with-contours, qui re-renderait le raster + contours en 26s/req
+    // (double IDW factor=8 dans le SLD). Résultat = saturation control-flow
+    // GS, timeouts en cascade sur wind/wave, layers disparaissent.
+    //
+    // Maintenant : layer dédiée sstContoursLayer (SLD sst-contours-only,
+    // contours seuls, factor=4) au-dessus du raster. On NE touche PLUS
+    // sstSource pour les contours — juste env contourInterval sur la
+    // sstContoursSource. Visibility gérée par applyLayerVisibility.
+    //
+    // wave/wind contours : ancien comportement conservé (refonte à venir).
+    if (this.sstContoursSource && this.showSstContours()) {
+      this.sstContoursSource.updateParams({
+        env: `contourInterval:${this.sstContourInterval()}`,
+      });
+    }
     const restore = (source: ImageWMS | undefined, kind: string) => {
       const userPref = this.palettesSvc.myPreferences()[kind] ?? null;
       source?.updateParams({
@@ -3368,15 +3387,6 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         INTERPOLATIONS: 'bicubic',
       });
     };
-    if (this.sstSource) {
-      if (this.showSstContours()) {
-        this.sstSource.updateParams({
-          STYLES: 'maritime:sst-with-contours',
-          env: `contourInterval:${this.sstContourInterval()}`,
-          INTERPOLATIONS: 'nearest neighbor',
-        });
-      } else restore(this.sstSource, 'sst');
-    }
     if (this.wavesSource) {
       if (this.showWaveContours()) {
         this.wavesSource.updateParams({
@@ -3591,6 +3601,14 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.trackLayer.setVisible(this.showTracks() && !this.isLive() && !this.isFuture());
     // SST = past only (forecast pas dispo)
     this.sstLayer.setVisible(this.showSST() && !this.isFuture());
+    // SST contours = layer séparée (SLD sst-contours-only) qui n'est rendue
+    // que si raster SST visible ET toggle contours ON. Évite la cascade
+    // 26s/req qui faisait disparaître les autres layers par timeout.
+    if (this.sstContoursLayer) {
+      this.sstContoursLayer.setVisible(
+        this.showSST() && this.showSstContours() && !this.isFuture(),
+      );
+    }
     // Rain : visible si toggle ON + frame disponible pour le cursor courant
     if (this.rainLayer) {
       this.rainLayer.setVisible(this.showRain() && this.rainHasFrame());
@@ -4539,6 +4557,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     const animating = this.animPlayer.state() !== 'idle';
     if (animating) {
       if (this.sstSource && !this.isFuture()) this.sstSource.updateParams({ TIME: isoTs });
+      if (this.sstContoursSource && !this.isFuture()) this.sstContoursSource.updateParams({ TIME: isoTs });
       if (this.windWmsSource) this.windWmsSource.updateParams({ TIME: isoTs });
       if (this.wavesSource)   this.wavesSource.updateParams({ TIME: isoTs });
     } else {
@@ -4546,6 +4565,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         const sstStart = new Date(t.getTime() - 30 * 24 * 3600 * 1000);
         const sstRange = `${toIsoTimestamp(sstStart)}/${isoTs}`;
         this.sstSource.updateParams({ TIME: sstRange });
+        // 2026-05-17 : sstContoursSource doit suivre le même range que
+        // sstSource (elle pointe sur la même featuretype maritime:sst-daily).
+        if (this.sstContoursSource) this.sstContoursSource.updateParams({ TIME: sstRange });
       }
       const fcStart = new Date(t.getTime() - 1 * 24 * 3600 * 1000);
       const fcEnd   = new Date(t.getTime() + 7 * 24 * 3600 * 1000);
@@ -5041,6 +5063,31 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       maxZoom: 8,
     });
 
+    // 2026-05-17 : layer SST contours dédiée (SLD sst-contours-only sans
+    // RasterSymbolizer parasite). zIndex 31 au-dessus de sstLayer (30).
+    // INTERPOLATIONS=nearest pour contouring sur grille native (rapide).
+    this.sstContoursSource = new ImageWMS({
+      url: '/geoserver/maritime/wms',
+      projection: 'EPSG:3857',
+      ratio: 1.0,
+      params: {
+        LAYERS: 'maritime:sst-daily',
+        STYLES: 'maritime:sst-contours-only',
+        TRANSPARENT: true,
+        INTERPOLATIONS: 'nearest neighbor',
+        env: `contourInterval:${this.sstContourInterval()}`,
+      },
+      serverType: 'geoserver',
+      attributions: ATTRIB_NOAA,
+    });
+    this.sstContoursLayer = new ImageLayer({
+      source: this.sstContoursSource,
+      opacity: 0.9,
+      zIndex: 31,
+      visible: false,
+      maxZoom: 8,
+    });
+
     // Vent (force, m/s) — WMS time-enabled depuis ImageMosaic GeoServer.
     // GeoServer applique automatiquement un style "raster" arc-en-ciel par
     // défaut. Sprint 11 + Europe Chantier #2 + Phase C.6 (AROME réintro) :
@@ -5278,6 +5325,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         this.eezLayer,
         this.mpaLayer,
         this.sstLayer,
+        this.sstContoursLayer,
         this.windLayer,
         this.wavesLayer,
         this.rainLayer,
