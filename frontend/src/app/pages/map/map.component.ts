@@ -4880,17 +4880,42 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
   /** Parse le <Dimension name="time"> d'un layer dans le doc WMS Caps.
    *  Format type : "2026-05-13T00:00:00Z,2026-05-14T00:00:00Z,...".
-   *  Supporte aussi l'intervalle "start/end/PERIOD" → on enumere. */
+   *  Supporte aussi l'intervalle "start/end/PERIOD" → on enumere.
+   *
+   *  2026-05-17 (APEX 07) — rewrite avec DOMParser (anciennement regex
+   *  qui matchait mal les <Layer> imbriqués et ratait le préfix de namespace).
+   *  Pour un master forecast (wind/wave), <Dimension name="time"> expose
+   *  les VALIDITÉS (horizons forecast) du run le plus récent. Pour SST
+   *  obs, ce sont les dates des granules. Dans les 2 cas, c'est ce qu'on
+   *  veut afficher dans la time-bar (la time-bar pilote la validité). */
   private parseTimeDimension(xml: string, layerName: string): Date[] {
-    // Match le <Layer> avec le bon <Name>layerName</Name> + son <Dimension>
-    const escaped = layerName.replace(/[/.]/g, '\\$&');
-    const layerRe = new RegExp(
-      `<Layer[^>]*>[\\s\\S]*?<Name>${escaped}</Name>[\\s\\S]*?<Dimension[^>]*name="time"[^>]*>([^<]*)</Dimension>[\\s\\S]*?</Layer>`,
-      'i',
-    );
-    const m = xml.match(layerRe);
-    if (!m) return [];
-    const raw = m[1].trim();
+    // GS expose <Name>sst-daily</Name> sans préfixe quand on est sur
+    // le virtual host workspace /geoserver/maritime/. On strip le prefix.
+    const shortName = layerName.replace(/^maritime:/, '');
+    const doc = new DOMParser().parseFromString(xml, 'application/xml');
+    if (doc.querySelector('parsererror')) return [];
+    // Cherche TOUS les <Layer> du document, puis filtre par <Name> enfant direct
+    const layers = Array.from(doc.querySelectorAll('Layer'));
+    const targetLayer = layers.find((l) => {
+      const nameEl = Array.from(l.children).find((c) => c.tagName === 'Name');
+      return nameEl?.textContent?.trim() === shortName;
+    });
+    if (!targetLayer) return [];
+    // La Dimension peut être déclarée dans la Layer cible OU héritée
+    // d'une Layer parente (WMS supporte l'inheritance via les attributs
+    // queryable, BoundingBox, Dimension, etc.). On cherche d'abord locale,
+    // sinon on remonte les ancêtres.
+    let timeDim: Element | null = null;
+    let current: Element | null = targetLayer;
+    while (current && !timeDim) {
+      const local = Array.from(current.children).find(
+        (c) => c.tagName === 'Dimension' && c.getAttribute('name') === 'time',
+      );
+      if (local) { timeDim = local; break; }
+      current = current.parentElement?.closest('Layer') ?? null;
+    }
+    if (!timeDim) return [];
+    const raw = timeDim.textContent?.trim() ?? '';
     const out: Date[] = [];
     for (const token of raw.split(',')) {
       const trimmed = token.trim();
