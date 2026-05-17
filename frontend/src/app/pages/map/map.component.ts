@@ -3354,15 +3354,26 @@ export class MapComponent implements AfterViewInit, OnDestroy {
    *  set env=contourInterval:N quand le toggle isolignes est ON. Sinon
    *  reset au style user-pref ou default. Appelé via un effect réactif. */
   private applyContours(): void {
+    // Quand contours ON : on force INTERPOLATIONS=nearest neighbor pour
+    // éviter que GS resample bicubic l'intégralité du raster AVANT
+    // d'appliquer la rendering transformation ras:Contour. Bicubic + contour
+    // = double passage lourd O(viewport pixels × levels) → réponse 20+ s.
+    // Nearest = contouring sur la grille native, beaucoup plus rapide.
+    // Quand contours OFF : on restore bicubic pour le rendu raster lissé.
     const restore = (source: ImageWMS | undefined, kind: string) => {
       const userPref = this.palettesSvc.myPreferences()[kind] ?? null;
-      source?.updateParams({ STYLES: userPref ? `maritime:${userPref}` : '', env: undefined });
+      source?.updateParams({
+        STYLES: userPref ? `maritime:${userPref}` : '',
+        env: undefined,
+        INTERPOLATIONS: 'bicubic',
+      });
     };
     if (this.sstSource) {
       if (this.showSstContours()) {
         this.sstSource.updateParams({
           STYLES: 'maritime:sst-with-contours',
           env: `contourInterval:${this.sstContourInterval()}`,
+          INTERPOLATIONS: 'nearest neighbor',
         });
       } else restore(this.sstSource, 'sst');
     }
@@ -3371,6 +3382,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         this.wavesSource.updateParams({
           STYLES: 'maritime:wave-hs-with-contours',
           env: `contourInterval:${this.waveContourInterval()}`,
+          INTERPOLATIONS: 'nearest neighbor',
         });
       } else restore(this.wavesSource, 'waves');
     }
@@ -3379,6 +3391,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         this.windWmsSource.updateParams({
           STYLES: 'maritime:wind-speed-with-contours',
           env: `contourInterval:${this.windContourInterval()}`,
+          INTERPOLATIONS: 'nearest neighbor',
         });
       } else restore(this.windWmsSource, 'wind');
     }
