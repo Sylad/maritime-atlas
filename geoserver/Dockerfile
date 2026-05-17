@@ -8,15 +8,48 @@
 # - Donc on ne bake PAS les plugins dans l'image (zéro 404 au build).
 # - Plugins activés via env vars dans le Deployment K8s.
 #
-# Cette image custom ne fait QUE :
-#  1. Ajouter pg-jdbc driver dans tomcat/lib/ (requis JNDI Tomcat datasource)
-#  2. Installer postgresql-client + gettext-base (requis par cluster-bootstrap.sh)
-#  3. Copier le template context.xml.tpl (datasource JNDI jdbc/geoserver)
-#  4. Copier le custom IDW process JAR (V2 2026-05-12)
+# 2026-05-17 ajout gs-hz-cluster (Hazelcast clustering) :
+# - Pas dispo sur OSGeo Nexus (community module, pas extension stable)
+# - Build from source dans un stage maven multi-stage
+# - Cible : synchro cache catalog entre les N replicas GS via Hazelcast
+#   gossip (auto-discovery K8s Service). Sans ça, PUT REST sur 1 replica
+#   ne propage pas → autre replica garde son cache stale → bug observé
+#   2026-05-17 lors des mutations REST refacto.
+#
+# Cette image custom :
+#  1. Bake gs-hz-cluster + deps Hazelcast via maven multi-stage
+#  2. Ajoute pg-jdbc driver dans tomcat/lib/ (requis JNDI Tomcat datasource)
+#  3. Installe postgresql-client + gettext-base (requis par cluster-bootstrap.sh)
+#  4. Bake gs-jdbcconfig + gs-jdbcstore + gs-wps-core + gs-control-flow depuis OSGeo Nexus
+#  5. Copie le template context.xml.tpl (datasource JNDI jdbc/geoserver)
+#  6. Copie le custom IDW process JAR (V2 2026-05-12)
 #
 # Le rest = défauts de l'image officielle GS, déterministe.
 
 ARG GS_VERSION=2.28.3
+
+# ── Builder stage : gs-hz-cluster + deps Hazelcast from source ──────
+# Clone shallow du tag GS exact + mvn package du module community/hz-cluster
+# + dependency:copy-dependencies pour récupérer hazelcast / hazelcast-spring
+# / hazelcast-wm / metrics-servlet. Tout part dans /hz-jars/ pour copy
+# vers le runtime stage en dessous.
+FROM maven:3.9-eclipse-temurin-17 AS hz-builder
+ARG GS_VERSION
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 --branch ${GS_VERSION} https://github.com/geoserver/geoserver.git /src
+WORKDIR /src/src/community/hz-cluster
+# Le pom du module hérite des repos OSGeo + Maven Central via le parent
+# geoserver. mvn -am construit aussi les modules amont nécessaires
+# (gs-main, gs-web-core, etc.) sans full-build du monorepo.
+RUN mvn -B -DskipTests dependency:copy-dependencies -DoutputDirectory=/hz-deps && \
+    mvn -B -DskipTests package
+RUN mkdir -p /hz-jars && \
+    cp target/gs-hz-cluster-*.jar /hz-jars/ && \
+    cp /hz-deps/hazelcast*.jar /hz-jars/ 2>/dev/null || true && \
+    cp /hz-deps/metrics-servlet*.jar /hz-jars/ 2>/dev/null || true && \
+    ls -lh /hz-jars/
+
+# ── Runtime stage ───────────────────────────────────────────────────
 FROM docker.osgeo.org/geoserver:${GS_VERSION}
 
 USER root
@@ -75,6 +108,13 @@ RUN if ls /tmp/idw-plugins/*.jar 1> /dev/null 2>&1; then \
       echo "No custom plugins in plugins/, skipping"; \
     fi && rm -rf /tmp/idw-plugins
 
+# ── gs-hz-cluster (Hazelcast clustering) — copy from builder stage ──
+# Synchro cache catalog cross-replica via Hazelcast gossip K8s. La conf
+# hazelcast.xml + cluster.properties est montée par un ConfigMap (voir
+# templates/geoserver-hz-config.yaml).
+COPY --from=hz-builder /hz-jars/*.jar /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/
+
 # Sanity check
 RUN ls -lh /usr/local/tomcat/lib/postgresql-*.jar /usr/local/tomcat/conf/context.xml.tpl && \
-    echo "──── Build OK : pg-jdbc + context.xml.tpl + custom IDW ────"
+    ls -lh /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-hz-cluster* /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/hazelcast*.jar && \
+    echo "──── Build OK : pg-jdbc + context.xml.tpl + IDW + gs-hz-cluster ────"
