@@ -523,11 +523,18 @@ export class TimeSliderComponent {
     return `${Math.round(ms / 60_000)}min`;
   }
 
-  /** Snap ms timestamp to multiple of stepMs (depuis epoch 0 UTC). */
+  /** Snap ms timestamp to multiple of stepMs (depuis epoch 0 UTC).
+   *  2026-05-17 : Math.round → Math.floor pour ne JAMAIS snap vers le
+   *  futur. Le Math.round pouvait pousser currentTime jusqu'à +step/2
+   *  dans le futur (ex : t=20:45 + step=6h → round = 24:00 = +3h15 futur
+   *  → isFuture()=true → layers SST+contours setVisible(false) → bug
+   *  "layers disparaissent silencieusement" qui a pourri 4 jours.
+   *  Math.floor garantit currentTime ≤ t, donc jamais dans le futur si
+   *  caller passe Date.now() (cf NOW button qui faisait setTime(new Date())). */
   private snapToStep(t: number): number {
     const step = this.stepMs();
     if (step <= 0) return t;
-    return Math.round(t / step) * step;
+    return Math.floor(t / step) * step;
   }
 
   // ─── Actions ───────────────────────────────────────────────────────
