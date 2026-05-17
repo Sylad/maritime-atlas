@@ -4584,31 +4584,28 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.vesselSource?.clear();
       this.vesselsCount.set(0);
     }
-    // 2026-05-17 (Sylvain APEX 07) — TIME = timestamp EXACT (plus de range)
+    // 2026-05-17 (APEX 07 fix #3) — TIME snappé à la grille native de
+    // CHAQUE layer GS pour tomber pile sur une validité publiée.
     //
-    // Anciennement, en mode non-animation on envoyait un range [t-30j, t]
-    // pour SST et [t-1j, t+7j] pour forecast, en pensant qu'avec
-    // nearestMatchEnabled côté GS, ImageMosaic prendrait "le tick le plus
-    // récent dans le range = le plus frais autour du cursor".
+    // Sans snap : currentTime = e.g. 19:00 → GS reçoit TIME=19:00, mais
+    // les granules SST sont à 00:00 UTC quotidien. GS fait du nearestMatch
+    // (lourd) + bicubic + render 2548×1272 → dépasse 100s Cloudflare tunnel
+    // timeout → 502 systématique observé 2026-05-17 (Sylvain).
     //
-    // Bug : GS retournait TOUJOURS la même image (le dernier tick publié
-    // dans la mosaic), peu importe où le user se trouvait sur la time-bar,
-    // car tous les ranges contenaient ce dernier tick. Reproduit Sylvain
-    // 2026-05-17 : 4 ranges différents 14/15/16/17 mai = même image SST.
-    //
-    // Maintenant que la nav se fait par validité réelle (validityList du
-    // master), currentTime EST déjà un tick valide → on envoie t exact.
-    // GS sert alors la donnée du tick demandé spécifiquement. Plus de
-    // snap-to-latest implicite, mais ce n'est plus nécessaire vu que
-    // validityList ne contient QUE des ticks valides.
-    //
-    // NB updateParams n'est PAS gated par show*() : si la source est
-    // invisible, OL ne re-fetch pas (gratuit).
-    const isoTs = toIsoTimestamp(t);
-    if (this.sstSource) this.sstSource.updateParams({ TIME: isoTs });
-    if (this.sstContoursSource) this.sstContoursSource.updateParams({ TIME: isoTs });
-    if (this.windWmsSource) this.windWmsSource.updateParams({ TIME: isoTs });
-    if (this.wavesSource)   this.wavesSource.updateParams({ TIME: isoTs });
+    // Avec snap floor par layer :
+    //   - SST obs : snap 24h (00:00 UTC du jour) → tombe pile sur granule
+    //   - Wind/Wave forecast : snap 6h (run cycle GFS/WW3) → idem
+    // GS sert l'image cached immédiatement (pas de nearestMatch coûteux).
+    const snapToFloor = (date: Date, hourStep: number) => {
+      const ms = hourStep * 3_600_000;
+      return new Date(Math.floor(date.getTime() / ms) * ms);
+    };
+    const sstT = toIsoTimestamp(snapToFloor(t, 24));
+    const fcT = toIsoTimestamp(snapToFloor(t, 6));
+    if (this.sstSource) this.sstSource.updateParams({ TIME: sstT });
+    if (this.sstContoursSource) this.sstContoursSource.updateParams({ TIME: sstT });
+    if (this.windWmsSource) this.windWmsSource.updateParams({ TIME: fcT });
+    if (this.wavesSource)   this.wavesSource.updateParams({ TIME: fcT });
   }
 
   /**
