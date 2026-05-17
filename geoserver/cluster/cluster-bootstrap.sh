@@ -92,5 +92,16 @@ initdb=${JDBC_INIT}
 jndiName=java:comp/env/jdbc/postgres
 EOF
 
+# Copy hazelcast.xml + cluster.properties depuis le ConfigMap monté
+# (/etc/geoserver-hz/) vers ${GEOSERVER_DATA_DIR}/cluster/ où le module
+# gs-hz-cluster les cherche (HzCluster.CONFIG_DIRECTORY = "cluster").
+# envsubst pour ${HZ_K8S_NAMESPACE} dans hazelcast.xml (K8s discovery).
+if [ -d /etc/geoserver-hz ]; then
+  mkdir -p "${GEOSERVER_DATA_DIR}/cluster"
+  envsubst < /etc/geoserver-hz/hazelcast.xml > "${GEOSERVER_DATA_DIR}/cluster/hazelcast.xml"
+  cp /etc/geoserver-hz/cluster.properties "${GEOSERVER_DATA_DIR}/cluster/cluster.properties"
+  echo "[cluster-bootstrap] hz-cluster config copied : namespace=${HZ_K8S_NAMESPACE}"
+fi
+
 echo "[cluster-bootstrap] done, exec /opt/startup.sh"
 exec /opt/startup.sh "$@"

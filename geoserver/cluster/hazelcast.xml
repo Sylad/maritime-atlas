@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  GeoServer Hazelcast clustering — config K8s.
+  Discovery via Kubernetes Service (headless ClusterIP "geoserver-hz") qui
+  liste tous les pods du Deployment maritime-frontend (selector app=geoserver).
+  Hazelcast 5.3 schema (matching la version baked dans gs-hz-cluster).
+
+  Sans cette config, la default (multicast 224.2.2.3) ne marche pas sur
+  K8s (pas de UDP multicast) → les replicas ne se découvrent jamais →
+  cache stale entre eux → bug observé 2026-05-17.
+-->
+<hazelcast xmlns="http://www.hazelcast.com/schema/config"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:schemaLocation="http://www.hazelcast.com/schema/config
+                               https://hazelcast.com/schema/config/hazelcast-config-5.3.xsd">
+  <cluster-name>gsEventCluster</cluster-name>
+  <instance-name>gsEventCluster</instance-name>
+
+  <properties>
+    <property name="hazelcast.logging.type">log4j2</property>
+    <!-- discovery K8s requires shutdown hook timing -->
+    <property name="hazelcast.shutdownhook.enabled">false</property>
+  </properties>
+
+  <network>
+    <port auto-increment="false">5701</port>
+    <join>
+      <multicast enabled="false"/>
+      <tcp-ip enabled="false"/>
+      <!-- Hazelcast 5.x Kubernetes native discovery.
+           service-name = nom du Service K8s headless qui pointe sur les
+           pods GS (cf templates/geoserver-hz-service.yaml).
+           namespace lu via env HZ_K8S_NAMESPACE injecté dans le pod via
+           fieldRef metadata.namespace (cf geoserver.yaml). -->
+      <kubernetes enabled="true">
+        <service-name>geoserver-hz</service-name>
+        <namespace>${HZ_K8S_NAMESPACE}</namespace>
+        <resolve-not-ready-addresses>true</resolve-not-ready-addresses>
+      </kubernetes>
+    </join>
+    <interfaces enabled="false"/>
+  </network>
+</hazelcast>
