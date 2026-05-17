@@ -4584,51 +4584,31 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.vesselSource?.clear();
       this.vesselsCount.set(0);
     }
-    // Snap-to-latest pour les WMS time-enabled : on passe une PLAGE
-    // étroite au GS plutôt qu'un instant pile. GeoServer ImageMosaic
-    // matche le timestep le plus récent dispo dans la plage — affiche
-    // toujours la donnée la plus fraîche autour du cursor, plutôt qu'une
-    // tile vide si l'instant exact n'est pas indexé.
+    // 2026-05-17 (Sylvain APEX 07) — TIME = timestamp EXACT (plus de range)
     //
-    // 2026-05-14 (Sylvain) : fenêtre cadrée pour soulager Mini-Blue.
-    //   - SST = observation NOAA OISST. Délai publication
-    //     preliminary→final 14-21j → fenêtre passée de 30 jours.
-    //   - Wind/Wave = modèles forecast (GFS/AROME/ARPEGE/WaveWatch).
-    //     Couverture utile run-analyse + horizons forecast : -1j / +7j.
-    // Avant : 1970-01-01 → cursor (56 ans) faisait scanner des millions
-    // de granules mosaic à chaque pan/zoom → sur-load CPU GS + timeouts.
+    // Anciennement, en mode non-animation on envoyait un range [t-30j, t]
+    // pour SST et [t-1j, t+7j] pour forecast, en pensant qu'avec
+    // nearestMatchEnabled côté GS, ImageMosaic prendrait "le tick le plus
+    // récent dans le range = le plus frais autour du cursor".
+    //
+    // Bug : GS retournait TOUJOURS la même image (le dernier tick publié
+    // dans la mosaic), peu importe où le user se trouvait sur la time-bar,
+    // car tous les ranges contenaient ce dernier tick. Reproduit Sylvain
+    // 2026-05-17 : 4 ranges différents 14/15/16/17 mai = même image SST.
+    //
+    // Maintenant que la nav se fait par validité réelle (validityList du
+    // master), currentTime EST déjà un tick valide → on envoie t exact.
+    // GS sert alors la donnée du tick demandé spécifiquement. Plus de
+    // snap-to-latest implicite, mais ce n'est plus nécessaire vu que
+    // validityList ne contient QUE des ticks valides.
     //
     // NB updateParams n'est PAS gated par show*() : si la source est
-    // invisible, OL ne re-fetch pas (gratuit). Si on gatait, une layer
-    // activée plus tard prendrait le TIME default GS (= timestep le plus
-    // récent) au lieu du cursor courant — bug subtil à éviter.
+    // invisible, OL ne re-fetch pas (gratuit).
     const isoTs = toIsoTimestamp(t);
-    // Animation mode : on envoie TIME=instant (= timestamp précis du
-    // master). GeoServer fait nearest-match auto pour les non-masters
-    // grâce à nearestMatchEnabled+acceptableInterval configuré côté GS.
-    // Hors animation : ranges étroites par layer (SST -30j, forecast
-    // -1j/+7j) pour le snap-to-latest classique.
-    const animating = this.animPlayer.state() !== 'idle';
-    if (animating) {
-      if (this.sstSource && !this.isFuture()) this.sstSource.updateParams({ TIME: isoTs });
-      if (this.sstContoursSource && !this.isFuture()) this.sstContoursSource.updateParams({ TIME: isoTs });
-      if (this.windWmsSource) this.windWmsSource.updateParams({ TIME: isoTs });
-      if (this.wavesSource)   this.wavesSource.updateParams({ TIME: isoTs });
-    } else {
-      if (this.sstSource && !this.isFuture()) {
-        const sstStart = new Date(t.getTime() - 30 * 24 * 3600 * 1000);
-        const sstRange = `${toIsoTimestamp(sstStart)}/${isoTs}`;
-        this.sstSource.updateParams({ TIME: sstRange });
-        // 2026-05-17 : sstContoursSource doit suivre le même range que
-        // sstSource (elle pointe sur la même featuretype maritime:sst-daily).
-        if (this.sstContoursSource) this.sstContoursSource.updateParams({ TIME: sstRange });
-      }
-      const fcStart = new Date(t.getTime() - 1 * 24 * 3600 * 1000);
-      const fcEnd   = new Date(t.getTime() + 7 * 24 * 3600 * 1000);
-      const fcRange = `${toIsoTimestamp(fcStart)}/${toIsoTimestamp(fcEnd)}`;
-      if (this.windWmsSource) this.windWmsSource.updateParams({ TIME: fcRange });
-      if (this.wavesSource)   this.wavesSource.updateParams({ TIME: fcRange });
-    }
+    if (this.sstSource) this.sstSource.updateParams({ TIME: isoTs });
+    if (this.sstContoursSource) this.sstContoursSource.updateParams({ TIME: isoTs });
+    if (this.windWmsSource) this.windWmsSource.updateParams({ TIME: isoTs });
+    if (this.wavesSource)   this.wavesSource.updateParams({ TIME: isoTs });
   }
 
   /**
