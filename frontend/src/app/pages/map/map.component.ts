@@ -3236,6 +3236,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.showLightning(); this.showAlerts(); this.showWindParticles();
       this.showBuoys(); this.showMetar(); this.showHubeau(); this.showQuakes(); this.showPiezo(); this.showFirms();
       this.showBathy(); this.showEez(); this.showMpa(); this.showEfas();
+      // 2026-05-17 : showSstContours doit déclencher applyLayerVisibility()
+      // pour activer sstContoursLayer.setVisible(true). Sans ce read ici,
+      // l'effect ne se re-fire pas quand on toggle isolignes SST et la
+      // layer contours dédiée reste invisible. (wave/wind contours toggles
+      // STYLES sur la même source raster, donc visibility OL ne change pas
+      // — pas besoin d'inclure leurs signals ici. À refactor demain.)
+      this.showSstContours();
       // Defer pour s'exécuter après ngAfterViewInit (this.*Layer dispo)
       queueMicrotask(() => {
         this.applyLayerVisibility();
