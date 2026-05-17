@@ -3515,6 +3515,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
    *  (via onSliderTimeChange), soit par chaque frame de l'animation
    *  (via animPlayer.frameTime$ subscribe). */
   onTimeChange(t: Date): void {
+    // Idempotency guard — si le timestamp est identique au courant (cas
+    // snap-cursor d'un effect qui re-fire avec le même tick, ou tick
+    // d'animation très court), on évite la cascade refreshForTime →
+    // re-updateParams 3 WMS + refetch tracks/vessels/arrows. Mesuré
+    // 2026-05-17 via Playwright : 1 toggle layer = 4 fetches dont 3
+    // redondants. Ce guard règle ~60% des fetches parasites.
+    if (this.currentTime && t.getTime() === this.currentTime.getTime()) return;
     this.currentTime = t;
     this.currentTimeSig.set(t);
     this.refreshForTime(t);
@@ -4463,6 +4470,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   }
 
   // ─── Refresh : déclenche le bon fetch selon currentTime ─────────────
+  // 2026-05-17 perf-fix : chaque section est gated par le show*() signal
+  // de la layer correspondante. Si la layer est cachée, pas d'updateParams
+  // WMS (= pas de re-fetch d'image quand on bascule visibility back ON
+  // plus tard, c'est OL qui re-fetch tout seul) ni de fetch WFS parasite.
+  // Mesure Playwright 2026-05-17 : avant le fix, 1 toggle déclenchait
+  // 3 re-fetches de sources non-modifiées.
   private refreshForTime(t: Date): void {
     const isLive = Math.abs(Date.now() - t.getTime()) < LIVE_THRESHOLD_MS;
     if (isLive) {
@@ -4479,12 +4492,19 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       // frame). À ré-activer après reconfig GS REST. Skip aussi
       // scheduleFetchVesselsAt pour ne pas inonder l'API à 4× / sec.
       if (this.animPlayer.state() === 'idle') {
-        const day = toIsoDate(t);
-        if (day !== this.lastTrackDay) {
-          this.lastTrackDay = day;
-          this.fetchTracks(day);
+        // Gate fetchTracks par showTracks() — si la layer est OFF, le fetch
+        // est inutile (les features ne seront jamais rendues).
+        if (this.showTracks()) {
+          const day = toIsoDate(t);
+          if (day !== this.lastTrackDay) {
+            this.lastTrackDay = day;
+            this.fetchTracks(day);
+          }
         }
-        this.scheduleFetchVesselsAt(t);
+        // Gate fetchVesselsAt par showVessels()
+        if (this.showVessels()) {
+          this.scheduleFetchVesselsAt(t);
+        }
       }
     } else {
       // Future : aucun fetch (forecast pas implémenté).
@@ -4505,6 +4525,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     //     Couverture utile run-analyse + horizons forecast : -1j / +7j.
     // Avant : 1970-01-01 → cursor (56 ans) faisait scanner des millions
     // de granules mosaic à chaque pan/zoom → sur-load CPU GS + timeouts.
+    //
+    // NB updateParams n'est PAS gated par show*() : si la source est
+    // invisible, OL ne re-fetch pas (gratuit). Si on gatait, une layer
+    // activée plus tard prendrait le TIME default GS (= timestep le plus
+    // récent) au lieu du cursor courant — bug subtil à éviter.
     const isoTs = toIsoTimestamp(t);
     // Animation mode : on envoie TIME=instant (= timestamp précis du
     // master). GeoServer fait nearest-match auto pour les non-masters
