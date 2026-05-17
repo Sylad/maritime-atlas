@@ -39,8 +39,8 @@ export interface TimeSliderLayerCoverage {
   template: `
     <div class="time-slider">
       <div class="ts-controls">
-        <button type="button" class="ts-btn" (click)="step(-bigStepMs())" [title]="'-' + bigStepLabel()">⏮&#xFE0E;</button>
-        <button type="button" class="ts-btn" (click)="step(-smallStepMs())" [title]="'-' + smallStepLabel()">⏪&#xFE0E;</button>
+        <button type="button" class="ts-btn" (click)="goFirst()" title="Première validité (extrême passé)">⏮&#xFE0E;</button>
+        <button type="button" class="ts-btn" (click)="goPrev()" title="Validité précédente">⏪&#xFE0E;</button>
         <button
           type="button"
           class="ts-btn ts-btn-play"
@@ -49,8 +49,8 @@ export interface TimeSliderLayerCoverage {
           [title]="playing() ? 'Pause' : 'Play (6h/s)'">
           {{ playing() ? '⏸︎' : '▶︎' }}
         </button>
-        <button type="button" class="ts-btn" (click)="step(smallStepMs())" [title]="'+' + smallStepLabel()">⏩&#xFE0E;</button>
-        <button type="button" class="ts-btn" (click)="step(bigStepMs())" [title]="'+' + bigStepLabel()">⏭&#xFE0E;</button>
+        <button type="button" class="ts-btn" (click)="goNext()" title="Validité suivante">⏩&#xFE0E;</button>
+        <button type="button" class="ts-btn" (click)="goLast()" title="Dernière validité (extrême futur)">⏭&#xFE0E;</button>
         <button
           type="button"
           class="ts-btn ts-btn-now"
@@ -427,6 +427,12 @@ export class TimeSliderComponent {
    *  GetCapabilities ou WFS DISTINCT(ts). */
   readonly layerCoverage = input<TimeSliderLayerCoverage[]>([]);
 
+  /** Liste des validités (timestamps) publiées par le master du temps.
+   *  Drive les boutons de navigation ⏪︎/⏩︎ (validité précédente/suivante)
+   *  et ⏮︎/⏭︎ (première/dernière validité). Si vide (aucun master ou master
+   *  vector), fallback step ±30min. Spec 2026-05-17 Sylvain. */
+  readonly validityList = input<Date[]>([]);
+
   readonly expanded = signal(false);
   toggleExpanded(): void { this.expanded.update((v) => !v); }
 
@@ -551,9 +557,71 @@ export class TimeSliderComponent {
     this.setTime(new Date(this.currentTime().getTime() + deltaMs));
   }
 
+  // ─── Navigation par validité du master (Sylvain 2026-05-17) ──────
+  // Spec : ⏪︎/⏩︎ = validité précédente/suivante du master, ⏮︎/⏭︎ =
+  // extrême passé/futur de la liste des validités. Fallback step ±30min
+  // si validityList vide (aucun master ou master vector live).
+  private readonly FALLBACK_STEP_MS = 30 * 60_000;
+
+  goPrev(): void {
+    this.stopPlay();
+    const list = this.validityList();
+    if (list.length === 0) { this.step(-this.FALLBACK_STEP_MS); return; }
+    const cur = this.displayTime().getTime();
+    // Cherche le dernier timestamp strictement < cur
+    let prev: Date | null = null;
+    for (const t of list) {
+      if (t.getTime() < cur) prev = t;
+      else break;  // list est triée croissant
+    }
+    if (prev) this.setTime(prev);
+    // Si déjà sur le 1er (ou avant), on ne bouge pas (clamp implicite)
+  }
+
+  goNext(): void {
+    this.stopPlay();
+    const list = this.validityList();
+    if (list.length === 0) { this.step(+this.FALLBACK_STEP_MS); return; }
+    const cur = this.displayTime().getTime();
+    const next = list.find((t) => t.getTime() > cur);
+    if (next) this.setTime(next);
+  }
+
+  goFirst(): void {
+    this.stopPlay();
+    const list = this.validityList();
+    if (list.length > 0) {
+      this.setTime(list[0]);
+    } else {
+      this.setTime(this.minTime());
+    }
+  }
+
+  goLast(): void {
+    this.stopPlay();
+    const list = this.validityList();
+    if (list.length > 0) {
+      this.setTime(list[list.length - 1]);
+    } else {
+      this.setTime(this.maxTime());
+    }
+  }
+
   goNow(): void {
     this.stopPlay();
-    this.setTime(new Date());
+    const list = this.validityList();
+    const now = Date.now();
+    if (list.length > 0) {
+      // Snap au timestamp validité le plus proche de now (toutes directions)
+      // = nearest neighbor dans la liste triée.
+      const closest = list.reduce((best, cur) =>
+        Math.abs(cur.getTime() - now) < Math.abs(best.getTime() - now) ? cur : best,
+      );
+      this.setTime(closest);
+    } else {
+      // Pas de master = snap 30min sur new Date() (Math.floor → passé proche)
+      this.setTime(new Date());
+    }
   }
 
   togglePlay(): void {

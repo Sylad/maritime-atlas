@@ -1218,6 +1218,7 @@ function toIsoTimestamp(d: Date): string {
         [maxTime]="sliderConfig().maxTime"
         [stepMs]="sliderConfig().stepMs"
         [statusLabel]="sliderConfig().label"
+        [validityList]="masterValidityList()"
         [layerCoverage]="sliderLayerCoverage()"
         [externalAnimationActive]="animPlayer.state() !== 'idle'"
         [externalCurrentTime]="animPlayer.state() !== 'idle' ? currentTimeSig() : null"
@@ -2339,6 +2340,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     return key ? this.animatableLayers.find((l) => l.key === key)?.label ?? null : null;
   });
 
+  // 2026-05-17 (Sylvain refacto navigation time-bar par validité) : liste
+  // des timestamps publiés par le master du temps. Drive les boutons
+  // ⏪︎/⏩︎ (validité précédente/suivante) et ⏮︎/⏭︎ (extrême passé/futur).
+  // Mise à jour via effect quand master ou sliderConfig change (cf
+  // refreshMasterValidityList in constructor effect block).
+  readonly masterValidityList = signal<Date[]>([]);
+
   // Toggles user — par défaut tout visible (sauf rain/wind/waves : opt-in
   // pour éviter d'écraser l'image avec des tiles tant que pas demandé)
   readonly showVessels = signal(true);
@@ -2516,10 +2524,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     const now = Date.now();
     if (profiles.length === 0) {
       // Aucun layer actif → plage de courtoisie ±6h pour ne pas collapser le slider.
+      // Step = 30min en fallback (Sylvain 2026-05-17 : "arrondi à la demi heure près").
       return {
         minTime: new Date(now - 6 * 3_600_000),
         maxTime: new Date(now + 6 * 3_600_000),
-        stepMs: 3_600_000,
+        stepMs: 30 * 60_000,
         label: '',
       };
     }
@@ -3316,6 +3325,34 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.showWindContours(); this.windContourInterval();
       queueMicrotask(() => this.applyContours());
     });
+
+    // 2026-05-17 Sylvain — refresh validityList master quand master change
+    // ou quand la plage time-bar évolue. Drive les boutons de navigation
+    // ⏪︎/⏩︎/⏮︎/⏭︎ par validité réelle (cf time-slider component).
+    effect(() => {
+      const masterKey = this.masterLayerKey();
+      const cfg = this.sliderConfig();  // s'abonne à la plage min/max
+      if (!masterKey) {
+        this.masterValidityList.set([]);
+        return;
+      }
+      const master = this.animatableLayers.find((l) => l.key === masterKey);
+      if (!master) {
+        this.masterValidityList.set([]);
+        return;
+      }
+      // Fetch async (GetCapabilities GS) — le résultat trie/filter déjà
+      // dans la plage [cfg.minTime, cfg.maxTime]. Si erreur réseau, on
+      // garde la liste précédente (pas de set vide qui casserait la nav).
+      this.fetchTimestamps(master, cfg.minTime, cfg.maxTime)
+        .then((list) => {
+          if (list.length > 0) {
+            list.sort((a, b) => a.getTime() - b.getTime());
+            this.masterValidityList.set(list);
+          }
+        })
+        .catch(() => { /* silence : keep prev list */ });
+    });
   }
 
   /** Mémoize la liste des palettes par layer kind. */
@@ -3435,7 +3472,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.applyAllLayerOpacities();
     // Démarre en mode live
     this.applyLayerVisibility();
-    this.refreshForTime(new Date());
+    // 2026-05-17 Sylvain : au boot, currentTime snap à la 30min en dessous
+    // (Math.floor) pour avoir une valeur "ronde" + ≤ now (garantit !isFuture).
+    // Le snap-master peut ensuite re-positionner sur un tick master spécifique.
+    const STEP_30M = 30 * 60_000;
+    const bootTime = new Date(Math.floor(Date.now() / STEP_30M) * STEP_30M);
+    this.refreshForTime(bootTime);
     this.startLiveLoopIfNeeded();
     // Bootstrap snapshot RainViewer + refresh toutes les 5 min (le serveur
     // RV ajoute une frame toutes les 10min, donc 5min de poll = au pire on
@@ -3532,16 +3574,6 @@ export class MapComponent implements AfterViewInit, OnDestroy {
    *  (via onSliderTimeChange), soit par chaque frame de l'animation
    *  (via animPlayer.frameTime$ subscribe). */
   onTimeChange(t: Date): void {
-    // DIAG 2026-05-17 (Sylvain) : trace l'origine du drift `currentTime` vers
-    // le futur (cause root du bug "layers disparaissent silencieusement"). Log
-    // toute mutation avec delta vs Date.now() + stack trace pour identifier
-    // qui pousse currentTime dans le futur. À retirer une fois root cause connue.
-    const delta = ((t.getTime() - Date.now()) / 1000 / 60).toFixed(1);
-    if (Math.abs(parseFloat(delta)) > 5) {
-      console.warn(`[onTimeChange] t=${t.toISOString()} delta=${delta}min FUTUR/PASSÉ`, new Error().stack);
-    } else {
-      console.log(`[onTimeChange] t=${t.toISOString()} delta=${delta}min`);
-    }
     // Idempotency guard — si le timestamp est identique au courant (cas
     // snap-cursor d'un effect qui re-fire avec le même tick, ou tick
     // d'animation très court), on évite la cascade refreshForTime →
