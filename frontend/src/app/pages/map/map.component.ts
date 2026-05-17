@@ -3068,6 +3068,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private rainSnapshotTimer?: ReturnType<typeof setInterval>;
   private currentRainPath?: string;
   private windLayer?: ImageLayer<ImageWMS>;
+  // 2026-05-17 nuit — pattern SST cloné pour wind contours (cf
+  // sst-contours-only). Layer dédiée + SLD ras:Contour standard
+  // (au lieu de wind-speed-with-contours qui faisait double IDW factor=4).
+  private windContoursLayer?: ImageLayer<ImageWMS>;
+  private windContoursSource?: ImageWMS;
   // Renommé en sprint 11 (était `windSource`) pour libérer le nom au signal
   // user-facing `windSource: 'gfs' | 'arpege'`. Cette ref pointe vers le
   // ImageWMS du layer "Vent" — peu importe la source choisie, le LAYERS
@@ -3075,6 +3080,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private windWmsSource?: ImageWMS;
   private wavesLayer?: ImageLayer<ImageWMS>;
   private wavesSource?: ImageWMS;
+  private wavesContoursLayer?: ImageLayer<ImageWMS>;
+  private wavesContoursSource?: ImageWMS;
   private windArrowsLayer?: VectorLayer<VectorSource>;
   private windArrowsSource?: VectorSource;
   private waveArrowsLayer?: VectorLayer<VectorSource>;
@@ -3245,13 +3252,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.showLightning(); this.showAlerts(); this.showWindParticles();
       this.showBuoys(); this.showMetar(); this.showHubeau(); this.showQuakes(); this.showPiezo(); this.showFirms();
       this.showBathy(); this.showEez(); this.showMpa(); this.showEfas();
-      // 2026-05-17 : showSstContours doit déclencher applyLayerVisibility()
-      // pour activer sstContoursLayer.setVisible(true). Sans ce read ici,
-      // l'effect ne se re-fire pas quand on toggle isolignes SST et la
-      // layer contours dédiée reste invisible. (wave/wind contours toggles
-      // STYLES sur la même source raster, donc visibility OL ne change pas
-      // — pas besoin d'inclure leurs signals ici. À refactor demain.)
+      // 2026-05-17 : showSstContours + showWindContours + showWaveContours
+      // doivent déclencher applyLayerVisibility() pour activer les
+      // *ContoursLayer.setVisible(true). Sans ce read ici, l'effect ne se
+      // re-fire pas et les layers contours dédiées restent invisibles.
       this.showSstContours();
+      this.showWindContours();
+      this.showWaveContours();
       // Defer pour s'exécuter après ngAfterViewInit (this.*Layer dispo)
       queueMicrotask(() => {
         this.applyLayerVisibility();
@@ -3294,11 +3301,16 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     effect(() => {
       const src = this.windSource();
       queueMicrotask(() => {
+        const layer = src === 'arpege' ? 'maritime:wind-speed-arpege'
+                    : src === 'arome'  ? 'maritime:wind-speed-arome'
+                                       : 'maritime:wind-speed';
         if (this.windWmsSource) {
-          const layer = src === 'arpege' ? 'maritime:wind-speed-arpege'
-                      : src === 'arome'  ? 'maritime:wind-speed-arome'
-                                         : 'maritime:wind-speed';
           this.windWmsSource.updateParams({ LAYERS: layer });
+        }
+        // windContoursSource doit suivre le même LAYERS que le raster
+        // (les contours sont calculés sur la même featuretype GFS/ARPEGE/AROME).
+        if (this.windContoursSource) {
+          this.windContoursSource.updateParams({ LAYERS: layer });
         }
         this.lastWindArrowsTs = undefined;
         if (this.showWindArrows()) {
@@ -3418,36 +3430,24 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // sstContoursSource. Visibility gérée par applyLayerVisibility.
     //
     // wave/wind contours : ancien comportement conservé (refonte à venir).
+    // 2026-05-17 nuit : pattern SST cloné pour wind + waves contours.
+    // Plus de swap STYLES sur les sources raster (windWmsSource/wavesSource),
+    // juste update env contourInterval sur les sources contours dédiées.
+    // Les raster restent sur leur SLD rainbow normal.
     if (this.sstContoursSource && this.showSstContours()) {
       this.sstContoursSource.updateParams({
         env: `contourInterval:${this.sstContourInterval()}`,
       });
     }
-    const restore = (source: ImageWMS | undefined, kind: string) => {
-      const userPref = this.palettesSvc.myPreferences()[kind] ?? null;
-      source?.updateParams({
-        STYLES: userPref ? `maritime:${userPref}` : '',
-        env: undefined,
-        INTERPOLATIONS: 'bicubic',
+    if (this.windContoursSource && this.showWindContours()) {
+      this.windContoursSource.updateParams({
+        env: `contourInterval:${this.windContourInterval()}`,
       });
-    };
-    if (this.wavesSource) {
-      if (this.showWaveContours()) {
-        this.wavesSource.updateParams({
-          STYLES: 'maritime:wave-hs-with-contours',
-          env: `contourInterval:${this.waveContourInterval()}`,
-          INTERPOLATIONS: 'nearest neighbor',
-        });
-      } else restore(this.wavesSource, 'waves');
     }
-    if (this.windWmsSource) {
-      if (this.showWindContours()) {
-        this.windWmsSource.updateParams({
-          STYLES: 'maritime:wind-speed-with-contours',
-          env: `contourInterval:${this.windContourInterval()}`,
-          INTERPOLATIONS: 'nearest neighbor',
-        });
-      } else restore(this.windWmsSource, 'wind');
+    if (this.wavesContoursSource && this.showWaveContours()) {
+      this.wavesContoursSource.updateParams({
+        env: `contourInterval:${this.waveContourInterval()}`,
+      });
     }
   }
 
@@ -3670,7 +3670,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // Wind/Waves : visibles à n'importe quel moment où il y a un forecast
     // (NOAA accepte TIME=NEAREST → matche le timestep le plus proche).
     if (this.windLayer)  this.windLayer.setVisible(this.showWind());
+    if (this.windContoursLayer) {
+      this.windContoursLayer.setVisible(this.showWind() && this.showWindContours());
+    }
     if (this.wavesLayer) this.wavesLayer.setVisible(this.showWaves());
+    if (this.wavesContoursLayer) {
+      this.wavesContoursLayer.setVisible(this.showWaves() && this.showWaveContours());
+    }
     // Arrows : visibles si toggle ON. Le contenu est rafraîchi par
     // refreshArrowsForTime() à chaque cursor change.
     if (this.windArrowsLayer) this.windArrowsLayer.setVisible(this.showWindArrows());
@@ -4605,7 +4611,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     if (this.sstSource) this.sstSource.updateParams({ TIME: sstT });
     if (this.sstContoursSource) this.sstContoursSource.updateParams({ TIME: sstT });
     if (this.windWmsSource) this.windWmsSource.updateParams({ TIME: fcT });
-    if (this.wavesSource)   this.wavesSource.updateParams({ TIME: fcT });
+    if (this.windContoursSource) this.windContoursSource.updateParams({ TIME: fcT });
+    if (this.wavesSource) this.wavesSource.updateParams({ TIME: fcT });
+    if (this.wavesContoursSource) this.wavesContoursSource.updateParams({ TIME: fcT });
   }
 
   /**
@@ -5193,6 +5201,34 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       setTimeout(() => this.windWmsSource?.refresh(), 3000);
     });
 
+    // Wind contours dédiée (SLD wind-speed-contours-only ras:Contour
+    // standard, pas IDW). Pattern SST. INTERPOLATIONS=bicubic IDENTIQUE
+    // au raster windWmsSource → contours alignés sur les couleurs.
+    this.windContoursSource = new ImageWMS({
+      url: '/geoserver/maritime/wms',
+      projection: 'EPSG:3857',
+      ratio: 1.0,
+      params: {
+        LAYERS: initialWindLayer,
+        STYLES: 'maritime:wind-speed-contours-only',
+        TRANSPARENT: true,
+        INTERPOLATIONS: 'bicubic',
+        env: `contourInterval:${this.windContourInterval()}`,
+      },
+      serverType: 'geoserver',
+      attributions: [ATTRIB_NOAA, ATTRIB_ARPEGE, ATTRIB_AROME],
+    });
+    this.windContoursLayer = new ImageLayer({
+      source: this.windContoursSource,
+      opacity: 0.9,
+      zIndex: 34,
+      visible: false,
+      maxZoom: 10,
+    });
+    this.windContoursSource.on('imageloaderror', () => {
+      setTimeout(() => this.windContoursSource?.refresh(), 3000);
+    });
+
     // Vagues (hauteur sig., m) — WMS time-enabled.
     // Cap zoom 7 : NOAA WaveWatch III a une résolution native 0.5°
     // (~55 km/pixel). zoom 7 = ~1.2 km/pixel, déjà ×45 sur-échantillonnage.
@@ -5213,6 +5249,32 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     });
     this.wavesSource.on('imageloaderror', () => {
       setTimeout(() => this.wavesSource?.refresh(), 3000);
+    });
+
+    // Waves contours dédiée (SLD wave-hs-contours-only) — pattern SST/wind.
+    this.wavesContoursSource = new ImageWMS({
+      url: '/geoserver/maritime/wms',
+      projection: 'EPSG:3857',
+      ratio: 1.0,
+      params: {
+        LAYERS: 'maritime:wave-hs',
+        STYLES: 'maritime:wave-hs-contours-only',
+        TRANSPARENT: true,
+        INTERPOLATIONS: 'bicubic',
+        env: `contourInterval:${this.waveContourInterval()}`,
+      },
+      serverType: 'geoserver',
+      attributions: ATTRIB_NOAA,
+    });
+    this.wavesContoursLayer = new ImageLayer({
+      source: this.wavesContoursSource,
+      opacity: 0.9,
+      zIndex: 35,
+      visible: false,
+      maxZoom: 7,
+    });
+    this.wavesContoursSource.on('imageloaderror', () => {
+      setTimeout(() => this.wavesContoursSource?.refresh(), 3000);
     });
 
     // Sprint 10 : alertes maritimes. VectorSource peuplé toutes les 30s
@@ -5405,7 +5467,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         this.sstLayer,
         this.sstContoursLayer,
         this.windLayer,
+        this.windContoursLayer,
         this.wavesLayer,
+        this.wavesContoursLayer,
         this.rainLayer,
         this.efasLayer,
         labelsTile,
