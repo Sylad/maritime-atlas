@@ -3606,14 +3606,19 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.vesselLayer.setVisible(this.showVessels() && !this.isFuture());
     // Tracks = past only — résumé daily (LineStrings agrégés)
     this.trackLayer.setVisible(this.showTracks() && !this.isLive() && !this.isFuture());
-    // SST = past only (forecast pas dispo)
-    this.sstLayer.setVisible(this.showSST() && !this.isFuture());
-    // SST contours = layer séparée (SLD sst-contours-only) qui n'est rendue
-    // que si raster SST visible ET toggle contours ON. Évite la cascade
-    // 26s/req qui faisait disparaître les autres layers par timeout.
+    // SST + contours : on RETIRE le guard !isFuture() car un effet auto
+    // (anim player / snap-master / autre) déplace parfois currentTime dans
+    // le futur (cf bug 2026-05-17 soir : Sylvain voit time-bar "LIVE 18 mai
+    // 02:00" alors qu'on est le 17 mai 20h45). isFuture() devenait true →
+    // setVisible(false) → layer disparait silencieusement, sans fetch ni
+    // log console. Retour : laisser la layer visible même si futur. Si GS
+    // n'a pas de granule pour le TIME demandé, il renvoie image transparente
+    // — bien moins pire que layer qui disparait sans raison apparente.
+    // (Le drift de currentTime reste à investiguer demain à froid.)
+    this.sstLayer.setVisible(this.showSST());
     if (this.sstContoursLayer) {
       this.sstContoursLayer.setVisible(
-        this.showSST() && this.showSstContours() && !this.isFuture(),
+        this.showSST() && this.showSstContours(),
       );
     }
     // Rain : visible si toggle ON + frame disponible pour le cursor courant
