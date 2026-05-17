@@ -5069,6 +5069,15 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       visible: false,
       maxZoom: 8,
     });
+    // 2026-05-17 : robustesse — quand GS répond 404 ponctuellement (drift
+    // pod, GC pause, redémarrage), OL throw EncodingError et hide la layer
+    // SANS retry. Bug "layers disparaissent sans nouvelle requête" qui a
+    // pourri tout le week-end. Avec cet imageloaderror handler, on force
+    // un refresh() 3s après chaque erreur → la layer revient dès que le
+    // pod GS est revenu à la normale (max 3-10s sur un GC long).
+    this.sstSource.on('imageloaderror', () => {
+      setTimeout(() => this.sstSource?.refresh(), 3000);
+    });
 
     // 2026-05-17 : layer SST contours dédiée (SLD sst-contours-only avec
     // ras:Contour standard, pas IDW). zIndex 31 au-dessus de sstLayer (30).
@@ -5097,6 +5106,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       zIndex: 31,
       visible: false,
       maxZoom: 8,
+    });
+    this.sstContoursSource.on('imageloaderror', () => {
+      setTimeout(() => this.sstContoursSource?.refresh(), 3000);
     });
 
     // Vent (force, m/s) — WMS time-enabled depuis ImageMosaic GeoServer.
@@ -5128,6 +5140,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       visible: false,
       maxZoom: 10,
     });
+    this.windWmsSource.on('imageloaderror', () => {
+      setTimeout(() => this.windWmsSource?.refresh(), 3000);
+    });
 
     // Vagues (hauteur sig., m) — WMS time-enabled.
     // Cap zoom 7 : NOAA WaveWatch III a une résolution native 0.5°
@@ -5146,6 +5161,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       zIndex: 33,
       visible: false,
       maxZoom: 7,
+    });
+    this.wavesSource.on('imageloaderror', () => {
+      setTimeout(() => this.wavesSource?.refresh(), 3000);
     });
 
     // Sprint 10 : alertes maritimes. VectorSource peuplé toutes les 30s
