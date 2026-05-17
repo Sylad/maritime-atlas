@@ -4990,6 +4990,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       params: {
         LAYERS: 'maritime:sst-daily',
         TRANSPARENT: true,
+        INTERPOLATION: 'bicubic',
       },
       serverType: 'geoserver',
       attributions: ATTRIB_NOAA,
@@ -5020,7 +5021,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       url: '/geoserver/maritime/wms',
       projection: 'EPSG:3857',
       ratio: 1.0,  // 1.2 → 1.0 (Sylvain 2026-05-14 soir) — évite OOM heap GS
-      params: { LAYERS: initialWindLayer, TRANSPARENT: true },
+      params: { LAYERS: initialWindLayer, TRANSPARENT: true, INTERPOLATION: 'bicubic' },
       serverType: 'geoserver',
       attributions: [ATTRIB_NOAA, ATTRIB_ARPEGE, ATTRIB_AROME],
     });
@@ -5039,7 +5040,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       url: '/geoserver/maritime/wms',
       projection: 'EPSG:3857',
       ratio: 1.0,  // 1.2 → 1.0 (Sylvain 2026-05-14 soir) — évite OOM heap GS
-      params: { LAYERS: 'maritime:wave-hs', TRANSPARENT: true },
+      params: { LAYERS: 'maritime:wave-hs', TRANSPARENT: true, INTERPOLATION: 'bicubic' },
       serverType: 'geoserver',
       attributions: ATTRIB_NOAA,
     });
