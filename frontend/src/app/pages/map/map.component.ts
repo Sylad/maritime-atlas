@@ -3532,6 +3532,16 @@ export class MapComponent implements AfterViewInit, OnDestroy {
    *  (via onSliderTimeChange), soit par chaque frame de l'animation
    *  (via animPlayer.frameTime$ subscribe). */
   onTimeChange(t: Date): void {
+    // DIAG 2026-05-17 (Sylvain) : trace l'origine du drift `currentTime` vers
+    // le futur (cause root du bug "layers disparaissent silencieusement"). Log
+    // toute mutation avec delta vs Date.now() + stack trace pour identifier
+    // qui pousse currentTime dans le futur. À retirer une fois root cause connue.
+    const delta = ((t.getTime() - Date.now()) / 1000 / 60).toFixed(1);
+    if (Math.abs(parseFloat(delta)) > 5) {
+      console.warn(`[onTimeChange] t=${t.toISOString()} delta=${delta}min FUTUR/PASSÉ`, new Error().stack);
+    } else {
+      console.log(`[onTimeChange] t=${t.toISOString()} delta=${delta}min`);
+    }
     // Idempotency guard — si le timestamp est identique au courant (cas
     // snap-cursor d'un effect qui re-fire avec le même tick, ou tick
     // d'animation très court), on évite la cascade refreshForTime →
