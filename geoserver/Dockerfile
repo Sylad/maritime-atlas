@@ -34,22 +34,33 @@ RUN curl -fL --retry 5 --retry-delay 3 --retry-all-errors \
       "https://jdbc.postgresql.org/download/postgresql-${PG_JDBC_VERSION}.jar" && \
     ls -lh /usr/local/tomcat/lib/postgresql-*.jar
 
-# ── Plugins GeoServer community via OSGeo Nexus (URLs stables) ─────
-# On NE prend que JDBCConfig + JDBCStore ici (community), nécessaires pour
-# centraliser le catalog GS dans la DB Postgres. gwc-s3, wps, control-flow
-# seront ajoutés plus tard si besoin (Brique 5 sprint refacto).
+# ── Plugins GeoServer via OSGeo Nexus (URLs stables) ───────────────
+# JDBCConfig + JDBCStore (community) : catalog GS centralisé en Postgres.
+# WPS + Control-Flow (extension) : requis pour désérialiser les ServiceInfo
+#   stockés dans le catalog JDBCConfig — sans le JAR du plugin, le pod GS
+#   pète CannotResolveClassException au boot (cas observé Mini-Blue
+#   2026-05-17 après promotion sprint refacto v3).
 #
-# Nexus expose les JARs individuels (pas de ZIP avec deps). JDBCConfig et
-# JDBCStore n'ont pas de deps externes hors pg-jdbc (déjà dans tomcat/lib).
+# Nexus expose les JARs individuels. JDBC/WPS/Control-Flow n'ont pas de
+# deps externes hors pg-jdbc (déjà dans tomcat/lib) et libs déjà bundlées
+# dans l'image GS base.
 ARG GS_VERSION=2.28.3
-ARG NEXUS_BASE=https://repo.osgeo.org/repository/release/org/geoserver/community
+ARG NEXUS_RELEASE=https://repo.osgeo.org/repository/release/org/geoserver
 RUN curl -fL --retry 5 --retry-delay 3 --retry-all-errors \
       -o /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-jdbcconfig-${GS_VERSION}.jar \
-      "${NEXUS_BASE}/gs-jdbcconfig/${GS_VERSION}/gs-jdbcconfig-${GS_VERSION}.jar" && \
+      "${NEXUS_RELEASE}/community/gs-jdbcconfig/${GS_VERSION}/gs-jdbcconfig-${GS_VERSION}.jar" && \
     curl -fL --retry 5 --retry-delay 3 --retry-all-errors \
       -o /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-jdbcstore-${GS_VERSION}.jar \
-      "${NEXUS_BASE}/gs-jdbcstore/${GS_VERSION}/gs-jdbcstore-${GS_VERSION}.jar" && \
-    ls -lh /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-jdbc*
+      "${NEXUS_RELEASE}/community/gs-jdbcstore/${GS_VERSION}/gs-jdbcstore-${GS_VERSION}.jar" && \
+    curl -fL --retry 5 --retry-delay 3 --retry-all-errors \
+      -o /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-wps-core-${GS_VERSION}.jar \
+      "${NEXUS_RELEASE}/extension/gs-wps-core/${GS_VERSION}/gs-wps-core-${GS_VERSION}.jar" && \
+    curl -fL --retry 5 --retry-delay 3 --retry-all-errors \
+      -o /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-control-flow-${GS_VERSION}.jar \
+      "${NEXUS_RELEASE}/extension/gs-control-flow/${GS_VERSION}/gs-control-flow-${GS_VERSION}.jar" && \
+    ls -lh /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-jdbc* \
+           /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-wps* \
+           /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-control-flow*
 
 # Tomcat context.xml template — datasource JNDI jdbc/geoserver centralisée
 COPY tomcat-context.xml.tpl /usr/local/tomcat/conf/context.xml.tpl
