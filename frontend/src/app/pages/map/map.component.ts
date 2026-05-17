@@ -5070,9 +5070,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       maxZoom: 8,
     });
 
-    // 2026-05-17 : layer SST contours dédiée (SLD sst-contours-only sans
-    // RasterSymbolizer parasite). zIndex 31 au-dessus de sstLayer (30).
-    // INTERPOLATIONS=nearest pour contouring sur grille native (rapide).
+    // 2026-05-17 : layer SST contours dédiée (SLD sst-contours-only avec
+    // ras:Contour standard, pas IDW). zIndex 31 au-dessus de sstLayer (30).
+    // INTERPOLATIONS=bicubic IDENTIQUE au raster sstSource : les contours
+    // sont alors calculés sur la même donnée bicubic resampée → alignement
+    // visuel parfait avec les couleurs du raster (Sylvain 2026-05-17 :
+    // "on utilise pas IDW sur les rasters, utilise bicubic comme le raster
+    // pour les isolines").
     this.sstContoursSource = new ImageWMS({
       url: '/geoserver/maritime/wms',
       projection: 'EPSG:3857',
@@ -5081,7 +5085,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         LAYERS: 'maritime:sst-daily',
         STYLES: 'maritime:sst-contours-only',
         TRANSPARENT: true,
-        INTERPOLATIONS: 'nearest neighbor',
+        INTERPOLATIONS: 'bicubic',
         env: `contourInterval:${this.sstContourInterval()}`,
       },
       serverType: 'geoserver',
