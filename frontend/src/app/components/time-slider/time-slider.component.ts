@@ -105,20 +105,29 @@ export interface TimeSliderLayerCoverage {
           <div class="ts-coverage">
             @for (cov of layerCoverage(); track cov.key) {
               <div class="ts-coverage-row"
-                   draggable="true"
                    [class.is-drag-over]="dragOverKey() === cov.key"
                    [class.is-master]="cov.isMaster"
-                   (dragstart)="onCoverageDragStart($event, cov.key)"
                    (dragover)="onCoverageDragOver($event, cov.key)"
                    (dragleave)="onCoverageDragLeave($event, cov.key)"
                    (drop)="onCoverageDrop($event, cov.key)"
                    (dragend)="onCoverageDragEnd()">
+                <!-- 2026-05-18 — bouton ★ avec draggable="false" pour éviter
+                     que mousedown initie un drag (bug observé Sylvain : 1ère
+                     étoile pas cliquable quand draggable="true" sur la rangée). -->
                 <button type="button"
                         class="ts-coverage-master-btn"
+                        draggable="false"
                         [class.is-master]="cov.isMaster"
                         [title]="cov.isMaster ? 'Maître du temps actuel' : 'Définir comme maître du temps'"
                         (click)="onMasterIconClick($event, cov.key)">{{ cov.isMaster ? '★' : '☆' }}</button>
-                <span class="ts-coverage-drag-handle" aria-hidden="true" title="Glisser pour réordonner z-index">⋮⋮</span>
+                <!-- 2026-05-18 — le drag est maintenant initié UNIQUEMENT depuis ce handle ⋮⋮.
+                     La rangée n'est plus draggable="true" globalement (évite l'interception du
+                     click sur le bouton ★). -->
+                <span class="ts-coverage-drag-handle"
+                      draggable="true"
+                      aria-hidden="true"
+                      title="Glisser pour réordonner z-index"
+                      (dragstart)="onCoverageDragStart($event, cov.key)">⋮⋮</span>
                 <span class="ts-coverage-label">{{ cov.name }}</span>
                 <div class="ts-coverage-track"
                      [title]="coverageTrackTooltip(cov)">
@@ -424,17 +433,18 @@ export interface TimeSliderLayerCoverage {
       flex-direction: column;
       gap: 0.2em;
       padding: 0.4em 0 0.2em;
-      /* 3 lignes × (8px barre + 0.2em gap + label line-height ~14px) ≈ 90px */
-      max-height: 90px;
+      /* 3 lignes × ~30px (8px barre + 0.2em gap + label 0.85rem line-height ~19px) */
+      max-height: 130px;
       overflow-y: auto;
       scrollbar-width: thin;
       scrollbar-color: hsl(224 60% 35%) transparent;
     }
     .ts-coverage-row {
       display: grid;
-      /* 2026-05-18 APEX 11 — 4 colonnes : master-btn ★, drag-handle ⋮⋮, label, track. */
-      grid-template-columns: 1.2em 0.9em 5em 1fr;
-      gap: 0.4em;
+      /* 2026-05-18 APEX 11 — 4 colonnes : master-btn ★, drag-handle ⋮⋮, label, track.
+         Label élargi à 7.5em pour accommoder le texte plus gros (wave-arrows = 11 chars). */
+      grid-template-columns: 1.4em 1em 7.5em 1fr;
+      gap: 0.5em;
       align-items: center;
       padding: 1px 0;
       border-radius: 4px;
@@ -456,7 +466,7 @@ export interface TimeSliderLayerCoverage {
       border: 0;
       padding: 0;
       cursor: pointer;
-      font-size: 0.95rem;
+      font-size: 1.1rem;
       line-height: 1;
       color: var(--fg-dim);
       transition: color 150ms;
@@ -468,14 +478,15 @@ export interface TimeSliderLayerCoverage {
     .ts-coverage-drag-handle {
       color: var(--fg-muted);
       font-family: var(--font-mono);
-      font-size: 0.65rem;
+      font-size: 0.85rem;
       letter-spacing: -0.1em;
       cursor: grab;
       user-select: none;
     }
     .ts-coverage-label {
       font-family: var(--font-mono);
-      font-size: 0.65rem;
+      /* 2026-05-18 — grossi 0.65→0.85rem pour lisibilité (Sylvain). */
+      font-size: 0.85rem;
       color: var(--fg-dim);
       text-align: right;
       letter-spacing: 0.05em;
