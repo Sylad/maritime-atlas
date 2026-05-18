@@ -3591,19 +3591,20 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // change, quand windSource bascule (gfs/arpege/arome), ou quand la
     // plage time-bar évolue.
     effect(() => {
-      // S'abonne aux toggles + source wind + plage time-bar
+      // S'abonne aux toggles + source wind UNIQUEMENT.
+      // 2026-05-18 (fix post APEX 10) : NE PAS s'abonner à sliderConfig() ici —
+      // sliderConfig dépend de validityListPerLayer (master mode validités),
+      // et cet effect SET validityListPerLayer → loop infini de fetch GS.
+      // → utilise une fenêtre FIXE ±168h pour le fetch. Le slider filtre
+      //   l'affichage des validités selon sa fenêtre courante en aval.
       const wantSst = this.showSST();
       const wantWind = this.showWind();
       const wantWaves = this.showWaves();
       const windSrc = this.windSource();
-      const cfg = this.sliderConfig();
 
-      // APEX 10 — sliderConfig est maintenant nullable (null si pas de
-      // master WMS). On garde une fenêtre fallback ±168h pour les fetches
-      // de validités even si le slider lui-même n'est pas rendu.
       const now = Date.now();
-      const minTime = cfg?.minTime ?? new Date(now - 168 * 3_600_000);
-      const maxTime = cfg?.maxTime ?? new Date(now + 168 * 3_600_000);
+      const minTime = new Date(now - 168 * 3_600_000);
+      const maxTime = new Date(now + 168 * 3_600_000);
 
       const windLayerName = windSrc === 'arpege' ? 'maritime:wind-speed-arpege'
                           : windSrc === 'arome'  ? 'maritime:wind-speed-arome'
