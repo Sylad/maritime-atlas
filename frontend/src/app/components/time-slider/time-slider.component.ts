@@ -101,9 +101,21 @@ export interface TimeSliderLayerCoverage {
         }
 
         <div class="ts-ticks">
-          <span class="ts-tick-min">{{ minTime() | date:'dd/MM' }}</span>
-          <span class="ts-tick-mid">{{ midTime() | date:'dd/MM' }}</span>
-          <span class="ts-tick-max">{{ maxTime() | date:'dd/MM' }}</span>
+          @if (visibleValidityTicks().length > 0) {
+            <!-- 2026-05-18 APEX 10 — ticks alignés sur les validités RÉELLES du master.
+                 Position % calculée linéairement entre minTime et maxTime. Downsample
+                 si > MAX_VISIBLE_TICKS pour rester lisible. -->
+            @for (tick of visibleValidityTicks(); track tick.getTime()) {
+              <span class="ts-tick-validity"
+                    [style.left.%]="tickPositionPercent(tick)"
+                    [title]="tick | date:'EEE dd/MM HH:mm':'UTC':'fr-FR'">{{ tick | date:'dd/MM' }}</span>
+            }
+          } @else {
+            <!-- Fallback "loading" ou stepMs-driven (validités pas encore arrivées). -->
+            <span class="ts-tick-min">{{ minTime() | date:'dd/MM' }}</span>
+            <span class="ts-tick-mid">{{ midTime() | date:'dd/MM' }}</span>
+            <span class="ts-tick-max">{{ maxTime() | date:'dd/MM' }}</span>
+          }
         </div>
       </div>
 
@@ -307,12 +319,24 @@ export interface TimeSliderLayerCoverage {
       opacity: 0.8;
     }
     .ts-ticks {
+      position: relative;  /* container pour les ticks validity en absolute */
       display: flex;
       justify-content: space-between;
       font-family: var(--font-mono);
       font-size: 0.65rem;
       color: var(--fg-dim);
       padding: 0 2px;
+      min-height: 1em;  /* évite collapse quand ticks absolute */
+    }
+    /* 2026-05-18 APEX 10 — ticks alignés sur validités master.
+       Positionnement absolute selon [style.left.%] pour matcher la track.
+       transform translateX(-50%) recentre le label sur sa position. */
+    .ts-tick-validity {
+      position: absolute;
+      transform: translateX(-50%);
+      white-space: nowrap;
+      &:first-child { transform: translateX(0); }  /* pas de décalage gauche pour 1er tick */
+      &:last-child  { transform: translateX(-100%); }  /* recalé entièrement à gauche pour dernier */
     }
 
     /* Bouton expand : à droite du grid, vertical hauteur match track-wrap */
@@ -464,6 +488,34 @@ export class TimeSliderComponent {
   // ─── Computed ──────────────────────────────────────────────────────
   readonly midTime = computed(() => new Date((this.minTime().getTime() + this.maxTime().getTime()) / 2));
 
+  /** 2026-05-18 APEX 10 — Liste des validités à afficher comme ticks sous la
+   *  track. Si validityList contient ≤ MAX_VISIBLE_TICKS, on les affiche
+   *  toutes. Sinon on downsample uniformément (1 tick sur N) en gardant
+   *  TOUJOURS le premier et le dernier. Évite l'amas visuel pour les
+   *  longues séries (wind forecast = 28 ticks 6h sur 7j). */
+  private readonly MAX_VISIBLE_TICKS = 8;
+  readonly visibleValidityTicks = computed<Date[]>(() => {
+    const list = this.validityList();
+    if (list.length === 0) return [];
+    if (list.length <= this.MAX_VISIBLE_TICKS) return [...list];
+    const step = Math.ceil(list.length / this.MAX_VISIBLE_TICKS);
+    const sampled: Date[] = [];
+    for (let i = 0; i < list.length; i += step) sampled.push(list[i]);
+    // Garantit la présence du dernier élément (sinon downsample peut le rater)
+    if (sampled[sampled.length - 1].getTime() !== list[list.length - 1].getTime()) {
+      sampled.push(list[list.length - 1]);
+    }
+    return sampled;
+  });
+
+  /** Position en % de la track pour une validité (interpolation linéaire). */
+  tickPositionPercent(tick: Date): number {
+    const min = this.minTime().getTime();
+    const max = this.maxTime().getTime();
+    if (max === min) return 0;
+    return Math.max(0, Math.min(100, ((tick.getTime() - min) / (max - min)) * 100));
+  }
+
   readonly cursorPercent = computed(() => {
     const min = this.minTime().getTime();
     const max = this.maxTime().getTime();
@@ -547,10 +599,29 @@ export class TimeSliderComponent {
   setTime(t: Date): void {
     const min = this.minTime().getTime();
     const max = this.maxTime().getTime();
-    const snapped = this.snapToStep(t.getTime());
-    const clamped = new Date(Math.max(min, Math.min(max, snapped)));
-    this.currentTime.set(clamped);
-    this.timeChange.emit(clamped);
+    const list = this.validityList();
+    let target: Date;
+
+    if (list.length > 0) {
+      // 2026-05-18 APEX 10 — la time-bar est une barre de STEPS pilotée par
+      // les validités du master. Tout click/drag/step entre 2 validités snap
+      // à la validité la PLUS PROCHE (nearest neighbor dans validityList).
+      // Le but : afficher uniquement les données réellement publiées par GS,
+      // pas un timestamp intermédiaire qui retournerait une image vide ou
+      // un nearestMatch arbitraire côté serveur.
+      const cur = t.getTime();
+      target = list.reduce((b: Date, c: Date) =>
+        Math.abs(c.getTime() - cur) < Math.abs(b.getTime() - cur) ? c : b,
+      );
+    } else {
+      // Fallback rétro-compat : pas de validityList (loading state ou master
+      // sans GS time-dim) → snap-to-step continu (stepMs).
+      const snapped = this.snapToStep(t.getTime());
+      target = new Date(Math.max(min, Math.min(max, snapped)));
+    }
+
+    this.currentTime.set(target);
+    this.timeChange.emit(target);
   }
 
   step(deltaMs: number): void {

@@ -1213,17 +1213,19 @@ function toIsoTimestamp(d: Date): string {
 
       <!-- Attribution panel relocated into controls-dock-bottom-right -->
 
-      <app-time-slider
-        [minTime]="sliderConfig().minTime"
-        [maxTime]="sliderConfig().maxTime"
-        [stepMs]="sliderConfig().stepMs"
-        [statusLabel]="sliderConfig().label"
-        [validityList]="unionValidityList()"
-        [layerCoverage]="sliderLayerCoverage()"
-        [externalAnimationActive]="animPlayer.state() !== 'idle'"
-        [externalCurrentTime]="currentTimeSig()"
-        (timeChange)="onSliderTimeChange($event)"
-        (playClicked)="onSliderPlayClicked()" />
+      @if (sliderConfig(); as cfg) {
+        <app-time-slider
+          [minTime]="cfg.minTime"
+          [maxTime]="cfg.maxTime"
+          [stepMs]="cfg.stepMs"
+          [statusLabel]="cfg.label"
+          [validityList]="cfg.validities"
+          [layerCoverage]="sliderLayerCoverage()"
+          [externalAnimationActive]="animPlayer.state() !== 'idle'"
+          [externalCurrentTime]="currentTimeSig()"
+          (timeChange)="onSliderTimeChange($event)"
+          (playClicked)="onSliderPlayClicked()" />
+      }
     </div>
   `,
   styles: `
@@ -2332,9 +2334,24 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   ];
 
   /** Stack ordonné des layers allumés (ordre d'activation user). Maintenu
-   *  par effect() depuis les show* signals. La tête = master du temps. */
+   *  par effect() depuis les show* signals. La tête = candidate master.
+   *
+   *  2026-05-18 APEX 10 : le MASTER DU TEMPS est strictement une layer
+   *  time-enabled WMS (sst/wind/waves). Les vector layers (vessels, lightning,
+   *  metar, firms, quakes) ne pilotent pas la time-bar — ce sont des
+   *  observations live continues, pas des données discrètes avec validités GS.
+   *
+   *  → masterLayerKey filtre `activationOrder` pour ne garder que la 1ère
+   *  layer WMS. Si user a activé QUE des vector layers, masterLayerKey=null
+   *  et sliderConfig retourne null → time-bar entièrement masquée. */
   readonly activationOrder = signal<string[]>([]);
-  readonly masterLayerKey = computed<string | null>(() => this.activationOrder()[0] ?? null);
+  readonly masterLayerKey = computed<string | null>(() => {
+    const order = this.activationOrder();
+    const wmsKeys = new Set(
+      this.animatableLayers.filter((l) => l.type === 'wms').map((l) => l.key),
+    );
+    return order.find((k) => wmsKeys.has(k)) ?? null;
+  });
   readonly masterLayerLabel = computed<string | null>(() => {
     const key = this.masterLayerKey();
     return key ? this.animatableLayers.find((l) => l.key === key)?.label ?? null : null;
@@ -2506,65 +2523,63 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     windParticles: { kind: 'forecast', stepH: 6,  pastH: 0,   futureH: 168 },
   };
 
-  /** Computed : drive l'input du time-slider selon les layers actifs.
-   *  - minTime/maxTime : bornes du slider (now - maxPastH ... now + maxFutureH)
-   *  - stepMs : granularité min (drive snap + step buttons)
-   *  - label : monospace status "Δ 6h • -24h → +72h" ou "LIVE" */
-  readonly sliderConfig = computed(() => {
-    const active: string[] = [];
-    if (this.showVessels())       active.push('vessels');
-    if (this.showTracks())        active.push('tracks');
-    if (this.showAlerts())        active.push('alerts');
-    if (this.showBuoys())         active.push('buoys');
-    if (this.showLightning())     active.push('lightning');
-    if (this.showMetar())         active.push('metar');
-    if (this.showHubeau())        active.push('hubeau');
-    if (this.showPiezo())         active.push('piezo');
-    if (this.showQuakes())        active.push('quakes');
-    if (this.showFirms())         active.push('firms');
-    if (this.showRain())          active.push('rain');
-    if (this.showSST())           active.push('sst');
-    if (this.showWind())          active.push('wind');
-    if (this.showWaves())         active.push('waves');
-    if (this.showWindArrows())    active.push('windArrows');
-    if (this.showWaveArrows())    active.push('waveArrows');
-    if (this.showWindParticles()) active.push('windParticles');
+  /** Computed : drive l'input du time-slider selon le MASTER du temps (= la
+   *  première layer time-enabled data activée). Retourne `null` si aucune layer
+   *  data n'est active → le template parent masque la time-bar entièrement.
+   *
+   *  2026-05-18 APEX 10 (Sylvain) : refacto majeur. Avant, on calculait une
+   *  plage CONTINUE depuis les LAYER_PROFILES.{pastH,futureH,stepH}. Maintenant
+   *  on s'aligne sur les VALIDITÉS RÉELLES du master (`validityListPerLayer`)
+   *  → ticks = vraies dates publiées par GS, pas une grille théorique.
+   *
+   *  Fallback `null` quand : aucune layer time-enabled data active (pas que
+   *  vessels/alerts/etc — ceux-là sont des observations live qui ne pilotent
+   *  pas le temps). Le template @if-render masque alors le slider.
+   *
+   *  Fallback "loading" quand le master est défini mais validités async pas
+   *  encore arrivées (race au boot) — on affiche un mini slider temporaire
+   *  avec les bornes du LAYER_PROFILES, qui sera remplacé sous 1-2s par le
+   *  vrai sliderConfig validity-driven dès que fetchTimestamps répond. */
+  readonly sliderConfig = computed<{
+    minTime: Date;
+    maxTime: Date;
+    stepMs: number;
+    label: string;
+    validities: Date[];
+  } | null>(() => {
+    const masterKey = this.masterLayerKey();
+    if (!masterKey) return null;  // AC1 — pas de master = pas de time-bar
 
-    // Pattern adaptive (cf mémoire adaptive_time_slider_pattern.md) :
-    // la plage min/max + step + label sont dérivés des layers actifs.
-    // Chaque LAYER_PROFILES définit pastH/futureH/stepH ; on agrège en
-    // UNION (max des windows) + min des steps (granularité fine).
-    //
-    // Le hardcodage -1j/+7j (Sylvain 2026-05-15 phase 1) cassait ce
-    // pattern — reverted 2026-05-16. La plage doit refléter ce que les
-    // layers actifs peuvent réellement servir, pas une fenêtre arbitraire.
-    const profiles = active.map((k) => this.LAYER_PROFILES[k]).filter(Boolean);
+    const profile = this.LAYER_PROFILES[masterKey];
+    if (!profile) return null;
+
+    const validities = this.validityListPerLayer()[masterKey];
     const now = Date.now();
-    if (profiles.length === 0) {
-      // Aucun layer actif → plage de courtoisie ±6h pour ne pas collapser le slider.
-      // Step = 30min en fallback (Sylvain 2026-05-17 : "arrondi à la demi heure près").
+
+    if (!validities || validities.length === 0) {
+      // Loading state — validités async pas encore arrivées (Run 1 snap-master).
+      // Affiche le slider avec bornes provisoires basées profile, pour pas
+      // collapser visuellement. Sera replacé par les vraies validités dès que
+      // l'effect fetchTimestamps de validityListPerLayer résout.
+      const pastH = profile.pastH > 0 ? profile.pastH : 6;
+      const futureH = profile.futureH > 0 ? profile.futureH : 6;
       return {
-        minTime: new Date(now - 6 * 3_600_000),
-        maxTime: new Date(now + 6 * 3_600_000),
-        stepMs: 30 * 60_000,
-        label: '',
+        minTime: new Date(now - pastH * 3_600_000),
+        maxTime: new Date(now + futureH * 3_600_000),
+        stepMs: (profile.stepH > 0 ? profile.stepH : 1) * 3_600_000,
+        label: 'chargement validités…',
+        validities: [],
       };
     }
-    const maxPastH = Math.max(0, ...profiles.map((p) => p.pastH));
-    const maxFutureH = Math.max(0, ...profiles.map((p) => p.futureH));
-    const stepHs = profiles.filter((p) => p.stepH > 0).map((p) => p.stepH);
-    const stepH = stepHs.length === 0 ? 1 : Math.min(...stepHs);
-    const allLive = profiles.every((p) => p.kind === 'live');
 
-    // Garantit au moins ±6h de range pour éviter slider quasi-collapsé.
-    const padH = 6;
+    // AC2 + AC3 — bornes = first/last validity. stepMs = 0 car la navigation
+    // se fait par tick discret (validityList), pas par scrub continu.
     return {
-      minTime: new Date(now - Math.max(maxPastH, padH) * 3_600_000),
-      maxTime: new Date(now + Math.max(maxFutureH, padH) * 3_600_000),
-      stepMs: stepH * 3_600_000,
-      label: allLive
-        ? 'LIVE — pas de scrub utile'
-        : `Δ ${stepH}h${maxPastH > 0 ? ` • -${maxPastH}h` : ''}${maxFutureH > 0 ? ` → +${maxFutureH}h` : ''}`,
+      minTime: validities[0],
+      maxTime: validities[validities.length - 1],
+      stepMs: 0,
+      label: `${validities.length} validités · ${profile.kind === 'obs' ? 'obs' : 'forecast'}`,
+      validities,
     };
   });
 
@@ -3084,6 +3099,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private rainSource?: XYZ;
   private rainSnapshot?: RainViewerSnapshot;
   private rainSnapshotTimer?: ReturnType<typeof setInterval>;
+  /** 2026-05-18 APEX 10 — polling 60s pour détecter nouvelles validités master
+   *  en mode LIVE et snap auto vers la plus proche de NOW. */
+  private liveFollowTimer?: ReturnType<typeof setInterval>;
   private currentRainPath?: string;
   private windLayer?: ImageLayer<ImageWMS>;
   // 2026-05-17 nuit — pattern SST cloné pour wind contours (cf
@@ -3563,6 +3581,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.refreshRainSnapshot();
     this.rainSnapshotTimer = setInterval(() => this.refreshRainSnapshot(), 5 * 60_000);
 
+    // 2026-05-18 APEX 10 — LIVE follow-along (Sylvain AC6) : toutes les 60s,
+    // re-fetch les validités du master. Si une nouvelle validité plus proche
+    // de NOW est publiée par le fetcher PENDANT QU'ON EST EN MODE LIVE,
+    // snap auto vers elle. Si l'user a navigué loin de NOW (>LIVE_THRESHOLD),
+    // on respecte sa position (pas de snap intempestif).
+    this.liveFollowTimer = setInterval(() => this.refreshMasterValiditiesIfLive(), 60_000);
+
     // ─── Animation player wiring ──────────────────────────────────────
     // À chaque frame émise par le player, on déclenche le pipeline normal
     // d'update (refreshForTime + slider). Le slider visuel suit donc
@@ -3624,6 +3649,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.pastVesselsSub?.unsubscribe();
     if (this.pastFetchDebounce) clearTimeout(this.pastFetchDebounce);
     if (this.rainSnapshotTimer) clearInterval(this.rainSnapshotTimer);
+    if (this.liveFollowTimer) clearInterval(this.liveFollowTimer);
     if (this.arrowsFetchDebounce) clearTimeout(this.arrowsFetchDebounce);
     this.stopLightningLoop();
     this.stopAlertsLoop();
@@ -4936,6 +4962,48 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       return { start: new Date(anchor.getTime() - ms), end: anchor };
     }
     return { start: anchor, end: new Date(anchor.getTime() + ms) };
+  }
+
+  /** 2026-05-18 APEX 10 — LIVE follow-along. Polling 60s appelé depuis
+   *  ngAfterViewInit. Si on est en mode LIVE (currentTime à <LIVE_THRESHOLD_MS
+   *  de NOW) ET qu'une nouvelle validité plus proche de NOW est arrivée chez
+   *  GS depuis le dernier fetch (= le fetcher a publié un granule pendant
+   *  qu'on regardait), snap auto vers cette nouvelle validité. Si l'user a
+   *  navigué loin de NOW, on respecte sa position (pas de snap intempestif). */
+  private async refreshMasterValiditiesIfLive(): Promise<void> {
+    const masterKey = this.masterLayerKey();
+    if (!masterKey) return;
+
+    // Mode LIVE = currentTime à <1h de NOW
+    const now = Date.now();
+    const curT = this.currentTime?.getTime() ?? now;
+    if (Math.abs(now - curT) >= LIVE_THRESHOLD_MS) return;
+
+    const cfg = this.sliderConfig();
+    if (!cfg) return;
+
+    const master = this.animatableLayers.find((l) => l.key === masterKey);
+    if (!master) return;
+
+    try {
+      const fresh = await this.fetchTimestamps(master, cfg.minTime, cfg.maxTime);
+      if (fresh.length === 0) return;
+
+      // Trouve closest to NOW dans la fresh list
+      const closest = fresh.reduce((b: Date, c: Date) =>
+        Math.abs(c.getTime() - now) < Math.abs(b.getTime() - now) ? c : b,
+      );
+
+      // Snap auto seulement si la nouvelle validity est plus proche que curT
+      if (Math.abs(closest.getTime() - now) < Math.abs(curT - now)) {
+        const newMap = { ...this.validityListPerLayer() };
+        newMap[masterKey] = fresh;
+        this.validityListPerLayer.set(newMap);
+        this.onTimeChange(closest);
+      }
+    } catch {
+      /* fetch fail (network, GS down) — silence, on re-essaiera dans 60s */
+    }
   }
 
   /** Récupère la liste des timestamps disponibles pour le master sur la
