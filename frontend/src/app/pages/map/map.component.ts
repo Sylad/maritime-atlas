@@ -1213,14 +1213,16 @@ function toIsoTimestamp(d: Date): string {
 
       <!-- Attribution panel relocated into controls-dock-bottom-right -->
 
-      @let cfg = sliderConfig();
-      @if (cfg !== null) {
+      <!-- 2026-05-18 APEX 10 : non-null assertion `!.` car Angular 19 strict-template
+           ne narrow pas `cfg` même avec `@if (cfg !== null)`. L'invariant est garanti
+           par le `@if` au-dessus, donc le `!.` est safe ici. -->
+      @if (sliderConfig() !== null) {
         <app-time-slider
-          [minTime]="cfg.minTime"
-          [maxTime]="cfg.maxTime"
-          [stepMs]="cfg.stepMs"
-          [statusLabel]="cfg.label"
-          [validityList]="cfg.validities"
+          [minTime]="sliderConfig()!.minTime"
+          [maxTime]="sliderConfig()!.maxTime"
+          [stepMs]="sliderConfig()!.stepMs"
+          [statusLabel]="sliderConfig()!.label"
+          [validityList]="sliderConfig()!.validities"
           [layerCoverage]="sliderLayerCoverage()"
           [externalAnimationActive]="animPlayer.state() !== 'idle'"
           [externalCurrentTime]="currentTimeSig()"
