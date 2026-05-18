@@ -2359,14 +2359,20 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     gsLayerName?: string;
     active: () => boolean;
   }> = [
-    { key: 'wind',      label: 'Vent',     type: 'wms',    gsLayerName: 'maritime:wind-speed',     active: () => this.showWind() },
-    { key: 'waves',     label: 'Vagues',   type: 'wms',    gsLayerName: 'maritime:wave-hs',        active: () => this.showWaves() },
-    { key: 'sst',       label: 'SST',      type: 'wms',    gsLayerName: 'maritime:sst-daily',      active: () => this.showSST() },
-    { key: 'vessels',   label: 'Navires AIS', type: 'vector',                                       active: () => this.showVessels() },
-    { key: 'lightning', label: 'Foudre',   type: 'vector',                                          active: () => this.showLightning() },
-    { key: 'metar',     label: 'METAR',    type: 'vector',                                          active: () => this.showMetar() },
-    { key: 'firms',     label: 'FIRMS',    type: 'vector',                                          active: () => this.showFirms() },
-    { key: 'quakes',    label: 'Séismes',  type: 'vector',                                          active: () => this.showQuakes() },
+    { key: 'wind',           label: 'Vent',           type: 'wms',    gsLayerName: 'maritime:wind-speed',     active: () => this.showWind() },
+    { key: 'waves',          label: 'Vagues',         type: 'wms',    gsLayerName: 'maritime:wave-hs',        active: () => this.showWaves() },
+    { key: 'sst',            label: 'SST',            type: 'wms',    gsLayerName: 'maritime:sst-daily',      active: () => this.showSST() },
+    // 2026-05-18 — arrows/particles ajoutées comme master-éligibles (time
+    // dim GS partagée avec wind-speed/wave-dir). Permet à l'user de les
+    // sélectionner comme maître du temps depuis la time-bar étendue.
+    { key: 'windArrows',     label: 'Flèches vent',   type: 'wms',    gsLayerName: 'maritime:wind-speed',     active: () => this.showWindArrows() },
+    { key: 'waveArrows',     label: 'Flèches vagues', type: 'wms',    gsLayerName: 'maritime:wave-dir',       active: () => this.showWaveArrows() },
+    { key: 'windParticles',  label: 'Particules vent',type: 'wms',    gsLayerName: 'maritime:wind-speed',     active: () => this.showWindParticles() },
+    { key: 'vessels',        label: 'Navires AIS',    type: 'vector',                                          active: () => this.showVessels() },
+    { key: 'lightning',      label: 'Foudre',         type: 'vector',                                          active: () => this.showLightning() },
+    { key: 'metar',          label: 'METAR',          type: 'vector',                                          active: () => this.showMetar() },
+    { key: 'firms',          label: 'FIRMS',          type: 'vector',                                          active: () => this.showFirms() },
+    { key: 'quakes',         label: 'Séismes',        type: 'vector',                                          active: () => this.showQuakes() },
   ];
 
   /** Stack ordonné des layers allumés (ordre d'activation user). Maintenu
