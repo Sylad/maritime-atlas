@@ -2405,6 +2405,15 @@ export class MapComponent implements AfterViewInit, OnDestroy {
    *  s'applique. */
   readonly layerZIndexOrder = signal<string[]>([]);
 
+  /** 2026-05-19 APEX 16 — internal mutable state pour l'effect activationOrder
+   *  watcher. Sorti en field de classe (était closure) pour que restoreLayerPrefs
+   *  puisse pré-populer l'ordre user persisté AVANT le 1er fire de l'effect. */
+  private internalActivationOrder: string[] = [];
+  /** 2026-05-19 APEX 16 — ordre activation user lu depuis localStorage au boot.
+   *  Lu UNE FOIS par l'effect activationOrder à son 1er run. Null = pas de pref
+   *  persistée → comportement legacy (reconstruction from declarative order). */
+  private restoredActivationOrder: string[] | null = null;
+
   /** Bascule le master du temps vers la layer `key`. Met cette layer en TÊTE
    *  de activationOrder pour que masterLayerKey la sélectionne en premier
    *  (filtré WMS-only côté computed). Idempotent si déjà master. */
@@ -3118,7 +3127,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       // encore le zIndexOrder (nécessiterait migration backend) ; pour le moment
       // l'ordre est cross-tab via localStorage uniquement. Cross-device sync = TODO.
       const zIndexOrder = this.layerZIndexOrder();
-      localStorage.setItem(LAYER_PREFS_KEY, JSON.stringify({ visibility, opacity, zIndexOrder }));
+      // 2026-05-19 APEX 16 — persiste aussi l'ordre d'activation user (master
+      // du temps = activationOrder[0] filtré WMS). Permet de retrouver son
+      // setup après reload.
+      const activationOrder = this.activationOrder();
+      localStorage.setItem(LAYER_PREFS_KEY, JSON.stringify({ visibility, opacity, zIndexOrder, activationOrder }));
     } catch {
       // localStorage full / disabled — ignore, user reverra son default au reload
     }
@@ -3228,6 +3241,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       // si data.zIndexOrder absent du blob actuel).
       if (Array.isArray(data?.zIndexOrder)) {
         this.layerZIndexOrder.set(data.zIndexOrder);
+      }
+      // 2026-05-19 APEX 16 — restore ordre user d'activation (master du temps).
+      // Sera lu par l'effect activationOrder watcher à son 1er fire pour
+      // pré-populer internalActivationOrder dans l'ordre user (au lieu de
+      // l'ordre déclaratif d'animatableLayers).
+      if (Array.isArray(data?.activationOrder) && data.activationOrder.every((k: unknown) => typeof k === 'string')) {
+        this.restoredActivationOrder = data.activationOrder;
       }
     } catch {
       // JSON corrupt → ignore, fall back to defaults
@@ -3406,11 +3426,36 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // null → bloc « Maître du temps » absent de la modal (bug observé
     // Sylvain 2026-05-14).
     let prevActive = new Set<string>();
-    let internalOrder: string[] = [];
+    let firstRunHandled = false;
     effect(() => {
       const currentActive = new Set<string>(
         this.animatableLayers.filter((l) => l.active()).map((l) => l.key),
       );
+
+      // 2026-05-19 APEX 16 — au 1er fire après boot, si restoreLayerPrefs a
+      // déjà set `restoredActivationOrder`, on l'utilise pour pre-populer
+      // internalOrder dans l'ordre user persisté (master = order[0]) au lieu
+      // de reconstruire from scratch dans l'ordre déclaratif animatableLayers.
+      if (!firstRunHandled) {
+        firstRunHandled = true;
+        const restored = this.restoredActivationOrder;
+        if (restored && restored.length > 0) {
+          // Filtrer les keys qui sont vraiment active après merge prefs
+          const validOrder = restored.filter((k) => currentActive.has(k));
+          // Append les active layers qui n'étaient pas dans la pref
+          for (const layer of this.animatableLayers) {
+            if (currentActive.has(layer.key) && !validOrder.includes(layer.key)) {
+              validOrder.push(layer.key);
+            }
+          }
+          this.internalActivationOrder = validOrder;
+          this.activationOrder.set([...validOrder]);
+          prevActive = currentActive;
+          return;
+        }
+      }
+
+      const internalOrder = this.internalActivationOrder;
       let changed = false;
       // Désactivations : remove
       for (const key of prevActive) {
