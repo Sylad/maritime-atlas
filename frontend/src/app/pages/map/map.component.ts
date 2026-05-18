@@ -1218,7 +1218,7 @@ function toIsoTimestamp(d: Date): string {
         [maxTime]="sliderConfig().maxTime"
         [stepMs]="sliderConfig().stepMs"
         [statusLabel]="sliderConfig().label"
-        [validityList]="masterValidityList()"
+        [validityList]="unionValidityList()"
         [layerCoverage]="sliderLayerCoverage()"
         [externalAnimationActive]="animPlayer.state() !== 'idle'"
         [externalCurrentTime]="animPlayer.state() !== 'idle' ? currentTimeSig() : null"
@@ -2340,12 +2340,30 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     return key ? this.animatableLayers.find((l) => l.key === key)?.label ?? null : null;
   });
 
-  // 2026-05-17 (Sylvain refacto navigation time-bar par validité) : liste
-  // des timestamps publiés par le master du temps. Drive les boutons
-  // ⏪︎/⏩︎ (validité précédente/suivante) et ⏮︎/⏭︎ (extrême passé/futur).
-  // Mise à jour via effect quand master ou sliderConfig change (cf
-  // refreshMasterValidityList in constructor effect block).
+  // 2026-05-17 — DEPRECATED, conservé pour pas casser les bindings legacy.
+  // Remplacé par validityListPerLayer + unionValidityList (APEX 08 refacto).
   readonly masterValidityList = signal<Date[]>([]);
+
+  // 2026-05-18 (APEX 08 refacto time-bar global) — Map<layerKey, Date[]>
+  // qui contient les validités RÉELLES de chaque layer time-enabled active.
+  // Chaque source WMS snap son TIME à sa propre validité la plus proche
+  // (au lieu d'un snap floor générique 24h/6h qui faisait demander des
+  // TIMEs absents en granule → nearestMatch GS coûteux → 502).
+  readonly validityListPerLayer = signal<Map<string, Date[]>>(new Map());
+
+  /** Union triée dédupliquée des validités de TOUTES les layers actives.
+   *  Drive le time-slider (ticks visibles + nav ⏪⏩). Quand l'user navigue,
+   *  il saute à la validité SUIVANTE/PRÉCÉDENTE toutes layers confondues,
+   *  ce qui donne une nav fluide même avec des grilles hétérogènes
+   *  (SST 24h + wind 6h ⇒ ticks toutes les 6h sur les jours où SST publie). */
+  readonly unionValidityList = computed<Date[]>(() => {
+    const map = this.validityListPerLayer();
+    const set = new Set<number>();
+    for (const list of map.values()) {
+      for (const d of list) set.add(d.getTime());
+    }
+    return Array.from(set).sort((a, b) => a - b).map((t) => new Date(t));
+  });
 
   // Toggles user — par défaut tout visible (sauf rain/wind/waves : opt-in
   // pour éviter d'écraser l'image avec des tiles tant que pas demandé)
@@ -3210,10 +3228,20 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     //  3. Tracking prevMaster pour ne snap qu'au CHANGEMENT (pas à chaque tick)
     //  4. queueMicrotask pour respecter Angular signal-write rules
     let prevMaster: string | null = null;
+    let prevValiditiesFirstSeen = new Set<string>();
     effect(() => {
       const masterKey = this.masterLayerKey();
-      if (masterKey === prevMaster) return;
+      const validityMap = this.validityListPerLayer();  // subscription : re-fire au peuplement
+
+      // Skip si master inchangé ET validités déjà connues pour cette layer
+      const realList = masterKey ? validityMap.get(masterKey) : undefined;
+      const hasValidities = !!realList && realList.length > 0;
+      const firstTimeSeen = masterKey && hasValidities && !prevValiditiesFirstSeen.has(masterKey);
+
+      if (masterKey === prevMaster && !firstTimeSeen) return;
       prevMaster = masterKey;
+      if (firstTimeSeen && masterKey) prevValiditiesFirstSeen.add(masterKey);
+
       if (!masterKey) return;
       if (this.animPlayer.state() !== 'idle') return;
 
@@ -3224,8 +3252,20 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       const profile = this.LAYER_PROFILES[masterKey];
       if (!profile) return;
 
+      // 2026-05-18 (APEX 08) — si on a déjà fetché les validités RÉELLES
+      // de la nouvelle master, on snap à la plus proche de now dans cette
+      // liste (vs un snap LAYER_PROFILES générique qui peut tomber sur
+      // un timestamp sans granule publié). Fallback LAYER_PROFILES si la
+      // liste n'est pas encore disponible (race au boot — le 1er run de
+      // l'effect fetch tournera juste après).
+      const realValidities = this.validityListPerLayer().get(masterKey);
       let target: Date;
-      if (profile.kind === 'live') {
+      if (realValidities && realValidities.length > 0) {
+        const best = realValidities.reduce((b, c) =>
+          Math.abs(c.getTime() - now) < Math.abs(b.getTime() - now) ? c : b,
+        );
+        target = best;
+      } else if (profile.kind === 'live') {
         target = new Date(now);
       } else if (profile.kind === 'obs' && profile.stepH > 0) {
         // Observation : recule d'un tick pour pointer la dernière data factuelle
@@ -3338,32 +3378,66 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       queueMicrotask(() => this.applyContours());
     });
 
-    // 2026-05-17 Sylvain — refresh validityList master quand master change
-    // ou quand la plage time-bar évolue. Drive les boutons de navigation
-    // ⏪︎/⏩︎/⏮︎/⏭︎ par validité réelle (cf time-slider component).
+    // 2026-05-18 (APEX 08 refacto) — refresh validityListPerLayer pour
+    // CHAQUE layer time-enabled active (sst, wind, waves). Chaque layer
+    // a sa propre liste de validités GS. Re-fire quand un toggle layer
+    // change, quand windSource bascule (gfs/arpege/arome), ou quand la
+    // plage time-bar évolue.
     effect(() => {
-      const masterKey = this.masterLayerKey();
-      const cfg = this.sliderConfig();  // s'abonne à la plage min/max
-      if (!masterKey) {
-        this.masterValidityList.set([]);
-        return;
-      }
-      const master = this.animatableLayers.find((l) => l.key === masterKey);
-      if (!master) {
-        this.masterValidityList.set([]);
-        return;
-      }
-      // Fetch async (GetCapabilities GS) — le résultat trie/filter déjà
-      // dans la plage [cfg.minTime, cfg.maxTime]. Si erreur réseau, on
-      // garde la liste précédente (pas de set vide qui casserait la nav).
-      this.fetchTimestamps(master, cfg.minTime, cfg.maxTime)
-        .then((list) => {
-          if (list.length > 0) {
-            list.sort((a, b) => a.getTime() - b.getTime());
-            this.masterValidityList.set(list);
-          }
-        })
-        .catch(() => { /* silence : keep prev list */ });
+      // S'abonne aux toggles + source wind + plage time-bar
+      const wantSst = this.showSST();
+      const wantWind = this.showWind();
+      const wantWaves = this.showWaves();
+      const windSrc = this.windSource();
+      const cfg = this.sliderConfig();
+
+      const windLayerName = windSrc === 'arpege' ? 'maritime:wind-speed-arpege'
+                          : windSrc === 'arome'  ? 'maritime:wind-speed-arome'
+                                                 : 'maritime:wind-speed';
+
+      // Fetch en parallèle pour chaque layer time-enabled WMS active.
+      // On compose un nouveau Map à set en un seul .set() (atomic update).
+      queueMicrotask(async () => {
+        const newMap = new Map<string, Date[]>(this.validityListPerLayer());
+        const tasks: Promise<void>[] = [];
+
+        const fetchAndSet = async (
+          key: string,
+          gsLayerName: string,
+          active: boolean,
+        ): Promise<void> => {
+          if (!active) { newMap.delete(key); return; }
+          try {
+            const list = await this.fetchTimestamps(
+              { type: 'wms', gsLayerName },
+              cfg.minTime,
+              cfg.maxTime,
+            );
+            if (list.length > 0) {
+              list.sort((a, b) => a.getTime() - b.getTime());
+              newMap.set(key, list);
+            }
+            // Si list vide, on garde l'ancienne valeur (pas écraser avec [])
+          } catch { /* silence */ }
+        };
+
+        tasks.push(fetchAndSet('sst',   'maritime:sst-daily', wantSst));
+        tasks.push(fetchAndSet('wind',  windLayerName,        wantWind));
+        tasks.push(fetchAndSet('waves', 'maritime:wave-hs',   wantWaves));
+
+        await Promise.allSettled(tasks);
+        this.validityListPerLayer.set(newMap);
+
+        // Pour bw-compat : sync masterValidityList = union (legacy binding).
+        // Sera retiré une fois plus aucun consumer ne lit masterValidityList.
+        const unionSet = new Set<number>();
+        for (const list of newMap.values()) {
+          for (const d of list) unionSet.add(d.getTime());
+        }
+        this.masterValidityList.set(
+          Array.from(unionSet).sort((a, b) => a - b).map((t) => new Date(t)),
+        );
+      });
     });
   }
 
@@ -4590,30 +4664,39 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.vesselSource?.clear();
       this.vesselsCount.set(0);
     }
-    // 2026-05-17 (APEX 07 fix #3) — TIME snappé à la grille native de
-    // CHAQUE layer GS pour tomber pile sur une validité publiée.
+    // 2026-05-18 (APEX 08 refacto) — TIME snappé à la validité RÉELLE
+    // la plus proche dans la liste de CHAQUE layer (depuis
+    // validityListPerLayer). Plus précis qu'un snap floor générique
+    // 24h/6h qui pouvait demander des timestamps absents en granule.
     //
-    // Sans snap : currentTime = e.g. 19:00 → GS reçoit TIME=19:00, mais
-    // les granules SST sont à 00:00 UTC quotidien. GS fait du nearestMatch
-    // (lourd) + bicubic + render 2548×1272 → dépasse 100s Cloudflare tunnel
-    // timeout → 502 systématique observé 2026-05-17 (Sylvain).
-    //
-    // Avec snap floor par layer :
-    //   - SST obs : snap 24h (00:00 UTC du jour) → tombe pile sur granule
-    //   - Wind/Wave forecast : snap 6h (run cycle GFS/WW3) → idem
-    // GS sert l'image cached immédiatement (pas de nearestMatch coûteux).
+    // Fallback : si la liste est vide pour une layer (e.g., GetCapabilities
+    // pas encore résolu, ou erreur réseau), on retombe sur l'ancien
+    // snap floor selon la grille native (24h SST / 6h forecast).
     const snapToFloor = (date: Date, hourStep: number) => {
       const ms = hourStep * 3_600_000;
       return new Date(Math.floor(date.getTime() / ms) * ms);
     };
-    const sstT = toIsoTimestamp(snapToFloor(t, 24));
-    const fcT = toIsoTimestamp(snapToFloor(t, 6));
+    const validityMap = this.validityListPerLayer();
+    const nearestValidity = (layerKey: string, fallbackStepH: number): string => {
+      const list = validityMap.get(layerKey);
+      if (!list || list.length === 0) {
+        return toIsoTimestamp(snapToFloor(t, fallbackStepH));
+      }
+      const target = t.getTime();
+      const best = list.reduce((b, c) =>
+        Math.abs(c.getTime() - target) < Math.abs(b.getTime() - target) ? c : b,
+      );
+      return toIsoTimestamp(best);
+    };
+    const sstT = nearestValidity('sst', 24);
+    const windT = nearestValidity('wind', 6);
+    const wavesT = nearestValidity('waves', 6);
     if (this.sstSource) this.sstSource.updateParams({ TIME: sstT });
     if (this.sstContoursSource) this.sstContoursSource.updateParams({ TIME: sstT });
-    if (this.windWmsSource) this.windWmsSource.updateParams({ TIME: fcT });
-    if (this.windContoursSource) this.windContoursSource.updateParams({ TIME: fcT });
-    if (this.wavesSource) this.wavesSource.updateParams({ TIME: fcT });
-    if (this.wavesContoursSource) this.wavesContoursSource.updateParams({ TIME: fcT });
+    if (this.windWmsSource) this.windWmsSource.updateParams({ TIME: windT });
+    if (this.windContoursSource) this.windContoursSource.updateParams({ TIME: windT });
+    if (this.wavesSource) this.wavesSource.updateParams({ TIME: wavesT });
+    if (this.wavesContoursSource) this.wavesContoursSource.updateParams({ TIME: wavesT });
   }
 
   /**
