@@ -1221,7 +1221,7 @@ function toIsoTimestamp(d: Date): string {
         [validityList]="unionValidityList()"
         [layerCoverage]="sliderLayerCoverage()"
         [externalAnimationActive]="animPlayer.state() !== 'idle'"
-        [externalCurrentTime]="animPlayer.state() !== 'idle' ? currentTimeSig() : null"
+        [externalCurrentTime]="currentTimeSig()"
         (timeChange)="onSliderTimeChange($event)"
         (playClicked)="onSliderPlayClicked()" />
     </div>
