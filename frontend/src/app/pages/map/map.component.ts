@@ -2349,7 +2349,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // Chaque source WMS snap son TIME à sa propre validité la plus proche
   // (au lieu d'un snap floor générique 24h/6h qui faisait demander des
   // TIMEs absents en granule → nearestMatch GS coûteux → 502).
-  readonly validityListPerLayer = signal<Map<string, Date[]>>(new Map());
+  readonly validityListPerLayer = signal<Record<string, Date[]>>({});
 
   /** Union triée dédupliquée des validités de TOUTES les layers actives.
    *  Drive le time-slider (ticks visibles + nav ⏪⏩). Quand l'user navigue,
@@ -2357,12 +2357,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
    *  ce qui donne une nav fluide même avec des grilles hétérogènes
    *  (SST 24h + wind 6h ⇒ ticks toutes les 6h sur les jours où SST publie). */
   readonly unionValidityList = computed<Date[]>(() => {
-    const map = this.validityListPerLayer();
+    const obj = this.validityListPerLayer();
     const set = new Set<number>();
-    for (const list of map.values()) {
-      for (const d of list) set.add(d.getTime());
+    for (const key of Object.keys(obj)) {
+      for (const d of obj[key]) set.add(d.getTime());
     }
-    return Array.from(set).sort((a, b) => a - b).map((t) => new Date(t));
+    return Array.from(set).sort((a: number, b: number) => a - b).map((t: number) => new Date(t));
   });
 
   // Toggles user — par défaut tout visible (sauf rain/wind/waves : opt-in
@@ -3234,7 +3234,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       const validityMap = this.validityListPerLayer();  // subscription : re-fire au peuplement
 
       // Skip si master inchangé ET validités déjà connues pour cette layer
-      const realList = masterKey ? validityMap.get(masterKey) : undefined;
+      const realList = masterKey ? validityMap[masterKey] : undefined;
       const hasValidities = !!realList && realList.length > 0;
       const firstTimeSeen = masterKey && hasValidities && !prevValiditiesFirstSeen.has(masterKey);
 
@@ -3261,7 +3261,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       const realValidities = this.validityListPerLayer().get(masterKey);
       let target: Date;
       if (realValidities && realValidities.length > 0) {
-        const best = realValidities.reduce((b, c) =>
+        const best = realValidities.reduce((b: Date, c: Date) =>
           Math.abs(c.getTime() - now) < Math.abs(b.getTime() - now) ? c : b,
         );
         target = best;
@@ -3396,9 +3396,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
                                                  : 'maritime:wind-speed';
 
       // Fetch en parallèle pour chaque layer time-enabled WMS active.
-      // On compose un nouveau Map à set en un seul .set() (atomic update).
+      // On compose un nouveau Record à set en un seul .set() (atomic update).
       queueMicrotask(async () => {
-        const newMap = new Map<string, Date[]>(this.validityListPerLayer());
+        const newMap: Record<string, Date[]> = { ...this.validityListPerLayer() };
         const tasks: Promise<void>[] = [];
 
         const fetchAndSet = async (
@@ -3406,7 +3406,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
           gsLayerName: string,
           active: boolean,
         ): Promise<void> => {
-          if (!active) { newMap.delete(key); return; }
+          if (!active) { delete newMap[key]; return; }
           try {
             const list = await this.fetchTimestamps(
               { type: 'wms', gsLayerName },
@@ -3414,8 +3414,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
               cfg.maxTime,
             );
             if (list.length > 0) {
-              list.sort((a, b) => a.getTime() - b.getTime());
-              newMap.set(key, list);
+              list.sort((a: Date, b: Date) => a.getTime() - b.getTime());
+              newMap[key] = list;
             }
             // Si list vide, on garde l'ancienne valeur (pas écraser avec [])
           } catch { /* silence */ }
@@ -3429,13 +3429,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         this.validityListPerLayer.set(newMap);
 
         // Pour bw-compat : sync masterValidityList = union (legacy binding).
-        // Sera retiré une fois plus aucun consumer ne lit masterValidityList.
         const unionSet = new Set<number>();
-        for (const list of newMap.values()) {
-          for (const d of list) unionSet.add(d.getTime());
+        for (const key of Object.keys(newMap)) {
+          for (const d of newMap[key]) unionSet.add(d.getTime());
         }
         this.masterValidityList.set(
-          Array.from(unionSet).sort((a, b) => a - b).map((t) => new Date(t)),
+          Array.from(unionSet).sort((a: number, b: number) => a - b).map((t: number) => new Date(t)),
         );
       });
     });
@@ -4678,12 +4677,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     };
     const validityMap = this.validityListPerLayer();
     const nearestValidity = (layerKey: string, fallbackStepH: number): string => {
-      const list = validityMap.get(layerKey);
+      const list = validityMap[layerKey];
       if (!list || list.length === 0) {
         return toIsoTimestamp(snapToFloor(t, fallbackStepH));
       }
       const target = t.getTime();
-      const best = list.reduce((b, c) =>
+      const best = list.reduce((b: Date, c: Date) =>
         Math.abs(c.getTime() - target) < Math.abs(b.getTime() - target) ? c : b,
       );
       return toIsoTimestamp(best);
