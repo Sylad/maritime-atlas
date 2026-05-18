@@ -2781,20 +2781,43 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     windParticles: '#86efac',
   };
 
+  /** 2026-05-18 APEX 12 — refresh interval (minutes) pour les vector layers
+   *  live. Pilote le rendu des segments de présence data dans la sous-barre
+   *  étendue. NaN/undefined pour les WMS layers (qui utilisent validityListPerLayer). */
+  private readonly LAYER_REFRESH_MIN: Partial<Record<string, number>> = {
+    lightning: 1,    // stream WebSocket lightningmaps.org → granule visible chaque ~1min
+    metar: 60,       // METAR aéroports refresh horaire
+    buoys: 30,       // EMODnet bouées scan ~30min
+    hubeau: 60,      // Hub'eau débits horaire
+    piezo: 60,       // Hub'eau piézo horaire
+    quakes: 5,       // USGS séismes ~5min
+    firms: 60,       // NASA FIRMS hourly
+    alerts: 1,       // RMQ push direct
+    vessels: 1,      // AIS stream live (vector point)
+    tracks: 1440,    // tracks daily — 1 segment / jour
+  };
+
   readonly sliderLayerCoverage = computed((): TimeSliderLayerCoverage[] => {
     const master = this.masterLayerKey();
+    const validityMap = this.validityListPerLayer();
     const out: TimeSliderLayerCoverage[] = [];
     const push = (active: boolean, key: keyof typeof this.LAYER_PROFILES, label: string) => {
       if (!active) return;
       const p = this.LAYER_PROFILES[key];
       if (!p || (p.pastH === 0 && p.futureH === 0)) return;
+      // APEX 12 — populate validities (WMS) ou refreshIntervalMin (vector).
+      const k = key as string;
+      const validities = validityMap[k];
+      const refreshMin = this.LAYER_REFRESH_MIN[k];
       out.push({
         name: label,
-        key: key as string,
+        key: k,
         color: this.LAYER_COLORS[key] ?? '#94a3b8',
         pastH: p.pastH,
         futureH: p.futureH,
         isMaster: master === key,
+        validities: validities && validities.length > 0 ? validities : undefined,
+        refreshIntervalMin: refreshMin,
       });
     };
     push(this.showVessels(),       'vessels',       'vessels');

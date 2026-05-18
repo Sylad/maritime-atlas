@@ -23,6 +23,14 @@ export interface TimeSliderLayerCoverage {
    *  Le composant affiche une icône distinctive (⭐ vs ☆) qui permet à l'user
    *  de basculer le master en cliquant sur l'icône d'une autre rangée. */
   isMaster: boolean;
+  /** 2026-05-18 APEX 12 — validités RÉELLES de cette layer (WMS time-enabled
+   *  uniquement). Rendues comme marqueurs ponctuels dans la sous-barre.
+   *  Vide ou undefined pour les vector layers (cf refreshIntervalMin). */
+  validities?: Date[];
+  /** 2026-05-18 APEX 12 — pour les vector layers live (lightning/metar/etc.),
+   *  intervalle de refresh (minutes). Rendu comme segments fins continus à
+   *  cette cadence (ex: lightning 1min, metar 60min, buoys 30min). */
+  refreshIntervalMin?: number;
 }
 
 /**
@@ -112,13 +120,33 @@ export interface TimeSliderLayerCoverage {
                         (click)="onMasterIconClick($event, cov.key)">{{ cov.isMaster ? '★' : '☆' }}</button>
                 <span class="ts-coverage-drag-handle" aria-hidden="true" title="Glisser pour réordonner z-index">⋮⋮</span>
                 <span class="ts-coverage-label">{{ cov.name }}</span>
-                <div class="ts-coverage-track">
+                <div class="ts-coverage-track"
+                     [title]="coverageTrackTooltip(cov)">
+                  <!-- Plage théorique (pastH/futureH) — sert de fond mais visuellement
+                       discret (opacity réduit) si on a déjà des markers concrets. -->
                   <div
                     class="ts-coverage-bar"
+                    [class.ts-coverage-bar-faded]="hasConcreteMarkers(cov)"
                     [style.background]="cov.color"
                     [style.left.%]="coverageLeftPercent(cov)"
-                    [style.width.%]="coverageWidthPercent(cov)"
-                    [title]="cov.name + ' : -' + cov.pastH + 'h → +' + cov.futureH + 'h'"></div>
+                    [style.width.%]="coverageWidthPercent(cov)"></div>
+                  <!-- 2026-05-18 APEX 12 — markers data presence.
+                       Variant 1 : pour les WMS time-enabled (validities[]), 1 tick par validity.
+                       Variant 2 : pour les vector layers (refreshIntervalMin), segments fins. -->
+                  @if (cov.validities && cov.validities.length > 0) {
+                    @for (v of visibleValidityMarkers(cov); track v.getTime()) {
+                      <span class="ts-coverage-marker ts-coverage-marker-tick"
+                            [style.background]="cov.color"
+                            [style.left.%]="positionPercentForDate(v)"></span>
+                    }
+                  } @else if (cov.refreshIntervalMin && cov.refreshIntervalMin > 0) {
+                    @for (seg of visibleVectorSegments(cov); track seg.t) {
+                      <span class="ts-coverage-marker ts-coverage-marker-seg"
+                            [style.background]="cov.color"
+                            [style.left.%]="positionPercentForTimestamp(seg.t)"
+                            [style.width.%]="seg.widthPercent"></span>
+                    }
+                  }
                 </div>
               </div>
             }
@@ -470,6 +498,32 @@ export interface TimeSliderLayerCoverage {
       opacity: 0.7;
       transition: opacity 150ms;
       &:hover { opacity: 1; }
+      /* 2026-05-18 APEX 12 — quand on a des markers concrets dessus, on fade
+         la barre de fond pour mettre l'accent sur les markers. */
+      &.ts-coverage-bar-faded {
+        opacity: 0.15;
+        &:hover { opacity: 0.35; }
+      }
+    }
+    /* 2026-05-18 APEX 12 — markers data presence dans la sous-barre.
+       Tick = point ponctuel (WMS validité). Seg = segment fin (vector live). */
+    .ts-coverage-marker {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      opacity: 0.95;
+      pointer-events: none;
+    }
+    .ts-coverage-marker-tick {
+      width: 2px;
+      transform: translateX(-1px);
+      border-radius: 1px;
+    }
+    .ts-coverage-marker-seg {
+      height: 4px;
+      top: 2px;
+      border-radius: 2px;
+      opacity: 0.6;
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -664,6 +718,78 @@ export class TimeSliderComponent {
     const clampedEnd = Math.min(end, max);
     const width = Math.max(0, ((clampedEnd - clampedStart) / (max - min)) * 100);
     return width;
+  }
+
+  // ─── 2026-05-18 APEX 12 — markers data presence ──────────────────────
+  /** True si la rangée a des markers concrets (validities OU segments vector).
+   *  Quand true, on fade la barre de fond pour mettre l'accent sur les markers. */
+  hasConcreteMarkers(cov: TimeSliderLayerCoverage): boolean {
+    return (!!cov.validities && cov.validities.length > 0)
+      || (!!cov.refreshIntervalMin && cov.refreshIntervalMin > 0);
+  }
+
+  /** Position % d'une date sur la track. Identique à tickPositionPercent mais
+   *  exposé sous nom différent pour clarté (markers vs ticks de validité). */
+  positionPercentForDate(d: Date): number {
+    return this.tickPositionPercent(d);
+  }
+  positionPercentForTimestamp(t: number): number {
+    return this.tickPositionPercent(new Date(t));
+  }
+
+  /** Downsample des validités pour les markers : max 30 visibles sinon
+   *  l'overdraw rend la barre illisible. Pour ≤30 validités, on garde tout. */
+  private readonly MAX_VISIBLE_MARKERS = 30;
+  visibleValidityMarkers(cov: TimeSliderLayerCoverage): Date[] {
+    const list = cov.validities ?? [];
+    if (list.length <= this.MAX_VISIBLE_MARKERS) return list;
+    const step = Math.ceil(list.length / this.MAX_VISIBLE_MARKERS);
+    const out: Date[] = [];
+    for (let i = 0; i < list.length; i += step) out.push(list[i]);
+    return out;
+  }
+
+  /** Segments rendus pour les vector layers (refreshIntervalMin). On génère
+   *  un segment toutes les `refreshIntervalMin` minutes sur [pastH, +futureH]
+   *  autour de NOW. Largeur du segment = refreshIntervalMin (en % de la track).
+   *  Capped à MAX_VISIBLE_MARKERS pour éviter l'overdraw. */
+  visibleVectorSegments(cov: TimeSliderLayerCoverage): Array<{ t: number; widthPercent: number }> {
+    const refreshMs = (cov.refreshIntervalMin ?? 0) * 60_000;
+    if (refreshMs <= 0) return [];
+    const min = this.minTime().getTime();
+    const max = this.maxTime().getTime();
+    const trackMs = max - min;
+    if (trackMs <= 0) return [];
+    const now = Date.now();
+    const start = now - cov.pastH * 3_600_000;
+    const end = now + cov.futureH * 3_600_000;
+    const segStart = Math.max(start, min);
+    const segEnd = Math.min(end, max);
+
+    // Capped : downsample si trop de segments tiendraient dans la fenêtre
+    const slots = Math.floor((segEnd - segStart) / refreshMs);
+    if (slots <= 0) return [];
+    const stride = Math.max(1, Math.ceil(slots / this.MAX_VISIBLE_MARKERS));
+    const visibleStep = refreshMs * stride;
+    const widthPercent = Math.max(0.3, ((refreshMs * stride * 0.6) / trackMs) * 100);
+
+    const out: Array<{ t: number; widthPercent: number }> = [];
+    for (let t = segStart; t <= segEnd; t += visibleStep) out.push({ t, widthPercent });
+    return out;
+  }
+
+  /** Tooltip détaillé pour le hover sur la sous-barre. */
+  coverageTrackTooltip(cov: TimeSliderLayerCoverage): string {
+    const range = `${cov.name} : -${cov.pastH}h → +${cov.futureH}h`;
+    if (cov.validities && cov.validities.length > 0) {
+      const first = cov.validities[0];
+      const last = cov.validities[cov.validities.length - 1];
+      return `${range}\n${cov.validities.length} validités du ${first.toISOString().slice(0,10)} au ${last.toISOString().slice(0,10)}`;
+    }
+    if (cov.refreshIntervalMin && cov.refreshIntervalMin > 0) {
+      return `${range}\nrafraîchi toutes les ${cov.refreshIntervalMin}min`;
+    }
+    return range;
   }
 
   // LIVE strict (Sylvain 2026-05-16) : true uniquement quand le cursor est
