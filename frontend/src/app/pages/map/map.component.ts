@@ -3100,7 +3100,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     };
     const opacity = this.layerOpacities();
     try {
-      localStorage.setItem(LAYER_PREFS_KEY, JSON.stringify({ visibility, opacity }));
+      // 2026-05-18 APEX 11+12 — persiste aussi l'ordre user des layers (zIndex)
+      // dans le même blob pour cohérence. Note : Phase C.2 DB sync ne push pas
+      // encore le zIndexOrder (nécessiterait migration backend) ; pour le moment
+      // l'ordre est cross-tab via localStorage uniquement. Cross-device sync = TODO.
+      const zIndexOrder = this.layerZIndexOrder();
+      localStorage.setItem(LAYER_PREFS_KEY, JSON.stringify({ visibility, opacity, zIndexOrder }));
     } catch {
       // localStorage full / disabled — ignore, user reverra son default au reload
     }
@@ -3205,6 +3210,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       if (typeof vis.efas === 'boolean') this.showEfas.set(vis.efas);
       const op = data?.opacity ?? {};
       this.layerOpacities.update((m) => ({ ...m, ...op }));
+      // 2026-05-18 APEX 11+12 — restore ordre user des layers (zIndex). Compat
+      // back avec le précédent key dédié `maritime.layer-zindex-v1` (fallback
+      // si data.zIndexOrder absent du blob actuel).
+      if (Array.isArray(data?.zIndexOrder)) {
+        this.layerZIndexOrder.set(data.zIndexOrder);
+      }
     } catch {
       // JSON corrupt → ignore, fall back to defaults
     }
