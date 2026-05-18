@@ -1213,9 +1213,9 @@ function toIsoTimestamp(d: Date): string {
 
       <!-- Attribution panel relocated into controls-dock-bottom-right -->
 
-      <!-- 2026-05-18 APEX 10 : non-null assertion `!.` car Angular 19 strict-template
-           ne narrow pas `cfg` même avec `@if (cfg !== null)`. L'invariant est garanti
-           par le `@if` au-dessus, donc le `!.` est safe ici. -->
+      <!-- 2026-05-18 APEX 10 : non-null assertion sur sliderConfig() car
+           Angular 19 strict-template ne narrow pas le @if (cfg !== null).
+           Invariant garanti par le @if au-dessus, donc safe. -->
       @if (sliderConfig() !== null) {
         <app-time-slider
           [minTime]="sliderConfig()!.minTime"
