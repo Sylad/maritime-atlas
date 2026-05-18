@@ -3258,7 +3258,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       // un timestamp sans granule publié). Fallback LAYER_PROFILES si la
       // liste n'est pas encore disponible (race au boot — le 1er run de
       // l'effect fetch tournera juste après).
-      const realValidities = this.validityListPerLayer().get(masterKey);
+      const realValidities = masterKey ? this.validityListPerLayer()[masterKey] : undefined;
       let target: Date;
       if (realValidities && realValidities.length > 0) {
         const best = realValidities.reduce((b: Date, c: Date) =>
