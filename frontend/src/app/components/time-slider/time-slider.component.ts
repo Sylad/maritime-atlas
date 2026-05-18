@@ -23,6 +23,11 @@ export interface TimeSliderLayerCoverage {
    *  Le composant affiche une icône distinctive (⭐ vs ☆) qui permet à l'user
    *  de basculer le master en cliquant sur l'icône d'une autre rangée. */
   isMaster: boolean;
+  /** 2026-05-18 — true si cette layer PEUT devenir master du temps. Faux pour
+   *  les layers dérivées (arrows, particles) et les vector layers, qui ne sont
+   *  pas dans `animatableLayers` → setMasterLayer no-op. Quand false, l'icône
+   *  ★/☆ est masquée pour éviter un click sans effet trompeur. */
+  canBeMaster?: boolean;
   /** 2026-05-18 APEX 12 — validités RÉELLES de cette layer (WMS time-enabled
    *  uniquement). Rendues comme marqueurs ponctuels dans la sous-barre.
    *  Vide ou undefined pour les vector layers (cf refreshIntervalMin). */
@@ -111,15 +116,22 @@ export interface TimeSliderLayerCoverage {
                    (dragleave)="onCoverageDragLeave($event, cov.key)"
                    (drop)="onCoverageDrop($event, cov.key)"
                    (dragend)="onCoverageDragEnd()">
-                <!-- 2026-05-18 — bouton ★ avec draggable="false" pour éviter
-                     que mousedown initie un drag (bug observé Sylvain : 1ère
-                     étoile pas cliquable quand draggable="true" sur la rangée). -->
-                <button type="button"
-                        class="ts-coverage-master-btn"
-                        draggable="false"
-                        [class.is-master]="cov.isMaster"
-                        [title]="cov.isMaster ? 'Maître du temps actuel' : 'Définir comme maître du temps'"
-                        (click)="onMasterIconClick($event, cov.key)">{{ cov.isMaster ? '★' : '☆' }}</button>
+                <!-- 2026-05-18 — bouton ★ : seulement pour les layers master-éligibles
+                     (= dans animatableLayers + WMS time-enabled). Les layers dérivées
+                     (arrows, particles) et vector layers affichent un placeholder visuel
+                     non-cliquable (cf canBeMaster=false). -->
+                @if (cov.canBeMaster) {
+                  <button type="button"
+                          class="ts-coverage-master-btn"
+                          draggable="false"
+                          [class.is-master]="cov.isMaster"
+                          [title]="cov.isMaster ? 'Maître du temps actuel' : 'Définir comme maître du temps'"
+                          (click)="onMasterIconClick($event, cov.key)">{{ cov.isMaster ? '★' : '☆' }}</button>
+                } @else {
+                  <span class="ts-coverage-master-placeholder"
+                        aria-hidden="true"
+                        title="Layer dérivée, non-éligible comme maître du temps"></span>
+                }
                 <!-- 2026-05-18 — le drag est maintenant initié UNIQUEMENT depuis ce handle ⋮⋮.
                      La rangée n'est plus draggable="true" globalement (évite l'interception du
                      click sur le bouton ★). -->
@@ -474,6 +486,12 @@ export interface TimeSliderLayerCoverage {
         color: var(--accent-bright);
       }
       &:hover { color: var(--fg); }
+    }
+    /* Placeholder pour rangées non master-éligibles : garde l'alignement du
+       grid sans afficher de bouton cliquable trompeur. */
+    .ts-coverage-master-placeholder {
+      display: inline-block;
+      width: 1em;
     }
     .ts-coverage-drag-handle {
       color: var(--fg-muted);

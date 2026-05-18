@@ -2800,6 +2800,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly sliderLayerCoverage = computed((): TimeSliderLayerCoverage[] => {
     const master = this.masterLayerKey();
     const validityMap = this.validityListPerLayer();
+    // Layers master-éligibles = dans animatableLayers ET de type 'wms' (cf
+    // masterLayerKey computed qui filtre WMS-only). Le bouton ★ n'est rendu
+    // que pour ces layers pour éviter les clicks no-op.
+    const masterEligibleKeys = new Set(
+      this.animatableLayers.filter((l) => l.type === 'wms').map((l) => l.key),
+    );
     const out: TimeSliderLayerCoverage[] = [];
     const push = (active: boolean, key: keyof typeof this.LAYER_PROFILES, label: string) => {
       if (!active) return;
@@ -2816,6 +2822,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         pastH: p.pastH,
         futureH: p.futureH,
         isMaster: master === key,
+        canBeMaster: masterEligibleKeys.has(k),
         validities: validities && validities.length > 0 ? validities : undefined,
         refreshIntervalMin: refreshMin,
       });
