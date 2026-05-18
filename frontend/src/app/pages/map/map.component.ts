@@ -262,23 +262,28 @@ function toIsoTimestamp(d: Date): string {
 
       <!-- Bouton hamburger pour toggle legend sur mobile. Sur desktop
            il est caché via @media. Sur mobile le legend défaut closed. -->
-      <button type="button" class="legend-toggle"
-              [class.is-open]="legendOpen()"
-              (click)="toggleLegend()"
-              [attr.aria-expanded]="legendOpen()"
-              aria-label="Toggle légende">
-        @if (legendOpen()) {
-          <span aria-hidden="true">×</span>
-        } @else {
+      <!-- 2026-05-18 APEX 11 — bouton hamburger visible quand le panneau est
+           collapsed (mobile OU desktop). Caché sinon (panneau ouvert). -->
+      @if (!legendOpen()) {
+        <button type="button" class="legend-toggle is-collapsed"
+                (click)="toggleLegend()"
+                [attr.aria-expanded]="legendOpen()"
+                aria-label="Afficher le panneau">
           <span aria-hidden="true">☰</span>
-        }
-      </button>
+        </button>
+      }
 
       <div class="legend data-catalog" [class.legend--closed]="!legendOpen()" (click)="onLegendClick($event)">
         @if (cap5Warning(); as msg) {
           <div class="cap5-toast" role="status">{{ msg }}</div>
         }
-        <div class="catalog-header" role="img" aria-label="AetherWX — see the atmosphere"></div>
+        <!-- 2026-05-18 APEX 11 — click sur le logo collapse le panneau gauche.
+             En mode collapsed, le bouton .legend-toggle prend le relais (☰). -->
+        <button type="button" class="catalog-header"
+                role="img"
+                aria-label="AetherWX — see the atmosphere (cliquer pour réduire le panneau)"
+                title="Réduire le panneau"
+                (click)="toggleLegend()"></button>
 
 
         <div class="layer-toggles">
@@ -1227,7 +1232,9 @@ function toIsoTimestamp(d: Date): string {
           [externalAnimationActive]="animPlayer.state() !== 'idle'"
           [externalCurrentTime]="currentTimeSig()"
           (timeChange)="onSliderTimeChange($event)"
-          (playClicked)="onSliderPlayClicked()" />
+          (playClicked)="onSliderPlayClicked()"
+          (masterChange)="setMasterLayer($event)"
+          (reorderRequest)="reorderLayerByDrag($event.fromKey, $event.toKey)" />
       }
     </div>
   `,
@@ -1394,16 +1401,27 @@ function toIsoTimestamp(d: Date): string {
     /* Hero logo en background-image, breaks out du padding parent pour
        coller aux 4 coins arrondis du panneau. Pattern validé Sylvain. */
     .data-catalog .catalog-header {
+      /* 2026-05-18 APEX 11 — passé en <button>. Reset les styles natifs button. */
+      display: block;
+      width: calc(100% + 2.4em);
+      padding: 0;
+      border: 0;
+      cursor: pointer;
+      background-color: transparent;
       background-image: url(/AetherWX_logo_menu.png);
       background-size: 100% 100%;     /* exact-fill : pas de crop, pas de vide */
       background-repeat: no-repeat;
       /* Suit le ratio natif de AetherWX_logo_menu.png (1176×709 = 1.66:1)
-         → la hauteur s'auto-ajuste à la largeur courante du panel.
-         À largeur ~257px on retombe sur ≈155px de haut comme demandé. */
+         → la hauteur s'auto-ajuste à la largeur courante du panel. */
       aspect-ratio: 1176 / 709;
       margin: -1em -1.2em 1em -1.2em;
       border-bottom: 1px solid var(--border);
       border-radius: 8px 8px 0 0;
+      transition: filter 150ms;
+      &:hover, &:focus-visible {
+        filter: brightness(1.1);
+        outline: none;
+      }
     }
     .catalog-section {
       display: flex;
@@ -2144,11 +2162,17 @@ function toIsoTimestamp(d: Date): string {
       }
     }
 
-    /* ── Legend toggle (hamburger) — affiché uniquement sur mobile ──
-       Sur desktop : display:none → la legend reste toujours visible.
-       Sur mobile : pille fixe top-left, taille touch-friendly (44x44). */
+    /* ── Legend toggle (hamburger) — affiché sur mobile OU desktop quand collapsed ──
+       2026-05-18 APEX 11 : sur desktop, le panneau peut être collapse via click
+       sur le logo AetherWX. Le bouton hamburger devient alors visible pour
+       re-déployer. */
     .legend-toggle {
       display: none;
+      /* 2026-05-18 APEX 11 — variante is-collapsed = visible en desktop quand
+         le panneau a été collapse via click sur le logo. */
+      &.is-collapsed {
+        display: flex;
+      }
       position: absolute;
       top: 1em;
       left: 1em;
@@ -2269,7 +2293,16 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   /** Legend drawer state — défaut open sur desktop, closed sur mobile (≤ 760px).
       Sur desktop le bouton n'apparaît pas (CSS @media display:none) donc la
       legend reste toujours visible — l'état du signal n'a aucun effet. */
-  readonly legendOpen = signal(typeof window !== 'undefined' ? window.innerWidth > 760 : true);
+  readonly legendOpen = signal((() => {
+    // 2026-05-18 APEX 11 — priority à la pref user persistée. Sinon fallback
+    // au heuristic responsive (open desktop, closed mobile).
+    if (typeof window === 'undefined') return true;
+    try {
+      const raw = localStorage.getItem('maritime.panel-collapsed-v1');
+      if (raw !== null) return !JSON.parse(raw);
+    } catch { /* malformed — fall through */ }
+    return window.innerWidth > 760;
+  })());
   // ─── V2 Phase 1 (2026-05-12) — Data catalog accordion sections ─────
   // 4 sections pliables avec icône colorée et compteur de layers actifs.
   // Persistance localStorage indépendante des layer prefs. Défaut :
@@ -2359,6 +2392,98 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     const key = this.masterLayerKey();
     return key ? this.animatableLayers.find((l) => l.key === key)?.label ?? null : null;
   });
+
+  /** 2026-05-18 APEX 11 — ordre user des layers dans la time-bar étendue, pilote
+   *  le z-index OL (premier = au-dessus). Persisté en localStorage. Vide tant
+   *  que l'user n'a rien drag — alors l'ordre déclaratif de sliderLayerCoverage
+   *  s'applique. */
+  readonly layerZIndexOrder = signal<string[]>([]);
+
+  /** Bascule le master du temps vers la layer `key`. Met cette layer en TÊTE
+   *  de activationOrder pour que masterLayerKey la sélectionne en premier
+   *  (filtré WMS-only côté computed). Idempotent si déjà master. */
+  setMasterLayer(key: string): void {
+    const cur = this.activationOrder();
+    if (!cur.includes(key) || cur[0] === key) return;
+    // Retire la clé puis la remet en tête
+    const reordered = [key, ...cur.filter((k) => k !== key)];
+    this.activationOrder.set(reordered);
+  }
+
+  /** Réordonne les rangées de la time-bar étendue par drag-and-drop. fromKey
+   *  est inséré à la position de toKey. Persiste en localStorage et applique
+   *  setZIndex aux layers OL (premier = z-index le plus haut = au-dessus). */
+  reorderLayerByDrag(fromKey: string, toKey: string): void {
+    if (fromKey === toKey) return;
+    const current = this.sliderLayerCoverage().map((c) => c.key);
+    const fromIdx = current.indexOf(fromKey);
+    const toIdx = current.indexOf(toKey);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const reordered = [...current];
+    reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, fromKey);
+    this.layerZIndexOrder.set(reordered);
+    this.applyLayerZIndices();
+    this.persistLayerZIndices();
+  }
+
+  /** Applique setZIndex à chaque layer OL selon l'ordre `layerZIndexOrder`.
+   *  Base z-index 30, +1 par position. Premier (top de liste) = plus haut. */
+  private applyLayerZIndices(): void {
+    const order = this.layerZIndexOrder();
+    if (order.length === 0) return;
+    const BASE_Z = 30;
+    // L'item en tête est visuellement au-dessus, donc z-index le plus grand
+    order.forEach((key, idx) => {
+      const z = BASE_Z + (order.length - idx);
+      const layer = this.olLayerByKey(key);
+      if (layer) layer.setZIndex(z);
+    });
+  }
+
+  /** Mapping key → BaseLayer OL. Pour Feature 3 z-index reorder. Retourne
+   *  null si la layer n'est pas trouvée (vector layer ou layer pas init). */
+  private olLayerByKey(key: string): { setZIndex: (z: number) => void } | null {
+    switch (key) {
+      case 'sst':           return this.sstLayer ?? null;
+      case 'wind':          return this.windLayer ?? null;
+      case 'waves':         return this.wavesLayer ?? null;
+      case 'rain':          return this.rainLayer ?? null;
+      case 'windArrows':    return this.windArrowsLayer ?? null;
+      case 'waveArrows':    return this.waveArrowsLayer ?? null;
+      // windParticles = canvas WebGL custom (particlesEngine), pas une OL layer
+      // → pas de setZIndex effectif. La rangée reste draggable visuellement.
+      case 'windParticles': return null;
+      case 'vessels':       return this.vesselLayer ?? null;
+      case 'tracks':        return this.trackLayer ?? null;
+      case 'alerts':        return this.alertsLayer ?? null;
+      case 'buoys':         return this.buoysLayer ?? null;
+      case 'lightning':     return this.lightningLayer ?? null;
+      case 'metar':         return this.metarLayer ?? null;
+      case 'hubeau':        return this.hubeauLayer ?? null;
+      case 'piezo':         return this.piezoLayer ?? null;
+      case 'quakes':        return this.quakesLayer ?? null;
+      case 'firms':         return this.firmsLayer ?? null;
+      default:              return null;
+    }
+  }
+
+  private persistLayerZIndices(): void {
+    try {
+      localStorage.setItem('maritime.layer-zindex-v1', JSON.stringify(this.layerZIndexOrder()));
+    } catch { /* localStorage full or disabled — silence */ }
+  }
+
+  private restoreLayerZIndices(): void {
+    try {
+      const raw = localStorage.getItem('maritime.layer-zindex-v1');
+      if (!raw) return;
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr) && arr.every((k) => typeof k === 'string')) {
+        this.layerZIndexOrder.set(arr);
+      }
+    } catch { /* malformed — silence */ }
+  }
 
   // 2026-05-17 — DEPRECATED, conservé pour pas casser les bindings legacy.
   // Remplacé par validityListPerLayer + unionValidityList (APEX 08 refacto).
@@ -2657,12 +2782,20 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   };
 
   readonly sliderLayerCoverage = computed((): TimeSliderLayerCoverage[] => {
+    const master = this.masterLayerKey();
     const out: TimeSliderLayerCoverage[] = [];
     const push = (active: boolean, key: keyof typeof this.LAYER_PROFILES, label: string) => {
       if (!active) return;
       const p = this.LAYER_PROFILES[key];
       if (!p || (p.pastH === 0 && p.futureH === 0)) return;
-      out.push({ name: label, color: this.LAYER_COLORS[key] ?? '#94a3b8', pastH: p.pastH, futureH: p.futureH });
+      out.push({
+        name: label,
+        key: key as string,
+        color: this.LAYER_COLORS[key] ?? '#94a3b8',
+        pastH: p.pastH,
+        futureH: p.futureH,
+        isMaster: master === key,
+      });
     };
     push(this.showVessels(),       'vessels',       'vessels');
     push(this.showTracks(),        'tracks',        'tracks');
@@ -2681,6 +2814,20 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     push(this.showWindArrows(),    'windArrows',    'wind-arrows');
     push(this.showWaveArrows(),    'waveArrows',    'wave-arrows');
     push(this.showWindParticles(), 'windParticles', 'wind-particles');
+    // 2026-05-18 APEX 11 — réordonne selon le z-index user (persisté). Les
+    // layers non listées dans layerZIndexOrder gardent leur ordre relatif
+    // d'origine (= ordre déclaratif ci-dessus).
+    const zOrder = this.layerZIndexOrder();
+    if (zOrder.length > 0) {
+      out.sort((a, b) => {
+        const ia = zOrder.indexOf(a.key);
+        const ib = zOrder.indexOf(b.key);
+        if (ia === -1 && ib === -1) return 0;
+        if (ia === -1) return 1;
+        if (ib === -1) return -1;
+        return ia - ib;
+      });
+    }
     return out;
   });
 
@@ -3597,6 +3744,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // snap auto vers elle. Si l'user a navigué loin de NOW (>LIVE_THRESHOLD),
     // on respecte sa position (pas de snap intempestif).
     this.liveFollowTimer = setInterval(() => this.refreshMasterValiditiesIfLive(), 60_000);
+
+    // 2026-05-18 APEX 11 — restore ordre user des layers (persisté localStorage)
+    // puis applique setZIndex aux layers OL. Si rien persisté, no-op (ordre OL
+    // initial par défaut est conservé).
+    this.restoreLayerZIndices();
+    this.applyLayerZIndices();
 
     // ─── Animation player wiring ──────────────────────────────────────
     // À chaque frame émise par le player, on déclenche le pipeline normal
@@ -4852,7 +5005,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   }
 
   toggleLegend(): void {
-    this.legendOpen.set(!this.legendOpen());
+    const next = !this.legendOpen();
+    this.legendOpen.set(next);
+    // 2026-05-18 APEX 11 — persiste en localStorage pour que le panneau reste
+    // collapsed après reload si l'user l'a explicitement fermé.
+    try {
+      localStorage.setItem('maritime.panel-collapsed-v1', JSON.stringify(!next));
+    } catch { /* localStorage disabled — silence */ }
   }
 
   categoryLabel(shipType: number | null): string {

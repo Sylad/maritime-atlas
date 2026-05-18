@@ -11,10 +11,18 @@ import { DatePipe } from '@angular/common';
  * V2 ajoutera `ticks: Date[]` pour les timesteps réels WMS/WFS.
  */
 export interface TimeSliderLayerCoverage {
+  /** Nom affiché dans le label de rangée (e.g., 'sst', 'wind-arrows'). */
   name: string;
+  /** Clé interne stable (ex : 'sst', 'wind', 'windArrows') — sert à identifier
+   *  cette rangée lors des emit masterChange / reorderRequest. */
+  key: string;
   color: string;
   pastH: number;
   futureH: number;
+  /** 2026-05-18 APEX 11 — true si cette layer est le master du temps courant.
+   *  Le composant affiche une icône distinctive (⭐ vs ☆) qui permet à l'user
+   *  de basculer le master en cliquant sur l'icône d'une autre rangée. */
+  isMaster: boolean;
 }
 
 /**
@@ -81,11 +89,28 @@ export interface TimeSliderLayerCoverage {
           <div class="ts-cursor" [style.left.%]="cursorPercent()" (pointerdown)="onCursorDrag($event)"></div>
         </div>
 
-        <!-- Panneau expandable : sous-barres coverage par layer actif -->
+        <!-- Panneau expandable : sous-barres coverage par layer actif.
+             2026-05-18 APEX 11 — ajout icône master (⭐ / ☆) à gauche + DnD pour
+             réordonner z-index. Le drag se fait sur la rangée entière, l'icône
+             ⭐ est cliquable sans déclencher le drag (stopPropagation). -->
         @if (expanded() && layerCoverage().length > 0) {
           <div class="ts-coverage">
-            @for (cov of layerCoverage(); track cov.name) {
-              <div class="ts-coverage-row">
+            @for (cov of layerCoverage(); track cov.key) {
+              <div class="ts-coverage-row"
+                   draggable="true"
+                   [class.is-drag-over]="dragOverKey() === cov.key"
+                   [class.is-master]="cov.isMaster"
+                   (dragstart)="onCoverageDragStart($event, cov.key)"
+                   (dragover)="onCoverageDragOver($event, cov.key)"
+                   (dragleave)="onCoverageDragLeave($event, cov.key)"
+                   (drop)="onCoverageDrop($event, cov.key)"
+                   (dragend)="onCoverageDragEnd()">
+                <button type="button"
+                        class="ts-coverage-master-btn"
+                        [class.is-master]="cov.isMaster"
+                        [title]="cov.isMaster ? 'Maître du temps actuel' : 'Définir comme maître du temps'"
+                        (click)="onMasterIconClick($event, cov.key)">{{ cov.isMaster ? '★' : '☆' }}</button>
+                <span class="ts-coverage-drag-handle" aria-hidden="true" title="Glisser pour réordonner z-index">⋮⋮</span>
                 <span class="ts-coverage-label">{{ cov.name }}</span>
                 <div class="ts-coverage-track">
                   <div
@@ -379,9 +404,46 @@ export interface TimeSliderLayerCoverage {
     }
     .ts-coverage-row {
       display: grid;
-      grid-template-columns: 7em 1fr;
-      gap: 0.5em;
+      /* 2026-05-18 APEX 11 — 4 colonnes : master-btn ★, drag-handle ⋮⋮, label, track. */
+      grid-template-columns: 1.2em 0.9em 5em 1fr;
+      gap: 0.4em;
       align-items: center;
+      padding: 1px 0;
+      border-radius: 4px;
+      cursor: grab;
+      transition: background 120ms;
+      &:hover { background: rgba(255,255,255,0.03); }
+      &.is-drag-over {
+        background: rgba(45, 212, 191, 0.12);
+        outline: 1px dashed var(--accent);
+        outline-offset: -1px;
+      }
+      &.is-master .ts-coverage-label {
+        color: var(--accent-bright);
+        font-weight: 600;
+      }
+    }
+    .ts-coverage-master-btn {
+      background: transparent;
+      border: 0;
+      padding: 0;
+      cursor: pointer;
+      font-size: 0.95rem;
+      line-height: 1;
+      color: var(--fg-dim);
+      transition: color 150ms;
+      &.is-master {
+        color: var(--accent-bright);
+      }
+      &:hover { color: var(--fg); }
+    }
+    .ts-coverage-drag-handle {
+      color: var(--fg-muted);
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      letter-spacing: -0.1em;
+      cursor: grab;
+      user-select: none;
     }
     .ts-coverage-label {
       font-family: var(--font-mono);
@@ -434,6 +496,16 @@ export class TimeSliderComponent {
    *  fallback sur le startPlay/stopPlay interne ("+6h/sec"). */
   readonly playClicked = output<void>();
 
+  /** 2026-05-18 APEX 11 — Émis quand l'user click l'icône ⭐ d'une rangée
+   *  layer-coverage non-master, pour basculer le master du temps vers cette
+   *  layer. Le parent met cette key en TÊTE de activationOrder. */
+  readonly masterChange = output<string>();
+
+  /** 2026-05-18 APEX 11 — Émis quand l'user drag-and-drop une rangée à
+   *  une nouvelle position. Le parent réordonne layerZIndexOrder + applique
+   *  setZIndex aux layers OL correspondantes. */
+  readonly reorderRequest = output<{ fromKey: string; toKey: string }>();
+
   /** Quand true, le bouton play affiche ⏸ et togglePlay émet juste
    *  playClicked au parent (mode "AnimationPlayer externe"). */
   readonly externalAnimationActive = input<boolean>(false);
@@ -459,6 +531,50 @@ export class TimeSliderComponent {
 
   readonly expanded = signal(false);
   toggleExpanded(): void { this.expanded.update((v) => !v); }
+
+  /** 2026-05-18 APEX 11 — état interne pour drag-and-drop visuel des rangées
+   *  coverage. Stocke la clé en cours de drag et celle survolée pour highlight. */
+  private readonly draggedKey = signal<string | null>(null);
+  readonly dragOverKey = signal<string | null>(null);
+
+  onMasterIconClick(evt: MouseEvent, key: string): void {
+    evt.stopPropagation();  // ne pas déclencher le drag de la rangée
+    this.masterChange.emit(key);
+  }
+
+  onCoverageDragStart(evt: DragEvent, key: string): void {
+    this.draggedKey.set(key);
+    if (evt.dataTransfer) {
+      evt.dataTransfer.effectAllowed = 'move';
+      evt.dataTransfer.setData('text/plain', key);
+    }
+  }
+
+  onCoverageDragOver(evt: DragEvent, key: string): void {
+    evt.preventDefault();  // permet le drop
+    if (evt.dataTransfer) evt.dataTransfer.dropEffect = 'move';
+    if (this.draggedKey() && this.draggedKey() !== key) {
+      this.dragOverKey.set(key);
+    }
+  }
+
+  onCoverageDragLeave(_evt: DragEvent, key: string): void {
+    if (this.dragOverKey() === key) this.dragOverKey.set(null);
+  }
+
+  onCoverageDrop(evt: DragEvent, toKey: string): void {
+    evt.preventDefault();
+    const fromKey = this.draggedKey();
+    this.dragOverKey.set(null);
+    this.draggedKey.set(null);
+    if (!fromKey || fromKey === toKey) return;
+    this.reorderRequest.emit({ fromKey, toKey });
+  }
+
+  onCoverageDragEnd(): void {
+    this.draggedKey.set(null);
+    this.dragOverKey.set(null);
+  }
 
   // État interne
   readonly currentTime = signal<Date>(new Date());
