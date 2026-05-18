@@ -3593,13 +3593,14 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     effect(() => {
       // S'abonne aux toggles + source wind UNIQUEMENT.
       // 2026-05-18 (fix post APEX 10) : NE PAS s'abonner à sliderConfig() ici —
-      // sliderConfig dépend de validityListPerLayer (master mode validités),
-      // et cet effect SET validityListPerLayer → loop infini de fetch GS.
-      // → utilise une fenêtre FIXE ±168h pour le fetch. Le slider filtre
-      //   l'affichage des validités selon sa fenêtre courante en aval.
+      // sliderConfig dépend de validityListPerLayer, et cet effect SET
+      // validityListPerLayer → loop infini de fetch GS. Fenêtre FIXE ±168h.
       const wantSst = this.showSST();
       const wantWind = this.showWind();
       const wantWaves = this.showWaves();
+      const wantWindArrows = this.showWindArrows();
+      const wantWaveArrows = this.showWaveArrows();
+      const wantWindParticles = this.showWindParticles();
       const windSrc = this.windSource();
 
       const now = Date.now();
@@ -3610,47 +3611,66 @@ export class MapComponent implements AfterViewInit, OnDestroy {
                           : windSrc === 'arome'  ? 'maritime:wind-speed-arome'
                                                  : 'maritime:wind-speed';
 
-      // Fetch en parallèle pour chaque layer time-enabled WMS active.
-      // On compose un nouveau Record à set en un seul .set() (atomic update).
+      // 2026-05-18 (post-APEX 12) — UNE seule call GetCapabilities qui couvre
+      // toutes les layers WMS time-enabled actives. Parse le XML une fois et
+      // extrait les dimensions time de chaque layer. windArrows/windParticles
+      // partagent les timestamps wind (même grille forecast GS). waveArrows
+      // utilise wave-dir (sa propre time dim).
       queueMicrotask(async () => {
-        const newMap: Record<string, Date[]> = { ...this.validityListPerLayer() };
-        const tasks: Promise<void>[] = [];
-
-        const fetchAndSet = async (
-          key: string,
-          gsLayerName: string,
-          active: boolean,
-        ): Promise<void> => {
-          if (!active) { delete newMap[key]; return; }
-          try {
-            const list = await this.fetchTimestamps(
-              { type: 'wms', gsLayerName },
-              minTime,
-              maxTime,
-            );
-            if (list.length > 0) {
-              list.sort((a: Date, b: Date) => a.getTime() - b.getTime());
-              newMap[key] = list;
-            }
-            // Si list vide, on garde l'ancienne valeur (pas écraser avec [])
-          } catch { /* silence */ }
-        };
-
-        tasks.push(fetchAndSet('sst',   'maritime:sst-daily', wantSst));
-        tasks.push(fetchAndSet('wind',  windLayerName,        wantWind));
-        tasks.push(fetchAndSet('waves', 'maritime:wave-hs',   wantWaves));
-
-        await Promise.allSettled(tasks);
-        this.validityListPerLayer.set(newMap);
-
-        // Pour bw-compat : sync masterValidityList = union (legacy binding).
-        const unionSet = new Set<number>();
-        for (const key of Object.keys(newMap)) {
-          for (const d of newMap[key]) unionSet.add(d.getTime());
+        // Si aucune layer time-enabled active → clear le map et stop.
+        const anyActive = wantSst || wantWind || wantWaves || wantWindArrows
+                       || wantWaveArrows || wantWindParticles;
+        if (!anyActive) {
+          this.validityListPerLayer.set({});
+          this.masterValidityList.set([]);
+          return;
         }
-        this.masterValidityList.set(
-          Array.from(unionSet).sort((a: number, b: number) => a - b).map((t: number) => new Date(t)),
-        );
+
+        try {
+          const url = '/geoserver/maritime/wms?service=WMS&version=1.3.0&request=GetCapabilities';
+          const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+          if (!resp.ok) return;
+          const xml = await resp.text();
+
+          const filterRange = (dates: Date[]): Date[] =>
+            dates
+              .filter((d: Date) => d.getTime() >= minTime.getTime() && d.getTime() <= maxTime.getTime())
+              .sort((a: Date, b: Date) => a.getTime() - b.getTime());
+
+          const newMap: Record<string, Date[]> = {};
+
+          if (wantSst) {
+            const d = filterRange(this.parseTimeDimension(xml, 'sst-daily'));
+            if (d.length > 0) newMap['sst'] = d;
+          }
+          if (wantWind || wantWindArrows || wantWindParticles) {
+            const d = filterRange(this.parseTimeDimension(xml, windLayerName.replace(/^maritime:/, '')));
+            if (d.length > 0) {
+              if (wantWind)          newMap['wind']          = d;
+              if (wantWindArrows)    newMap['windArrows']    = d;
+              if (wantWindParticles) newMap['windParticles'] = d;
+            }
+          }
+          if (wantWaves) {
+            const d = filterRange(this.parseTimeDimension(xml, 'wave-hs'));
+            if (d.length > 0) newMap['waves'] = d;
+          }
+          if (wantWaveArrows) {
+            const d = filterRange(this.parseTimeDimension(xml, 'wave-dir'));
+            if (d.length > 0) newMap['waveArrows'] = d;
+          }
+
+          this.validityListPerLayer.set(newMap);
+
+          // Legacy : union des validités pour binding rétro-compat.
+          const unionSet = new Set<number>();
+          for (const k of Object.keys(newMap)) {
+            for (const d of newMap[k]) unionSet.add(d.getTime());
+          }
+          this.masterValidityList.set(
+            Array.from(unionSet).sort((a: number, b: number) => a - b).map((t: number) => new Date(t)),
+          );
+        } catch { /* network/timeout/abort — silence, re-fire au prochain toggle */ }
       });
     });
   }
