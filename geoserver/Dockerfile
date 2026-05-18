@@ -56,7 +56,7 @@ USER root
 
 # postgresql-client + gettext-base pour cluster-bootstrap.sh (psql + envsubst)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl ca-certificates postgresql-client gettext-base && \
+    apt-get install -y --no-install-recommends curl ca-certificates postgresql-client gettext-base unzip && \
     rm -rf /var/lib/apt/lists/*
 
 # pg-jdbc driver pour Tomcat JNDI datasource (DOIT être dans tomcat/lib/
@@ -67,32 +67,48 @@ RUN curl -fL --retry 5 --retry-delay 3 --retry-all-errors \
       "https://jdbc.postgresql.org/download/postgresql-${PG_JDBC_VERSION}.jar" && \
     ls -lh /usr/local/tomcat/lib/postgresql-*.jar
 
-# ── Plugins GeoServer via OSGeo Nexus (URLs stables) ───────────────
-# JDBCConfig + JDBCStore (community) : catalog GS centralisé en Postgres.
-# WPS + Control-Flow (extension) : requis pour désérialiser les ServiceInfo
-#   stockés dans le catalog JDBCConfig — sans le JAR du plugin, le pod GS
-#   pète CannotResolveClassException au boot (cas observé Mini-Blue
-#   2026-05-17 après promotion sprint refacto v3).
+# ── Plugins GeoServer ───────────────────────────────────────────────
+# Stratégie 2026-05-18 (fix post-rebuild Big-Blue) : pour les EXTENSIONS
+# STABLES (wps, control-flow), download le BUNDLE ZIP qui contient TOUS
+# les JARs deps (gs-wps-core + gt-xsd-wps + gt-process-* + jaxb, etc).
+# Le JAR seul gs-wps-core ne suffit PAS — la classe `org.geotools.wps.
+# WPSConfiguration` vient de gt-xsd-wps qui est dans le bundle.
 #
-# Nexus expose les JARs individuels. JDBC/WPS/Control-Flow n'ont pas de
-# deps externes hors pg-jdbc (déjà dans tomcat/lib) et libs déjà bundlées
-# dans l'image GS base.
+# Source bundle ZIPs : OSGeo Build server (URLs stables, déterministe).
+#
+# Pour les COMMUNITY modules (jdbcconfig, jdbcstore), garde le JAR direct
+# depuis Nexus — leurs deps sont déjà bundlées dans l'image GS base.
 ARG GS_VERSION=2.28.3
 ARG NEXUS_RELEASE=https://repo.osgeo.org/repository/release/org/geoserver
+ARG SF_RELEASE=https://sourceforge.net/projects/geoserver/files/GeoServer
+
+# 1) Community JARs (jdbcconfig + jdbcstore) — JAR seul OK
 RUN curl -fL --retry 5 --retry-delay 3 --retry-all-errors \
       -o /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-jdbcconfig-${GS_VERSION}.jar \
       "${NEXUS_RELEASE}/community/gs-jdbcconfig/${GS_VERSION}/gs-jdbcconfig-${GS_VERSION}.jar" && \
     curl -fL --retry 5 --retry-delay 3 --retry-all-errors \
       -o /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-jdbcstore-${GS_VERSION}.jar \
       "${NEXUS_RELEASE}/community/gs-jdbcstore/${GS_VERSION}/gs-jdbcstore-${GS_VERSION}.jar" && \
-    curl -fL --retry 5 --retry-delay 3 --retry-all-errors \
-      -o /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-wps-core-${GS_VERSION}.jar \
-      "${NEXUS_RELEASE}/extension/gs-wps-core/${GS_VERSION}/gs-wps-core-${GS_VERSION}.jar" && \
-    curl -fL --retry 5 --retry-delay 3 --retry-all-errors \
-      -o /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-control-flow-${GS_VERSION}.jar \
-      "${NEXUS_RELEASE}/extension/gs-control-flow/${GS_VERSION}/gs-control-flow-${GS_VERSION}.jar" && \
-    ls -lh /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-jdbc* \
-           /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-wps* \
+    ls -lh /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-jdbc*
+
+# 2) Extension bundle ZIPs (wps + control-flow) depuis SourceForge.
+#    Le ZIP contient gs-<ext>-core + ses deps transitives (gt-xsd-wps,
+#    gt-process-*, jaxb-* etc.) — TOUS nécessaires au runtime.
+#    Bake direct le contenu du ZIP dans WEB-INF/lib.
+#    SF URL pattern : .../GeoServer/${GS_VERSION}/extensions/geoserver-${GS_VERSION}-<ext>-plugin.zip/download
+#    Cf. commit 92ffbed (curl --retry sur SF pour 404 transient).
+RUN cd /tmp && \
+    curl -fL --retry 8 --retry-delay 5 --retry-all-errors \
+      -o wps-plugin.zip \
+      "${SF_RELEASE}/${GS_VERSION}/extensions/geoserver-${GS_VERSION}-wps-plugin.zip/download" && \
+    unzip -o wps-plugin.zip -d /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/ && \
+    curl -fL --retry 8 --retry-delay 5 --retry-all-errors \
+      -o controlflow-plugin.zip \
+      "${SF_RELEASE}/${GS_VERSION}/extensions/geoserver-${GS_VERSION}-control-flow-plugin.zip/download" && \
+    unzip -o controlflow-plugin.zip -d /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/ && \
+    rm -f /tmp/wps-plugin.zip /tmp/controlflow-plugin.zip && \
+    ls -lh /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-wps-core* \
+           /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gt-xsd-wps* \
            /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-control-flow*
 
 # Tomcat context.xml template — datasource JNDI jdbc/geoserver centralisée
