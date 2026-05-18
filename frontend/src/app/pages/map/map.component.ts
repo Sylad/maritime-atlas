@@ -3247,7 +3247,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
       const now = Date.now();
       const curT = this.currentTime?.getTime() ?? now;
-      if (Math.abs(now - curT) > 3_600_000) return;  // user away from live → respect
+      // 2026-05-18 (audit APEX 08 Step 04) — bypass guard "user away" si
+      // firstTimeSeen : c'est notre Run 1 fallback profile qui a poussé
+      // curT à -24h (pas l'user). Run 2 doit re-snap sur la VRAIE validité
+      // pour aligner le label sur la WMS TIME. Sans ce bypass, label affiche
+      // "lun 18 mai 02:00" alors que WMS envoie "16/05 00:00Z" → confusion.
+      if (Math.abs(now - curT) > 3_600_000 && !firstTimeSeen) return;
 
       const profile = this.LAYER_PROFILES[masterKey];
       if (!profile) return;
