@@ -1213,7 +1213,8 @@ function toIsoTimestamp(d: Date): string {
 
       <!-- Attribution panel relocated into controls-dock-bottom-right -->
 
-      @if (sliderConfig(); as cfg) {
+      @let cfg = sliderConfig();
+      @if (cfg !== null) {
         <app-time-slider
           [minTime]="cfg.minTime"
           [maxTime]="cfg.maxTime"
