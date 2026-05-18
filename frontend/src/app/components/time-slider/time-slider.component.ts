@@ -749,10 +749,12 @@ export class TimeSliderComponent {
     return out;
   }
 
-  /** Segments rendus pour les vector layers (refreshIntervalMin). On génère
-   *  un segment toutes les `refreshIntervalMin` minutes sur [pastH, +futureH]
-   *  autour de NOW. Largeur du segment = refreshIntervalMin (en % de la track).
-   *  Capped à MAX_VISIBLE_MARKERS pour éviter l'overdraw. */
+  /** Segments rendus pour les vector layers (refreshIntervalMin). 2026-05-18
+   *  APEX 12 — génère des segments sur TOUTE la fenêtre slider visible
+   *  [minTime, maxTime] (pas limité à pastH/futureH du vector). Pour les
+   *  layers "live" comme lightning/metar, on suppose présence continue à la
+   *  cadence de refresh sur toute la timeline visible. Capped à
+   *  MAX_VISIBLE_MARKERS pour éviter l'overdraw. */
   visibleVectorSegments(cov: TimeSliderLayerCoverage): Array<{ t: number; widthPercent: number }> {
     const refreshMs = (cov.refreshIntervalMin ?? 0) * 60_000;
     if (refreshMs <= 0) return [];
@@ -760,21 +762,17 @@ export class TimeSliderComponent {
     const max = this.maxTime().getTime();
     const trackMs = max - min;
     if (trackMs <= 0) return [];
-    const now = Date.now();
-    const start = now - cov.pastH * 3_600_000;
-    const end = now + cov.futureH * 3_600_000;
-    const segStart = Math.max(start, min);
-    const segEnd = Math.min(end, max);
 
-    // Capped : downsample si trop de segments tiendraient dans la fenêtre
-    const slots = Math.floor((segEnd - segStart) / refreshMs);
+    // Downsample : si la fenêtre contient trop de cycles refresh, espace les
+    // segments visibles pour rester sous MAX_VISIBLE_MARKERS.
+    const slots = Math.floor(trackMs / refreshMs);
     if (slots <= 0) return [];
     const stride = Math.max(1, Math.ceil(slots / this.MAX_VISIBLE_MARKERS));
     const visibleStep = refreshMs * stride;
-    const widthPercent = Math.max(0.3, ((refreshMs * stride * 0.6) / trackMs) * 100);
+    const widthPercent = Math.max(0.3, ((visibleStep * 0.6) / trackMs) * 100);
 
     const out: Array<{ t: number; widthPercent: number }> = [];
-    for (let t = segStart; t <= segEnd; t += visibleStep) out.push({ t, widthPercent });
+    for (let t = min; t <= max; t += visibleStep) out.push({ t, widthPercent });
     return out;
   }
 
