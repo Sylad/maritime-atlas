@@ -3417,6 +3417,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       const windSrc = this.windSource();
       const cfg = this.sliderConfig();
 
+      // APEX 10 — sliderConfig est maintenant nullable (null si pas de
+      // master WMS). On garde une fenêtre fallback ±168h pour les fetches
+      // de validités even si le slider lui-même n'est pas rendu.
+      const now = Date.now();
+      const minTime = cfg?.minTime ?? new Date(now - 168 * 3_600_000);
+      const maxTime = cfg?.maxTime ?? new Date(now + 168 * 3_600_000);
+
       const windLayerName = windSrc === 'arpege' ? 'maritime:wind-speed-arpege'
                           : windSrc === 'arome'  ? 'maritime:wind-speed-arome'
                                                  : 'maritime:wind-speed';
@@ -3436,8 +3443,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
           try {
             const list = await this.fetchTimestamps(
               { type: 'wms', gsLayerName },
-              cfg.minTime,
-              cfg.maxTime,
+              minTime,
+              maxTime,
             );
             if (list.length > 0) {
               list.sort((a: Date, b: Date) => a.getTime() - b.getTime());
