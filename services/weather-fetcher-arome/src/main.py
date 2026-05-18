@@ -107,9 +107,18 @@ FORECAST_HOURS = int(os.environ.get('FORECAST_HOURS', '24'))
 # 3h aligne avec le slider GFS qui sample par 6h.
 SAMPLE_STEP_HOURS = int(os.environ.get('SAMPLE_STEP_HOURS', '3'))
 
-# Bucket public Météo-France PNT (S3-compatible MinIO, hébergé data.gouv.fr).
+# Bucket public Météo-France PNT (S3 OVH, rétention 14j, runs toutes les 3h).
 # Listing via list-type=2 + prefix. Aucune auth requise (open data).
-PNT_BUCKET = 'https://object.data.gouv.fr/meteofrance-pnt'
+#
+# 2026-05-18 : migration host data.gouv.fr → OVH direct. L'ancien host
+# `object.data.gouv.fr/meteofrance-pnt/` a cessé de servir le 14/05/2026
+# (le bucket lui-même publie toujours, c'est juste le frontend qui a sauté).
+# Structure des keys INCHANGÉE — c'est le même bucket sous un autre DNS.
+# Sortie en env var pour pouvoir repivoter sans rebuild si nouveau host.
+PNT_BUCKET = os.environ.get(
+    'PNT_BUCKET',
+    'https://meteofrance-pnt.s3.rbx.io.cloud.ovh.net',
+)
 S3_NS = 'http://s3.amazonaws.com/doc/2006-03-01/'
 
 
