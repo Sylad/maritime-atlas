@@ -2540,6 +2540,16 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     { key: 'windArrows',     label: 'Flèches vent',   type: 'wms',    gsLayerName: 'maritime:wind-speed',     active: () => this.showWindArrows() },
     { key: 'waveArrows',     label: 'Flèches vagues', type: 'wms',    gsLayerName: 'maritime:wave-dir',       active: () => this.showWaveArrows() },
     { key: 'windParticles',  label: 'Particules vent',type: 'wms',    gsLayerName: 'maritime:wind-speed',     active: () => this.showWindParticles() },
+    // 2026-05-19 APEX Satellites Phase 3 — type 'wms' pour devenir master-éligibles
+    // et faire apparaître la time-bar même si le user n'active QUE des satellites.
+    // gsLayerName non utilisé (l'image est servie en static local), juste un placeholder.
+    { key: 'satTrueColor',      label: 'Satellite MODIS',     type: 'wms', gsLayerName: 'local:sat-true-color',    active: () => this.showSatTrueColor() },
+    { key: 'satTrueColorVIIRS', label: 'Satellite VIIRS',     type: 'wms', gsLayerName: 'local:sat-viirs',         active: () => this.showSatTrueColorVIIRS() },
+    { key: 'satIR',             label: 'Satellite IR',        type: 'wms', gsLayerName: 'local:sat-ir',            active: () => this.showSatIR() },
+    { key: 'satWaterVapor',     label: 'Satellite T° air',    type: 'wms', gsLayerName: 'local:sat-airs',          active: () => this.showSatWaterVapor() },
+    { key: 'satCloudTop',       label: 'Satellite nuages',    type: 'wms', gsLayerName: 'local:sat-cloud-top',     active: () => this.showSatCloudTop() },
+    { key: 'satAerosol',        label: 'Satellite aérosols',  type: 'wms', gsLayerName: 'local:sat-aerosol',       active: () => this.showSatAerosol() },
+    { key: 'satDayNight',       label: 'Satellite jour/nuit', type: 'wms', gsLayerName: 'local:sat-day-night',     active: () => this.showSatDayNight() },
     { key: 'vessels',        label: 'Navires AIS',    type: 'vector',                                          active: () => this.showVessels() },
     { key: 'lightning',      label: 'Foudre',         type: 'vector',                                          active: () => this.showLightning() },
     { key: 'metar',          label: 'METAR',          type: 'vector',                                          active: () => this.showMetar() },
