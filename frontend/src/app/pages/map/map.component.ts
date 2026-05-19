@@ -564,16 +564,8 @@ function toIsoTimestamp(d: Date): string {
                   </span>
                 </label>
               </div>
-              <div class="layer-row layer-soon">
-                <label class="layer-toggle dim">
-                  <input type="checkbox" disabled />
-                  <span class="toggle-glyph"><span class="glyph-icon">🛰</span></span>
-                  <span class="toggle-text">
-                    <span class="toggle-name">Satellite nuages <span class="soon-tag">à venir</span></span>
-                    <span class="toggle-count">EUMETSAT MTG ~15 min</span>
-                  </span>
-                </label>
-              </div>
+              <!-- 2026-05-19 APEX Satellites — "Satellite nuages" déplacé
+                   dans la nouvelle section Satellites (NASA GIBS, 7 produits). -->
               <div class="layer-row">
                 <label class="layer-toggle" [class.dim]="!showFirms()">
                   <input type="checkbox" [checked]="showFirms()" (change)="showFirms.set($any($event.target).checked)" />
@@ -587,6 +579,133 @@ function toIsoTimestamp(d: Date): string {
                   <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
                          [value]="getOpacity('firms')"
                          (input)="setOpacity('firms', +$any($event.target).value)" />
+                }
+              </div>
+            </div>
+            }
+          </div>
+
+          <!-- ═══ Section SATELLITES (NASA GIBS) ════════════════════ -->
+          <!-- 2026-05-19 APEX — 7 produits satellite NASA GIBS daily. TIME
+               suit le cursor time-slider (scrub temporel d'archive). NASA
+               GIBS lag ~24h donc cap à J-1 dans le futur. License PD. -->
+          <div class="catalog-section" [class.is-open]="catalogSections().satellites">
+            <button type="button" class="catalog-section-head section-satellites"
+                    (click)="toggleCatalogSection('satellites')"
+                    [attr.aria-expanded]="catalogSections().satellites">
+              <span class="head-chevron">{{ catalogSections().satellites ? '▼' : '▶' }}</span>
+              <span class="head-icon">🛰</span>
+              <span class="head-name">Satellites</span>
+              <span class="head-count">{{ catalogSectionCount('satellites').active }}/{{ catalogSectionCount('satellites').total }}</span>
+            </button>
+            @if (catalogSections().satellites) {
+            <div class="catalog-section-body">
+              <div class="sat-date-label" [title]="'Date d\\'imagerie satellite — suit le cursor time-slider'">
+                📅 Imagerie du {{ currentSatDate() }}
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showSatTrueColor()">
+                  <input type="checkbox" [checked]="showSatTrueColor()" (change)="showSatTrueColor.set($any($event.target).checked)" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🌍</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Vrai couleur MODIS</span>
+                    <span class="toggle-count">Terra · daily VIS</span>
+                  </span>
+                </label>
+                @if (showSatTrueColor()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getOpacity('satTrueColor')"
+                         (input)="setOpacity('satTrueColor', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showSatTrueColorVIIRS()">
+                  <input type="checkbox" [checked]="showSatTrueColorVIIRS()" (change)="showSatTrueColorVIIRS.set($any($event.target).checked)" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🌐</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Vrai couleur VIIRS</span>
+                    <span class="toggle-count">SNPP · daily VIS HD</span>
+                  </span>
+                </label>
+                @if (showSatTrueColorVIIRS()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getOpacity('satTrueColorVIIRS')"
+                         (input)="setOpacity('satTrueColorVIIRS', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showSatIR()">
+                  <input type="checkbox" [checked]="showSatIR()" (change)="showSatIR.set($any($event.target).checked)" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🔥</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Infrarouge thermique</span>
+                    <span class="toggle-count">MODIS · band 31 day</span>
+                  </span>
+                </label>
+                @if (showSatIR()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getOpacity('satIR')"
+                         (input)="setOpacity('satIR', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showSatWaterVapor()">
+                  <input type="checkbox" [checked]="showSatWaterVapor()" (change)="showSatWaterVapor.set($any($event.target).checked)" />
+                  <span class="toggle-glyph"><span class="glyph-icon">💧</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Température air (proxy évap.)</span>
+                    <span class="toggle-count">AIRS · surface air temp</span>
+                  </span>
+                </label>
+                @if (showSatWaterVapor()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getOpacity('satWaterVapor')"
+                         (input)="setOpacity('satWaterVapor', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showSatCloudTop()">
+                  <input type="checkbox" [checked]="showSatCloudTop()" (change)="showSatCloudTop.set($any($event.target).checked)" />
+                  <span class="toggle-glyph"><span class="glyph-icon">☁</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Sommet des nuages</span>
+                    <span class="toggle-count">MODIS · pression top</span>
+                  </span>
+                </label>
+                @if (showSatCloudTop()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getOpacity('satCloudTop')"
+                         (input)="setOpacity('satCloudTop', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showSatAerosol()">
+                  <input type="checkbox" [checked]="showSatAerosol()" (change)="showSatAerosol.set($any($event.target).checked)" />
+                  <span class="toggle-glyph"><span class="glyph-icon">💨</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Aérosols / poussières</span>
+                    <span class="toggle-count">MODIS · AOD combiné</span>
+                  </span>
+                </label>
+                @if (showSatAerosol()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getOpacity('satAerosol')"
+                         (input)="setOpacity('satAerosol', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showSatDayNight()">
+                  <input type="checkbox" [checked]="showSatDayNight()" (change)="showSatDayNight.set($any($event.target).checked)" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🌙</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">VIIRS jour/nuit</span>
+                    <span class="toggle-count">lumières urbaines + navires</span>
+                  </span>
+                </label>
+                @if (showSatDayNight()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getOpacity('satDayNight')"
+                         (input)="setOpacity('satDayNight', +$any($event.target).value)" />
                 }
               </div>
             </div>
@@ -1492,9 +1611,18 @@ function toIsoTimestamp(d: Date): string {
     .catalog-section.is-open .catalog-section-head::before { opacity: 1; }
     .catalog-section-head.section-maritime    { color: #60a5fa; }
     .catalog-section-head.section-observation { color: #a78bfa; }
+    .catalog-section-head.section-satellites  { color: #fbbf24; }
     .catalog-section-head.section-forecast    { color: #fb923c; }
     .catalog-section-head.section-hydrology   { color: #22d3ee; }
     .catalog-section-head.section-sources     { color: #94a3b8; }
+    /* APEX Satellites — date label en tête de section */
+    .sat-date-label {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--fg-muted);
+      padding: 0.25em 0.5em 0.4em 0.5em;
+      letter-spacing: 0.05em;
+    }
     .catalog-section-head .head-chevron {
       font-size: 0.55rem;
       width: 0.8em;
@@ -2351,7 +2479,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // Persistance localStorage indépendante des layer prefs. Défaut :
   // Maritime ouvert, Observation/Forecast/Sources fermés (économie scroll
   // au boot, tout reste accessible en 1 click).
-  readonly catalogSections = signal<Record<'maritime' | 'observation' | 'forecast' | 'hydrology' | 'sources', boolean>>(this.loadCatalogSections());
+  readonly catalogSections = signal<Record<'maritime' | 'observation' | 'satellites' | 'forecast' | 'hydrology' | 'sources', boolean>>(this.loadCatalogSections());
   readonly hasPopup = computed(() =>
     this.selectedVessel() !== null
     || this.selectedLightning() !== null
@@ -2645,6 +2773,59 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly sstContourColor = signal<string>('#ffffff');
   readonly windContourColor = signal<string>('#ffffff');
   readonly waveContourColor = signal<string>('#ffffff');
+
+  // ─── 2026-05-19 APEX — Satellites (NASA GIBS) ────────────────────────
+  //
+  // 7 produits NASA GIBS (WMTS public, no auth, license PD). TIME = jour
+  // courant du cursor time-slider (floor UTC) → scrub temporel = imagerie
+  // satellite d'archive de ce jour-là. NASA GIBS daily lag ~24h, donc
+  // dans le futur (forecast) la tile renvoie 404 silencieusement.
+  //
+  // URL pattern WMTS REST :
+  //   https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/{Layer}/default/
+  //     {YYYY-MM-DD}/GoogleMapsCompatible_Level{N}/{z}/{y}/{x}.{ext}
+  //
+  // Phase 2 (orchestrator) bascule l'URL vers /satellites/{layer}/{date}/...
+  // servi en local par nginx depuis un volume rempli par les tâches DL.
+  readonly showSatTrueColor      = signal(false);
+  readonly showSatTrueColorVIIRS = signal(false);
+  readonly showSatIR             = signal(false);
+  readonly showSatWaterVapor     = signal(false);
+  readonly showSatCloudTop       = signal(false);
+  readonly showSatAerosol        = signal(false);
+  readonly showSatDayNight       = signal(false);
+
+  /** Date du jour à utiliser pour le TIME des layers GIBS — dérivée du
+   *  cursor time-slider (computed). Format YYYY-MM-DD. Snap UTC day floor :
+   *  un cursor à 14h le 18 mai → '2026-05-18'. Permet le scrub d'archive. */
+  readonly currentSatDate = computed<string>(() => {
+    const t = this.currentTimeSig();
+    // NASA GIBS daily lag ~24h : si le cursor est dans le futur ou
+    // aujourd'hui, on cap à hier (J-1) pour avoir une image dispo.
+    const yesterday = new Date(Date.now() - 24 * 3_600_000);
+    const eff = t.getTime() > yesterday.getTime() ? yesterday : t;
+    return `${eff.getUTCFullYear()}-${String(eff.getUTCMonth() + 1).padStart(2, '0')}-${String(eff.getUTCDate()).padStart(2, '0')}`;
+  });
+
+  /** Définition des 7 produits GIBS. `id` = identifier WMTS NASA,
+   *  `maxZ` = niveau max disponible (varie par produit), `ext` = jpg|png,
+   *  `label` = texte affiché dans le panel layers. */
+  private readonly SAT_PRODUCTS: ReadonlyArray<{
+    key: 'satTrueColor' | 'satTrueColorVIIRS' | 'satIR' | 'satWaterVapor' | 'satCloudTop' | 'satAerosol' | 'satDayNight';
+    id: string;
+    maxZ: number;
+    ext: 'jpg' | 'png';
+    label: string;
+    sub: string;
+  }> = [
+    { key: 'satTrueColor',      id: 'MODIS_Terra_CorrectedReflectance_TrueColor',     maxZ: 9, ext: 'jpg', label: 'Vrai couleur MODIS',  sub: 'Terra · daily VIS' },
+    { key: 'satTrueColorVIIRS', id: 'VIIRS_SNPP_CorrectedReflectance_TrueColor',      maxZ: 9, ext: 'jpg', label: 'Vrai couleur VIIRS',  sub: 'SNPP · daily VIS HD' },
+    { key: 'satIR',             id: 'MODIS_Terra_Brightness_Temp_Band31_Day',         maxZ: 7, ext: 'png', label: 'Infrarouge thermique', sub: 'MODIS · band 31 day' },
+    { key: 'satWaterVapor',     id: 'AIRS_L2_Surface_Air_Temperature_Day',            maxZ: 6, ext: 'png', label: 'Température air',     sub: 'AIRS · proxy évap.' },
+    { key: 'satCloudTop',       id: 'MODIS_Terra_Cloud_Top_Pressure_Day',             maxZ: 6, ext: 'png', label: 'Sommet des nuages',   sub: 'MODIS · pression top' },
+    { key: 'satAerosol',        id: 'MODIS_Combined_Value_Added_AOD',                 maxZ: 6, ext: 'png', label: 'Aérosols / poussières', sub: 'MODIS · AOD combiné' },
+    { key: 'satDayNight',       id: 'VIIRS_SNPP_DayNightBand_ENCC',                   maxZ: 8, ext: 'png', label: 'VIIRS jour/nuit',     sub: 'lumières urbaines + navires' },
+  ];
   // ─── V2 Observation #1 (2026-05-12) — METAR ────────────────────────
   // ~35 aéroports européens, refresh 60s côté front, données ingérées
   // par orchestrator (source `metar-fetcher-eu`, NOAA AWC, cron 30min).
@@ -2952,6 +3133,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // 2026-05-19 APEX 13 — opacity dédiée par isoline layer
     sstContours: 0.9, windContours: 0.9, waveContours: 0.9,
     rain: 0.8, lightning: 0.9,
+    // 2026-05-19 APEX Satellites — défaut 0.75, suffisant pour voir le
+    // basemap derrière sans masquer l'imagerie.
+    satTrueColor: 0.75, satTrueColorVIIRS: 0.75, satIR: 0.75,
+    satWaterVapor: 0.75, satCloudTop: 0.75, satAerosol: 0.75, satDayNight: 0.75,
   });
 
   /** Defaults visibility — utilisés par resetLayerPrefs() pour restaurer. */
@@ -2962,6 +3147,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     lightning: false, alerts: false,
     windParticles: false, buoys: false, metar: false, hubeau: false, quakes: false, piezo: false, firms: false,
     bathy: false, eez: false, mpa: false, efas: false,
+    // 2026-05-19 APEX Satellites — tous off par défaut (overlay lourd).
+    satTrueColor: false, satTrueColorVIIRS: false, satIR: false,
+    satWaterVapor: false, satCloudTop: false, satAerosol: false, satDayNight: false,
   };
   private readonly DEFAULT_OPACITIES = { ...this.layerOpacities() };
 
@@ -3005,6 +3193,14 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       sstContours: this.sstContoursLayer,
       windContours: this.windContoursLayer,
       waveContours: this.wavesContoursLayer,
+      // 2026-05-19 APEX Satellites — lookup dans la Map satLayers.
+      satTrueColor:      this.satLayers['satTrueColor'],
+      satTrueColorVIIRS: this.satLayers['satTrueColorVIIRS'],
+      satIR:             this.satLayers['satIR'],
+      satWaterVapor:     this.satLayers['satWaterVapor'],
+      satCloudTop:       this.satLayers['satCloudTop'],
+      satAerosol:        this.satLayers['satAerosol'],
+      satDayNight:       this.satLayers['satDayNight'],
     } as Record<string, { setOpacity: (n: number) => void } | undefined>)[key];
     layer?.setOpacity(value);
     // Wind particles = canvas overlay, opacity réglée via CSS sur le
@@ -3024,8 +3220,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // ─── V2 Phase 1 (2026-05-12) — Data catalog accordion helpers ─────
   /** Restore l'état pli/déplié des sections du data catalog. Stocké
    *  séparément des layer prefs pour pouvoir resetter l'un sans l'autre. */
-  private loadCatalogSections(): Record<'maritime' | 'observation' | 'forecast' | 'hydrology' | 'sources', boolean> {
-    const defaults = { maritime: true, observation: false, forecast: false, hydrology: false, sources: false };
+  private loadCatalogSections(): Record<'maritime' | 'observation' | 'satellites' | 'forecast' | 'hydrology' | 'sources', boolean> {
+    const defaults = { maritime: true, observation: false, satellites: false, forecast: false, hydrology: false, sources: false };
     try {
       const raw = localStorage.getItem('maritime.catalog-sections-v1');
       if (!raw) return defaults;
@@ -3033,10 +3229,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       // V2 (2026-05-12) strict accordion : force 1 tiroir max ouvert.
       // Si le localStorage a plusieurs `true` (legacy state), on garde le
       // 1er trouvé selon l'ordre canonique et on ferme tous les autres.
-      const order: Array<keyof typeof defaults> = ['maritime', 'observation', 'forecast', 'hydrology', 'sources'];
+      const order: Array<keyof typeof defaults> = ['maritime', 'observation', 'satellites', 'forecast', 'hydrology', 'sources'];
       const merged = { ...defaults, ...parsed };
       const firstOpen = order.find((k) => merged[k]);
-      const next = { maritime: false, observation: false, forecast: false, hydrology: false, sources: false };
+      const next = { maritime: false, observation: false, satellites: false, forecast: false, hydrology: false, sources: false };
       if (firstOpen) next[firstOpen] = true;
       else next.maritime = true;
       return next;
@@ -3048,10 +3244,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   /** V2 (2026-05-12) : accordion strict — un seul tiroir ouvert à la fois.
    *  Si on clique sur une section déjà ouverte → on la ferme. Si on clique
    *  une fermée → on l'ouvre et on ferme toutes les autres. */
-  toggleCatalogSection(key: 'maritime' | 'observation' | 'forecast' | 'hydrology' | 'sources'): void {
+  toggleCatalogSection(key: 'maritime' | 'observation' | 'satellites' | 'forecast' | 'hydrology' | 'sources'): void {
     this.catalogSections.update((m) => {
       const wasOpen = m[key];
-      const next: typeof m = { maritime: false, observation: false, forecast: false, hydrology: false, sources: false };
+      const next: typeof m = { maritime: false, observation: false, satellites: false, forecast: false, hydrology: false, sources: false };
       next[key] = !wasOpen;
       try { localStorage.setItem('maritime.catalog-sections-v1', JSON.stringify(next)); } catch {}
       return next;
@@ -3059,7 +3255,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Compte les layers actifs par section. Affiché en badge dans le head. */
-  catalogSectionCount(key: 'maritime' | 'observation' | 'forecast' | 'hydrology' | 'sources'): { active: number; total: number } {
+  catalogSectionCount(key: 'maritime' | 'observation' | 'satellites' | 'forecast' | 'hydrology' | 'sources'): { active: number; total: number } {
     if (key === 'maritime') {
       const flags = [this.showVessels(), this.showTracks(), this.showAlerts(), this.showBuoys(),
                      this.showSST(), this.showWaves(), this.showWaveArrows()];
@@ -3067,6 +3263,14 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     }
     if (key === 'observation') {
       const flags = [this.showLightning(), this.showRain(), this.showMetar(), this.showQuakes(), this.showFirms()];
+      return { active: flags.filter(Boolean).length, total: flags.length };
+    }
+    if (key === 'satellites') {
+      const flags = [
+        this.showSatTrueColor(), this.showSatTrueColorVIIRS(), this.showSatIR(),
+        this.showSatWaterVapor(), this.showSatCloudTop(), this.showSatAerosol(),
+        this.showSatDayNight(),
+      ];
       return { active: flags.filter(Boolean).length, total: flags.length };
     }
     if (key === 'forecast') {
@@ -3191,6 +3395,14 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       eez: this.showEez(),
       mpa: this.showMpa(),
       efas: this.showEfas(),
+      // 2026-05-19 APEX Satellites — persistence 7 toggles GIBS.
+      satTrueColor: this.showSatTrueColor(),
+      satTrueColorVIIRS: this.showSatTrueColorVIIRS(),
+      satIR: this.showSatIR(),
+      satWaterVapor: this.showSatWaterVapor(),
+      satCloudTop: this.showSatCloudTop(),
+      satAerosol: this.showSatAerosol(),
+      satDayNight: this.showSatDayNight(),
     };
     const opacity = this.layerOpacities();
     // 2026-05-18 APEX 11+12 — persiste aussi l'ordre user des layers (zIndex)
@@ -3294,6 +3506,14 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       bathy: (v) => this.showBathy.set(v),
       eez: (v) => this.showEez.set(v),
       efas: (v) => this.showEfas.set(v),
+      // 2026-05-19 APEX Satellites
+      satTrueColor:      (v) => this.showSatTrueColor.set(v),
+      satTrueColorVIIRS: (v) => this.showSatTrueColorVIIRS.set(v),
+      satIR:             (v) => this.showSatIR.set(v),
+      satWaterVapor:     (v) => this.showSatWaterVapor.set(v),
+      satCloudTop:       (v) => this.showSatCloudTop.set(v),
+      satAerosol:        (v) => this.showSatAerosol.set(v),
+      satDayNight:       (v) => this.showSatDayNight.set(v),
     };
     return map[key] ?? null;
   }
@@ -3325,6 +3545,14 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       if (typeof vis.bathy === 'boolean') this.showBathy.set(vis.bathy);
       if (typeof vis.eez === 'boolean') this.showEez.set(vis.eez);
       if (typeof vis.efas === 'boolean') this.showEfas.set(vis.efas);
+      // 2026-05-19 APEX Satellites — restore 7 toggles
+      if (typeof vis.satTrueColor === 'boolean')      this.showSatTrueColor.set(vis.satTrueColor);
+      if (typeof vis.satTrueColorVIIRS === 'boolean') this.showSatTrueColorVIIRS.set(vis.satTrueColorVIIRS);
+      if (typeof vis.satIR === 'boolean')             this.showSatIR.set(vis.satIR);
+      if (typeof vis.satWaterVapor === 'boolean')     this.showSatWaterVapor.set(vis.satWaterVapor);
+      if (typeof vis.satCloudTop === 'boolean')       this.showSatCloudTop.set(vis.satCloudTop);
+      if (typeof vis.satAerosol === 'boolean')        this.showSatAerosol.set(vis.satAerosol);
+      if (typeof vis.satDayNight === 'boolean')       this.showSatDayNight.set(vis.satDayNight);
       const op = data?.opacity ?? {};
       this.layerOpacities.update((m) => ({ ...m, ...op }));
       // 2026-05-18 APEX 11+12 — restore ordre user des layers (zIndex). Compat
@@ -3424,6 +3652,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private sstContoursSource?: ImageWMS;
   private rainLayer?: TileLayer<XYZ>;
   private rainSource?: XYZ;
+  /** 2026-05-19 APEX — Satellites NASA GIBS. 1 layer par produit, keyé
+   *  par `SAT_PRODUCTS[i].key`. URL update via effect quand `currentSatDate`
+   *  change (cursor time-slider) → re-fetch des tiles pour le nouveau jour.
+   *  Note : on utilise un Record plutôt que `Map<>` natif car l'import
+   *  `Map` d'OpenLayers shadow le constructeur global. */
+  private satLayers: Record<string, TileLayer<XYZ>> = {};
+  private satSources: Record<string, XYZ> = {};
   private rainSnapshot?: RainViewerSnapshot;
   private rainSnapshotTimer?: ReturnType<typeof setInterval>;
   /** 2026-05-18 APEX 10 — polling 60s pour détecter nouvelles validités master
@@ -3918,6 +4153,21 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
     // Refresh tick toutes les 5 min — rolling window glissante.
     setInterval(() => this.vectorAvailabilityRefreshTick.update((n) => n + 1), 5 * 60_000);
+
+    // 2026-05-19 APEX Satellites — réactif au scrub du cursor time-slider.
+    // Quand `currentSatDate` change (= user navigue à un autre jour), on
+    // reconstruit l'URL XYZ de chaque layer satellite avec le nouveau TIME.
+    // OpenLayers re-fetch les tiles automatiquement (cache key = URL).
+    effect(() => {
+      const date = this.currentSatDate();
+      for (const p of this.SAT_PRODUCTS) {
+        const src = this.satSources[p.key];
+        if (!src) continue;
+        src.setUrl(
+          `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${p.id}/default/${date}/GoogleMapsCompatible_Level${p.maxZ}/{z}/{y}/{x}.${p.ext}`,
+        );
+      }
+    });
   }
 
   /** Mémoize la liste des palettes par layer kind. */
@@ -4252,6 +4502,22 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // refreshArrowsForTime() à chaque cursor change.
     if (this.windArrowsLayer) this.windArrowsLayer.setVisible(this.showWindArrows());
     if (this.waveArrowsLayer) this.waveArrowsLayer.setVisible(this.showWaveArrows());
+    // 2026-05-19 APEX Satellites — visibility per produit. TIME suit le
+    // cursor via l'effect currentSatDate.
+    for (const p of this.SAT_PRODUCTS) {
+      const layer = this.satLayers[p.key];
+      if (!layer) continue;
+      const flagGetter: () => boolean = ({
+        satTrueColor:      () => this.showSatTrueColor(),
+        satTrueColorVIIRS: () => this.showSatTrueColorVIIRS(),
+        satIR:             () => this.showSatIR(),
+        satWaterVapor:     () => this.showSatWaterVapor(),
+        satCloudTop:       () => this.showSatCloudTop(),
+        satAerosol:        () => this.showSatAerosol(),
+        satDayNight:       () => this.showSatDayNight(),
+      } as const)[p.key];
+      layer.setVisible(flagGetter());
+    }
     // Lightning : visible si toggle ON ET mode live (les strikes sont temps réel,
     // pas archivés au-delà de 30 min — replay/forecast pas pertinent).
     if (this.lightningLayer) {
@@ -5974,6 +6240,31 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       visible: false,
     });
 
+    // 2026-05-19 APEX — Satellites NASA GIBS. 7 TileLayer XYZ, 1 par produit.
+    // URL templatée avec {Layer}/{Date}/Level{MaxZ} + format {z}/{y}/{x}.{ext}.
+    // Note : NASA met `{y}` AVANT `{x}` dans l'URL — OpenLayers `XYZ.url`
+    // remplace les placeholders peu importe l'ordre, donc OK direct.
+    // zIndex 38 = au-dessus de SST/wind/wave rasters (30-35) mais sous radar
+    // pluie (40) — choix arbitraire, ajustable via DnD time-bar APEX 11.
+    const initialDate = this.currentSatDate();
+    for (const p of this.SAT_PRODUCTS) {
+      const src = new XYZ({
+        url: `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${p.id}/default/${initialDate}/GoogleMapsCompatible_Level${p.maxZ}/{z}/{y}/{x}.${p.ext}`,
+        crossOrigin: 'anonymous',
+        maxZoom: p.maxZ,
+        attributions: 'Imagery © <a href="https://earthdata.nasa.gov/eosdis/gibs" target="_blank">NASA EOSDIS GIBS</a>',
+      });
+      const layer = new TileLayer({
+        source: src,
+        opacity: 0.75,
+        zIndex: 38,
+        visible: false,
+      });
+      this.satSources[p.key] = src;
+      this.satLayers[p.key] = layer;
+    }
+    // Layers attachés au Map plus bas via `layers: [...]` (cf. constructeur).
+
     // Sprint Europe Chantier #4 : clustering vessels.
     // Bbox Europe étroite → 10k-30k vessels live en pic, le rendu OL freeze
     // la carte si on peint chaque navire individuellement à grand zoom-out.
@@ -6099,6 +6390,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         this.wavesLayer,
         this.wavesContoursLayer,
         this.rainLayer,
+        // 2026-05-19 APEX — Satellites NASA GIBS (7 produits) en couche unique
+        // par produit. Insérés ici (zIndex 38) pour rester sous radar pluie (40)
+        // mais au-dessus des layers oceano (30-35).
+        ...Object.values(this.satLayers),
         this.efasLayer,
         labelsTile,
         this.waveArrowsLayer,
