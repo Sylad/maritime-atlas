@@ -1404,6 +1404,14 @@ function toIsoTimestamp(d: Date): string {
         0 0 16px 1px hsl(224 95% 60% / 0.26),
         0 0 40px 4px hsl(224 90% 55% / 0.13),
         0 10px 30px -6px rgba(0, 0, 0, 0.7);
+      /* 2026-05-19 — fix : la règle .legend--closed n'était définie que dans
+         le @media (max-width: 760px). Sur desktop, toggler la classe ne
+         masquait rien → click sur l'icône AetherWX ne fermait pas le panel.
+         display:none aussi sur desktop quand collapsed (le bouton .legend-toggle
+         hamburger prend le relais pour ré-ouvrir). */
+      &.legend--closed {
+        display: none;
+      }
     }
     .legend-title {
       font-family: var(--font-mono);
