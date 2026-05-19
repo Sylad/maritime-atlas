@@ -274,9 +274,6 @@ function toIsoTimestamp(d: Date): string {
       }
 
       <div class="legend data-catalog" [class.legend--closed]="!legendOpen()" (click)="onLegendClick($event)">
-        @if (cap5Warning(); as msg) {
-          <div class="cap5-toast" role="status">{{ msg }}</div>
-        }
         <!-- 2026-05-18 APEX 11 — click sur le logo collapse le panneau gauche.
              En mode collapsed, le bouton .legend-toggle prend le relais (☰). -->
         <button type="button" class="catalog-header"
@@ -1070,16 +1067,35 @@ function toIsoTimestamp(d: Date): string {
           </div>
         }
 
-        <div class="legend-section-title">Catégories navires</div>
-        @for (cat of categories; track cat.key) {
-          <div class="legend-item">
-            <span class="legend-dot" [style.background]="cat.color.fill" [style.border-color]="cat.color.stroke"></span>
-            <span>{{ cat.color.label }}</span>
-          </div>
+        <!-- 2026-05-19 — warning cap5 déplacé depuis floating toast vers
+             panneau legend (Sylvain "plus lisible"). Position juste au-dessus
+             des catégories navires (= bas du panneau, près du focus user). -->
+        @if (cap5Warning(); as msg) {
+          <div class="cap5-inline" role="status">⚠ {{ msg }}</div>
+        }
+
+        <!-- 2026-05-19 — Catégories navires affichées UNIQUEMENT si le toggle
+             "Navires AIS" est ON. Sinon ces dots ne correspondent à rien
+             d'affiché sur la map → bruit visuel. -->
+        @if (showVessels()) {
+          <div class="legend-section-title">Catégories navires</div>
+          @for (cat of categories; track cat.key) {
+            <div class="legend-item">
+              <span class="legend-dot" [style.background]="cat.color.fill" [style.border-color]="cat.color.stroke"></span>
+              <span>{{ cat.color.label }}</span>
+            </div>
+          }
         }
 
         <div class="legend-stats">
-          <div class="legend-mode" [class.live]="modeIsLive()" [class.future]="modeIsFuture()">
+          <div class="legend-mode"
+               [class.live]="modeIsLive()"
+               [class.future]="modeIsFuture()"
+               [title]="modeIsLive()
+                 ? 'Cursor sur le temps réel — données live'
+                 : modeIsFuture()
+                   ? 'Cursor dans le futur — affichage forecast (wind/wave)'
+                   : 'Cursor dans le passé — affichage archive (replay)'">
             @if (modeIsLive()) { ● LIVE }
             @else if (modeIsFuture()) { ◷ FORECAST }
             @else { ◷ REPLAY }
@@ -1502,24 +1518,24 @@ function toIsoTimestamp(d: Date): string {
       height: 9px;
       accent-color: var(--accent);
     }
-    .cap5-toast {
-      position: absolute;
-      top: -2.5em;
-      left: 0;
-      right: 0;
-      background: rgba(220, 38, 38, 0.92);
-      color: #fff;
+    /* 2026-05-19 — cap5 warning inline dans le panneau legend (remplace
+       le toast flottant qui apparaissait au-dessus des navires + bloquait
+       lecture). Position : juste avant les catégories navires. */
+    .cap5-inline {
+      background: rgba(220, 38, 38, 0.18);
+      border: 1px solid rgba(220, 38, 38, 0.55);
+      color: rgb(252, 165, 165);
       font-family: var(--font-mono);
       font-size: 0.7rem;
-      padding: 0.5em 0.8em;
+      padding: 0.45em 0.7em;
       border-radius: 6px;
       letter-spacing: 0.03em;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-      animation: cap5-toast-in 200ms ease-out;
-      z-index: 11;
+      margin: 0.6em 0;
+      line-height: 1.35;
+      animation: cap5-inline-in 200ms ease-out;
     }
-    @keyframes cap5-toast-in {
-      from { opacity: 0; transform: translateY(8px); }
+    @keyframes cap5-inline-in {
+      from { opacity: 0; transform: translateY(-4px); }
       to   { opacity: 1; transform: translateY(0); }
     }
     .legend {
