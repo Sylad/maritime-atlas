@@ -3684,11 +3684,34 @@ export class MapComponent implements AfterViewInit, OnDestroy {
           return;
         }
 
+        // 2026-05-19 APEX 15 — retry avec exponential backoff. GS peut renvoyer
+        // 502 transient pendant son boot/GC, ce qui laissait validityListPerLayer
+        // vide pour le master courant → loading state permanent + nav buttons KO.
+        const url = '/geoserver/maritime/wms?service=WMS&version=1.3.0&request=GetCapabilities';
+        let xml: string | null = null;
+        for (let attempt = 1; attempt <= 4; attempt++) {
+          try {
+            const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+            if (resp.ok) {
+              xml = await resp.text();
+              break;
+            }
+            // 502/503/504 transient — backoff puis retry
+            if (resp.status >= 500 && attempt < 4) {
+              await new Promise((r) => setTimeout(r, attempt * 1000));
+              continue;
+            }
+            return;  // 4xx ou tentatives épuisées → abort silencieux
+          } catch {
+            if (attempt < 4) {
+              await new Promise((r) => setTimeout(r, attempt * 1000));
+              continue;
+            }
+            return;
+          }
+        }
+        if (!xml) return;
         try {
-          const url = '/geoserver/maritime/wms?service=WMS&version=1.3.0&request=GetCapabilities';
-          const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
-          if (!resp.ok) return;
-          const xml = await resp.text();
 
           const filterRange = (dates: Date[]): Date[] =>
             dates
@@ -3718,15 +3741,6 @@ export class MapComponent implements AfterViewInit, OnDestroy {
             if (d.length > 0) newMap['waveArrows'] = d;
           }
 
-          // DEBUG APEX 15 — tracer ce qui est set pour identifier pourquoi
-          // waveArrows reste undefined dans validityListPerLayer.
-          // TODO: retirer ce log après diagnostic.
-          // eslint-disable-next-line no-console
-          console.log('[APEX 15 debug] validityListPerLayer.set', {
-            wantSst, wantWind, wantWaves, wantWindArrows, wantWaveArrows, wantWindParticles,
-            keysSet: Object.keys(newMap),
-            sizesPerKey: Object.fromEntries(Object.entries(newMap).map(([k, v]) => [k, v.length])),
-          });
           this.validityListPerLayer.set(newMap);
 
           // Legacy : union des validités pour binding rétro-compat.
