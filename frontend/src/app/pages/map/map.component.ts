@@ -4059,6 +4059,15 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         if (this.showWindArrows() || this.showWaveArrows()) {
           this.refreshArrowsForTime(this.currentTime);
         }
+        // 2026-05-19 fix régression Sylvain "aucun bateau affiché" : quand
+        // un vector layer est toggled ON, applyLayerVisibility met juste
+        // setVisible(true). Sans refresh, la source reste vide (jamais
+        // fetchée) → 0 features visibles. On déclenche refreshForTime
+        // + startLiveLoopIfNeeded pour que le fetch correspondant au mode
+        // courant ait lieu (fetchLiveVessels en live, fetchVesselsAt en past,
+        // fetchTracks pour tracks, etc.).
+        this.refreshForTime(this.currentTime);
+        this.startLiveLoopIfNeeded();
         // Phase A : persiste les toggles à chaque changement (debounce
         // implicite via microtask). Au boot, ngAfterViewInit appelle
         // restoreLayerPrefs() AVANT cet effect, donc pas de race.
