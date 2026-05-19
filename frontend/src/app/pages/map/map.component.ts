@@ -1733,17 +1733,27 @@ function toIsoTimestamp(d: Date): string {
       color: var(--fg);
       min-width: 30px;
     }
-    /* 2026-05-19 APEX 13 — color picker compact + opacity dédiée isoline. */
+    /* 2026-05-19 — color picker swatch compact stylé (Sylvain "moche").
+       Pattern : carré full-bleed coloré sans bordure visible, ring discret
+       au focus/hover, cursor pointer obvious. L'input natif reste accessible
+       au clic mais visuellement c'est un swatch propre. */
     .contour-color {
-      width: 22px;
-      height: 16px;
+      width: 18px;
+      height: 18px;
       padding: 0;
-      border: 1px solid var(--border);
-      border-radius: 3px;
+      border: 0;
+      border-radius: 50%;
       cursor: pointer;
       background: transparent;
-      &::-webkit-color-swatch-wrapper { padding: 0; }
-      &::-webkit-color-swatch { border: 0; border-radius: 2px; }
+      box-shadow: 0 0 0 1px hsl(224 35% 30%), inset 0 0 0 2px hsl(224 20% 10%);
+      transition: transform 120ms, box-shadow 120ms;
+      &:hover {
+        transform: scale(1.15);
+        box-shadow: 0 0 0 1px hsl(224 85% 60%), inset 0 0 0 2px hsl(224 20% 10%);
+      }
+      &::-webkit-color-swatch-wrapper { padding: 0; border-radius: 50%; }
+      &::-webkit-color-swatch { border: 0; border-radius: 50%; }
+      &::-moz-color-swatch { border: 0; border-radius: 50%; }
     }
     .layer-opacity-contour {
       max-width: 60px;
@@ -2561,9 +2571,14 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     gsLayerName?: string;
     active: () => boolean;
   }> = [
-    { key: 'wind',           label: 'Vent',           type: 'wms',    gsLayerName: 'maritime:wind-speed',     active: () => this.showWind() },
-    { key: 'waves',          label: 'Vagues',         type: 'wms',    gsLayerName: 'maritime:wave-hs',        active: () => this.showWaves() },
-    { key: 'sst',            label: 'SST',            type: 'wms',    gsLayerName: 'maritime:sst-daily',      active: () => this.showSST() },
+    // 2026-05-19 — `active()` OR-clause sur raster + isolines : pour le même
+    // layer GS (`wind-speed`, `wave-hs`, `sst-daily`) on n'expose qu'1 SEULE
+    // entrée dans la time-bar peu importe quel rendu (raster, isolignes, ou
+    // les 2). Sylvain : "1 barre par source de données". Évite doublons
+    // raster+isoline dans le panneau time-slider et dans le cap5.
+    { key: 'wind',           label: 'Vent',           type: 'wms',    gsLayerName: 'maritime:wind-speed',     active: () => this.showWind()  || this.showWindContours() },
+    { key: 'waves',          label: 'Vagues',         type: 'wms',    gsLayerName: 'maritime:wave-hs',        active: () => this.showWaves() || this.showWaveContours() },
+    { key: 'sst',            label: 'SST',            type: 'wms',    gsLayerName: 'maritime:sst-daily',      active: () => this.showSST()   || this.showSstContours() },
     // 2026-05-18 — arrows/particles ajoutées comme master-éligibles (time
     // dim GS partagée avec wind-speed/wave-dir). Permet à l'user de les
     // sélectionner comme maître du temps depuis la time-bar étendue.
@@ -3057,9 +3072,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     if (this.showQuakes())        n++;
     if (this.showFirms())         n++;
     if (this.showRain())          n++;
-    if (this.showSST())           n++;
-    if (this.showWind())          n++;
-    if (this.showWaves())         n++;
+    // 2026-05-19 — raster + isolines d'une même source comptent pour 1 seul
+    // layer (cap5). Sylvain : "ne pas en empiler 2 dans le cas raster+isolines".
+    if (this.showSST()   || this.showSstContours())   n++;
+    if (this.showWind()  || this.showWindContours())  n++;
+    if (this.showWaves() || this.showWaveContours())  n++;
     if (this.showWindArrows())    n++;
     if (this.showWaveArrows())    n++;
     if (this.showWindParticles()) n++;
@@ -3193,9 +3210,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     push(this.showQuakes(),        'quakes',        'quakes');
     push(this.showFirms(),         'firms',         'firms');
     push(this.showRain(),          'rain',          'rain');
-    push(this.showSST(),           'sst',           'sst');
-    push(this.showWind(),          'wind',          'wind');
-    push(this.showWaves(),         'waves',         'waves');
+    // 2026-05-19 — OR-clause raster + isolines (cf animatableLayers).
+    push(this.showSST()   || this.showSstContours(),  'sst',   'sst');
+    push(this.showWind()  || this.showWindContours(), 'wind',  'wind');
+    push(this.showWaves() || this.showWaveContours(), 'waves', 'waves');
     push(this.showWindArrows(),    'windArrows',    'wind-arrows');
     push(this.showWaveArrows(),    'waveArrows',    'wave-arrows');
     push(this.showWindParticles(), 'windParticles', 'wind-particles');
@@ -4122,9 +4140,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       // 2026-05-18 (fix post APEX 10) : NE PAS s'abonner à sliderConfig() ici —
       // sliderConfig dépend de validityListPerLayer, et cet effect SET
       // validityListPerLayer → loop infini de fetch GS. Fenêtre FIXE ±168h.
-      const wantSst = this.showSST();
-      const wantWind = this.showWind();
-      const wantWaves = this.showWaves();
+      // 2026-05-19 — wantSst/Wind/Waves combine raster ET isolignes : la
+      // time-bar doit aussi marcher quand SEUL l'isoline est activé (sinon
+      // le master devient null → time-bar disparaît). Même layer GS derrière.
+      const wantSst = this.showSST()   || this.showSstContours();
+      const wantWind = this.showWind() || this.showWindContours();
+      const wantWaves = this.showWaves() || this.showWaveContours();
       const wantWindArrows = this.showWindArrows();
       const wantWaveArrows = this.showWaveArrows();
       const wantWindParticles = this.showWindParticles();
