@@ -41,6 +41,7 @@ import { TimeSliderComponent, TimeSliderLayerCoverage } from '../../components/t
 import { IngestionMiniChartComponent } from '../../components/ingestion-mini-chart/ingestion-mini-chart.component';
 import { AnimationPanelComponent } from '../../components/animation-panel/animation-panel.component';
 import { AnimationControlsComponent } from '../../components/animation-controls/animation-controls.component';
+import { ColorSwatchPickerComponent } from '../../components/color-swatch-picker/color-swatch-picker.component';
 import { AnimationPlayerService, AnimationOptions } from '../../services/animation-player.service';
 import { VesselsService, type VesselProperties } from '../../services/vessels.service';
 import { RainviewerService, type RainViewerSnapshot } from '../../services/rainviewer.service';
@@ -162,7 +163,7 @@ function toIsoTimestamp(d: Date): string {
 
 @Component({
   selector: 'app-map',
-  imports: [DatePipe, DecimalPipe, TimeSliderComponent, IngestionMiniChartComponent, RouterLink, AnimationPanelComponent, AnimationControlsComponent],
+  imports: [DatePipe, DecimalPipe, TimeSliderComponent, IngestionMiniChartComponent, RouterLink, AnimationPanelComponent, AnimationControlsComponent, ColorSwatchPickerComponent],
   template: `
     <div class="map-container">
       <div class="map" #mapEl></div>
@@ -403,9 +404,9 @@ function toIsoTimestamp(d: Date): string {
                            (input)="sstContourInterval.set(+$any($event.target).value)"
                            title="Intervalle isolignes" />
                     <span class="contour-value">{{ sstContourInterval() }}°C</span>
-                    <input type="color" class="contour-color" title="Couleur des lignes"
-                           [value]="sstContourColor()"
-                           (input)="sstContourColor.set($any($event.target).value); persistLayerPrefs()" />
+                    <app-color-swatch-picker
+                      [value]="sstContourColor()"
+                      (valueChange)="sstContourColor.set($event); persistLayerPrefs()" />
                     <input class="layer-opacity layer-opacity-contour" type="range" min="0" max="1" step="0.05" title="Opacité isolignes"
                            [value]="getOpacity('sstContours')"
                            (input)="setOpacity('sstContours', +$any($event.target).value)" />
@@ -445,9 +446,9 @@ function toIsoTimestamp(d: Date): string {
                            (input)="waveContourInterval.set(+$any($event.target).value)"
                            title="Intervalle isolignes" />
                     <span class="contour-value">{{ waveContourInterval() }} m</span>
-                    <input type="color" class="contour-color" title="Couleur des lignes"
-                           [value]="waveContourColor()"
-                           (input)="waveContourColor.set($any($event.target).value); persistLayerPrefs()" />
+                    <app-color-swatch-picker
+                      [value]="waveContourColor()"
+                      (valueChange)="waveContourColor.set($event); persistLayerPrefs()" />
                     <input class="layer-opacity layer-opacity-contour" type="range" min="0" max="1" step="0.05" title="Opacité isolignes"
                            [value]="getOpacity('waveContours')"
                            (input)="setOpacity('waveContours', +$any($event.target).value)" />
@@ -789,9 +790,9 @@ function toIsoTimestamp(d: Date): string {
                            (input)="windContourInterval.set(+$any($event.target).value)"
                            title="Intervalle isolignes" />
                     <span class="contour-value">{{ windContourInterval() }} m/s</span>
-                    <input type="color" class="contour-color" title="Couleur des lignes"
-                           [value]="windContourColor()"
-                           (input)="windContourColor.set($any($event.target).value); persistLayerPrefs()" />
+                    <app-color-swatch-picker
+                      [value]="windContourColor()"
+                      (valueChange)="windContourColor.set($event); persistLayerPrefs()" />
                     <input class="layer-opacity layer-opacity-contour" type="range" min="0" max="1" step="0.05" title="Opacité isolignes"
                            [value]="getOpacity('windContours')"
                            (input)="setOpacity('windContours', +$any($event.target).value)" />
