@@ -3718,6 +3718,15 @@ export class MapComponent implements AfterViewInit, OnDestroy {
             if (d.length > 0) newMap['waveArrows'] = d;
           }
 
+          // DEBUG APEX 15 — tracer ce qui est set pour identifier pourquoi
+          // waveArrows reste undefined dans validityListPerLayer.
+          // TODO: retirer ce log après diagnostic.
+          // eslint-disable-next-line no-console
+          console.log('[APEX 15 debug] validityListPerLayer.set', {
+            wantSst, wantWind, wantWaves, wantWindArrows, wantWaveArrows, wantWindParticles,
+            keysSet: Object.keys(newMap),
+            sizesPerKey: Object.fromEntries(Object.entries(newMap).map(([k, v]) => [k, v.length])),
+          });
           this.validityListPerLayer.set(newMap);
 
           // Legacy : union des validités pour binding rétro-compat.
