@@ -28,7 +28,7 @@ import ImageWMS from 'ol/source/ImageWMS';
 import ImageStatic from 'ol/source/ImageStatic';
 import GeoJSON from 'ol/format/GeoJSON';
 import Overlay from 'ol/Overlay';
-import { fromLonLat, transformExtent } from 'ol/proj';
+import { fromLonLat } from 'ol/proj';
 import { Style, Circle as CircleStyle, Fill, Stroke, Icon, Text as TextStyle } from 'ol/style';
 import { defaults as defaultControls, ScaleLine, MousePosition, Zoom } from 'ol/control';
 import { toStringHDMS } from 'ol/coordinate';
@@ -4211,8 +4211,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // ImageStatic ne supporte pas setUrl (URL set à la construction). Au
     // changement de date on recrée la source et on `setSource(new ImageStatic)`.
     // Coût négligeable (juste une URL + extent), et OL re-fetch l'image
-    // unique automatiquement.
-    const imageExtent3857 = transformExtent(this.SAT_BBOX_4326, 'EPSG:4326', 'EPSG:3857');
+    // unique automatiquement. Projection EPSG:4326 (cf bloc init plus haut).
     effect(() => {
       const date = this.currentSatDate();
       for (const p of this.SAT_PRODUCTS) {
@@ -4220,8 +4219,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         if (!layer) continue;
         const newSrc = new ImageStatic({
           url: `/satellites/${p.localDir}/${date}.${p.ext}`,
-          imageExtent: imageExtent3857,
-          projection: 'EPSG:3857',
+          imageExtent: this.SAT_BBOX_4326,
+          projection: 'EPSG:4326',
           crossOrigin: 'anonymous',
           attributions: 'Imagery © <a href="https://earthdata.nasa.gov/eosdis/gibs" target="_blank">NASA EOSDIS GIBS</a> · cached locally',
         });
@@ -6304,8 +6303,15 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // 2026-05-19 APEX Satellites Phase 3 — ImageStatic local au lieu de
     // NASA tile pyramid. 1 ImageLayer<ImageStatic> par produit, URL =
     // /satellites/{localDir}/{YYYY-MM-DD}.{ext}. Image unique 2048-2600px
-    // bbox-anchored sur SAT_BBOX_4326 (Europe + Atlantique + Med en EPSG:4326).
-    // OL reprojete pour la View courante (EPSG:3857 défaut).
+    // bbox-anchored sur SAT_BBOX_4326 (Europe + Atlantique + Med).
+    //
+    // IMPORTANT projection : NASA WMS GetMap a été appelé avec SRS=EPSG:4326
+    // (cf migrate.ts seed), donc l'image stockée EST en équirectangulaire
+    // (plate carrée). On déclare ImageStatic en EPSG:4326 + extent en
+    // lon/lat → OL reprojete vers la View courante (EPSG:3857 défaut) avec
+    // un canvas-side reprojection. Sans ce mapping correct, l'image était
+    // étirée verticalement (la transformExtent étend +30/+70 en mètres
+    // Mercator donnait une projection visuelle décalée vs basemap 3857).
     //
     // Tradeoff vs tile pyramid : pas de zoom infini, l'image flou au-delà de
     // z~6. Bénéfices : sovereignty (NASA peut tomber, on a notre cache),
@@ -6314,12 +6320,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // zIndex 38 = au-dessus de SST/wind/wave rasters (30-35) mais sous radar
     // pluie (40) — choix arbitraire, ajustable via DnD time-bar APEX 11.
     const initialDate = this.currentSatDate();
-    const imageExtent3857 = transformExtent(this.SAT_BBOX_4326, 'EPSG:4326', 'EPSG:3857');
     for (const p of this.SAT_PRODUCTS) {
       const src = new ImageStatic({
         url: `/satellites/${p.localDir}/${initialDate}.${p.ext}`,
-        imageExtent: imageExtent3857,
-        projection: 'EPSG:3857',
+        imageExtent: this.SAT_BBOX_4326,
+        projection: 'EPSG:4326',
         crossOrigin: 'anonymous',
         attributions: 'Imagery © <a href="https://earthdata.nasa.gov/eosdis/gibs" target="_blank">NASA EOSDIS GIBS</a> · cached locally',
       });
