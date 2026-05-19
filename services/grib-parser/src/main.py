@@ -52,7 +52,7 @@ app = FastAPI(title='grib-parser', version='0.1.0')
 
 
 # ─── Models ─────────────────────────────────────────────────────────────
-ParserKind = Literal['grib_wind10m', 'grib_wave', 'netcdf_sst', 'identity', 'grib_gfs_multi']
+ParserKind = Literal['grib_wind10m', 'grib_wave', 'netcdf_sst', 'identity', 'grib_gfs_multi', 'sat_geotiff']
 
 
 class ParseRequest(BaseModel):
@@ -144,6 +144,20 @@ def parse(req: ParseRequest) -> ParseResponse:
             path = _parse_netcdf_sst(tmp_path, out_dir, req.output_prefix, ts_str, req.bbox)
             _maybe_geoserver(req, out_dir)
             return ParseResponse(ok=True, paths=[str(path)], records_out=1, bytes_in=bytes_in)
+
+        if req.kind == 'sat_geotiff':
+            # 2026-05-19 APEX Satellites Phase 4 — NASA GIBS WMS retourne déjà
+            # un GeoTIFF avec EPSG:4326 baked-in quand FORMAT=image/tiff. Pas
+            # besoin de re-parser ni reprojetter — juste rename + déposer
+            # dans le coverage dir + déclencher l'auto-create ImageMosaic.
+            #
+            # NB : NASA WMS donne du tiff "single-pass", pas un GeoTIFF
+            # multi-temporel. 1 image par jour par produit. ImageMosaic GS
+            # indexera par timestamp via timeregex.properties.
+            final = out_dir / f'{req.output_prefix}_{ts_str}.tif'
+            final.write_bytes(tmp_path.read_bytes())
+            _maybe_geoserver(req, out_dir)
+            return ParseResponse(ok=True, paths=[str(final)], records_out=1, bytes_in=bytes_in)
 
         raise HTTPException(status_code=400, detail=f'Unknown kind: {req.kind}')
 

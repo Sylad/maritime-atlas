@@ -584,82 +584,91 @@ INSERT INTO data_sources (
 )
 ON CONFLICT (name) DO NOTHING;
 
--- ─── APEX Satellites (2026-05-19) — NASA GIBS daily imagery ─────────
+-- ─── APEX Satellites Phase 4 (2026-05-19) — NASA GIBS via GeoServer ─
+-- Refacto Phase 4 : on bascule du sink file_save (nginx static) vers le
+-- pattern canonique grib-parser sidecar + ImageMosaic GeoServer.
+--
 -- 7 produits satellite NASA GIBS (WMTS public, license PD). Chaque source
--- DL une image WMS GetMap (EPSG:4326, bbox Europe étendue, 2048×1366px JPG)
--- pour J-1 (NASA lag ~24h) à 03h30 UTC, sauvée dans /data/satellites/.
--- L'orchestrator template {date} dans l'URL avant fetch.
--- Frontend Phase 1 reste sur tiles directes NASA ; Phase 2b basculera
--- vers /satellites/{layer}/{date}.jpg local via nginx.
+-- demande à grib-parser de fetcher l'image WMS au FORMAT image/tiff
+-- (GeoTIFF avec EPSG:4326 baked-in), de la déposer dans
+-- /coverage/sat-<product>/sat-<product>_YYYYMMDD'T'HHMMSSZ.tif, et de
+-- créer/reindexer la coverage maritime:sat-<product> dans GeoServer.
+-- Le frontend consomme via WMS standard, comme SST/wind/waves.
 INSERT INTO data_sources (
   name, kind, url, schedule_kind, schedule_expr,
   parser_kind, parser_config,
   sink_kind, sink_config, sink_label, bbox, enabled
 ) VALUES
   ('satellite-modis-true-color',
-   'http_binary',
-   'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1&LAYERS=MODIS_Terra_CorrectedReflectance_TrueColor&TIME={date}&BBOX=-25,30,40,70&SRS=EPSG:4326&WIDTH=2600&HEIGHT=1600&FORMAT=image/jpeg',
+   'http_satellite',
+   'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1&LAYERS=MODIS_Terra_CorrectedReflectance_TrueColor&TIME={date}&BBOX=-25,30,40,70&SRS=EPSG:4326&WIDTH=2600&HEIGHT=1600&FORMAT=image/tiff',
    'cron', '30 3 * * *',
-   'identity_binary', NULL,
-   'file_save',
-   '{"output_dir": "/data/satellites", "filename": "MODIS_TrueColor/{date}.jpg", "skipIfExists": true}',
-   '/data/satellites/MODIS_TrueColor/YYYY-MM-DD.jpg',
+   'sat_geotiff', NULL,
+   'geotiff_volume',
+   '{"output_dir": "/coverage/sat-modis-true-color", "output_prefix": "sat-modis-true-color", "geoserver_create_if_missing": true, "geoserver_workspace": "maritime", "geoserver_store": "sat-modis-true-color", "geoserver_coverage": "sat-modis-true-color", "geoserver_title": "Satellite MODIS Terra True Color (NASA GIBS)"}',
+   '/coverage/sat-modis-true-color/ + maritime:sat-modis-true-color WMS',
    '[-25,30,40,70]', false),
   ('satellite-viirs-true-color',
-   'http_binary',
-   'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1&LAYERS=VIIRS_SNPP_CorrectedReflectance_TrueColor&TIME={date}&BBOX=-25,30,40,70&SRS=EPSG:4326&WIDTH=2600&HEIGHT=1600&FORMAT=image/jpeg',
+   'http_satellite',
+   'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1&LAYERS=VIIRS_SNPP_CorrectedReflectance_TrueColor&TIME={date}&BBOX=-25,30,40,70&SRS=EPSG:4326&WIDTH=2600&HEIGHT=1600&FORMAT=image/tiff',
    'cron', '35 3 * * *',
-   'identity_binary', NULL,
-   'file_save',
-   '{"output_dir": "/data/satellites", "filename": "VIIRS_TrueColor/{date}.jpg", "skipIfExists": true}',
-   '/data/satellites/VIIRS_TrueColor/YYYY-MM-DD.jpg',
+   'sat_geotiff', NULL,
+   'geotiff_volume',
+   '{"output_dir": "/coverage/sat-viirs-true-color", "output_prefix": "sat-viirs-true-color", "geoserver_create_if_missing": true, "geoserver_workspace": "maritime", "geoserver_store": "sat-viirs-true-color", "geoserver_coverage": "sat-viirs-true-color", "geoserver_title": "Satellite VIIRS SNPP True Color (NASA GIBS)"}',
+   '/coverage/sat-viirs-true-color/ + maritime:sat-viirs-true-color WMS',
    '[-25,30,40,70]', false),
   ('satellite-modis-ir',
-   'http_binary',
-   'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1&LAYERS=MODIS_Terra_Brightness_Temp_Band31_Day&TIME={date}&BBOX=-25,30,40,70&SRS=EPSG:4326&WIDTH=2048&HEIGHT=1260&FORMAT=image/png',
+   'http_satellite',
+   'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1&LAYERS=MODIS_Terra_Brightness_Temp_Band31_Day&TIME={date}&BBOX=-25,30,40,70&SRS=EPSG:4326&WIDTH=2048&HEIGHT=1260&FORMAT=image/tiff',
    'cron', '40 3 * * *',
-   'identity_binary', NULL,
-   'file_save',
-   '{"output_dir": "/data/satellites", "filename": "MODIS_IR/{date}.png", "skipIfExists": true}',
-   '/data/satellites/MODIS_IR/YYYY-MM-DD.png',
+   'sat_geotiff', NULL,
+   'geotiff_volume',
+   '{"output_dir": "/coverage/sat-modis-ir", "output_prefix": "sat-modis-ir", "geoserver_create_if_missing": true, "geoserver_workspace": "maritime", "geoserver_store": "sat-modis-ir", "geoserver_coverage": "sat-modis-ir", "geoserver_title": "Satellite MODIS IR Brightness Temp band 31"}',
+   '/coverage/sat-modis-ir/ + maritime:sat-modis-ir WMS',
    '[-25,30,40,70]', false),
   ('satellite-airs-air-temp',
-   'http_binary',
-   'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1&LAYERS=AIRS_L2_Surface_Air_Temperature_Day&TIME={date}&BBOX=-25,30,40,70&SRS=EPSG:4326&WIDTH=1300&HEIGHT=800&FORMAT=image/png',
+   'http_satellite',
+   'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1&LAYERS=AIRS_L2_Surface_Air_Temperature_Day&TIME={date}&BBOX=-25,30,40,70&SRS=EPSG:4326&WIDTH=1300&HEIGHT=800&FORMAT=image/tiff',
    'cron', '45 3 * * *',
-   'identity_binary', NULL,
-   'file_save',
-   '{"output_dir": "/data/satellites", "filename": "AIRS_AirTemp/{date}.png", "skipIfExists": true}',
-   '/data/satellites/AIRS_AirTemp/YYYY-MM-DD.png',
+   'sat_geotiff', NULL,
+   'geotiff_volume',
+   '{"output_dir": "/coverage/sat-airs-air-temp", "output_prefix": "sat-airs-air-temp", "geoserver_create_if_missing": true, "geoserver_workspace": "maritime", "geoserver_store": "sat-airs-air-temp", "geoserver_coverage": "sat-airs-air-temp", "geoserver_title": "Satellite AIRS Surface Air Temperature"}',
+   '/coverage/sat-airs-air-temp/ + maritime:sat-airs-air-temp WMS',
    '[-25,30,40,70]', false),
   ('satellite-modis-cloud-top',
-   'http_binary',
-   'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1&LAYERS=MODIS_Terra_Cloud_Top_Pressure_Day&TIME={date}&BBOX=-25,30,40,70&SRS=EPSG:4326&WIDTH=1300&HEIGHT=800&FORMAT=image/png',
+   'http_satellite',
+   'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1&LAYERS=MODIS_Terra_Cloud_Top_Pressure_Day&TIME={date}&BBOX=-25,30,40,70&SRS=EPSG:4326&WIDTH=1300&HEIGHT=800&FORMAT=image/tiff',
    'cron', '50 3 * * *',
-   'identity_binary', NULL,
-   'file_save',
-   '{"output_dir": "/data/satellites", "filename": "MODIS_CloudTop/{date}.png", "skipIfExists": true}',
-   '/data/satellites/MODIS_CloudTop/YYYY-MM-DD.png',
+   'sat_geotiff', NULL,
+   'geotiff_volume',
+   '{"output_dir": "/coverage/sat-modis-cloud-top", "output_prefix": "sat-modis-cloud-top", "geoserver_create_if_missing": true, "geoserver_workspace": "maritime", "geoserver_store": "sat-modis-cloud-top", "geoserver_coverage": "sat-modis-cloud-top", "geoserver_title": "Satellite MODIS Cloud Top Pressure"}',
+   '/coverage/sat-modis-cloud-top/ + maritime:sat-modis-cloud-top WMS',
    '[-25,30,40,70]', false),
   ('satellite-modis-aerosol',
-   'http_binary',
-   'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1&LAYERS=MODIS_Combined_Value_Added_AOD&TIME={date}&BBOX=-25,30,40,70&SRS=EPSG:4326&WIDTH=1300&HEIGHT=800&FORMAT=image/png',
+   'http_satellite',
+   'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1&LAYERS=MODIS_Combined_Value_Added_AOD&TIME={date}&BBOX=-25,30,40,70&SRS=EPSG:4326&WIDTH=1300&HEIGHT=800&FORMAT=image/tiff',
    'cron', '55 3 * * *',
-   'identity_binary', NULL,
-   'file_save',
-   '{"output_dir": "/data/satellites", "filename": "MODIS_AOD/{date}.png", "skipIfExists": true}',
-   '/data/satellites/MODIS_AOD/YYYY-MM-DD.png',
+   'sat_geotiff', NULL,
+   'geotiff_volume',
+   '{"output_dir": "/coverage/sat-modis-aerosol", "output_prefix": "sat-modis-aerosol", "geoserver_create_if_missing": true, "geoserver_workspace": "maritime", "geoserver_store": "sat-modis-aerosol", "geoserver_coverage": "sat-modis-aerosol", "geoserver_title": "Satellite MODIS Aerosol Optical Depth"}',
+   '/coverage/sat-modis-aerosol/ + maritime:sat-modis-aerosol WMS',
    '[-25,30,40,70]', false),
   ('satellite-viirs-day-night',
-   'http_binary',
-   'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1&LAYERS=VIIRS_SNPP_DayNightBand_ENCC&TIME={date}&BBOX=-25,30,40,70&SRS=EPSG:4326&WIDTH=2048&HEIGHT=1260&FORMAT=image/png',
+   'http_satellite',
+   'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1&LAYERS=VIIRS_SNPP_DayNightBand_ENCC&TIME={date}&BBOX=-25,30,40,70&SRS=EPSG:4326&WIDTH=2048&HEIGHT=1260&FORMAT=image/tiff',
    'cron', '0 4 * * *',
-   'identity_binary', NULL,
-   'file_save',
-   '{"output_dir": "/data/satellites", "filename": "VIIRS_DayNight/{date}.png", "skipIfExists": true}',
-   '/data/satellites/VIIRS_DayNight/YYYY-MM-DD.png',
+   'sat_geotiff', NULL,
+   'geotiff_volume',
+   '{"output_dir": "/coverage/sat-viirs-day-night", "output_prefix": "sat-viirs-day-night", "geoserver_create_if_missing": true, "geoserver_workspace": "maritime", "geoserver_store": "sat-viirs-day-night", "geoserver_coverage": "sat-viirs-day-night", "geoserver_title": "Satellite VIIRS Day/Night Band"}',
+   '/coverage/sat-viirs-day-night/ + maritime:sat-viirs-day-night WMS',
    '[-25,30,40,70]', false)
-ON CONFLICT (name) DO NOTHING;
+ON CONFLICT (name) DO UPDATE SET
+  kind = EXCLUDED.kind,
+  url = EXCLUDED.url,
+  parser_kind = EXCLUDED.parser_kind,
+  sink_kind = EXCLUDED.sink_kind,
+  sink_config = EXCLUDED.sink_config,
+  sink_label = EXCLUDED.sink_label;
 `;
 
 export async function runMigrations(databaseUrl: string): Promise<void> {

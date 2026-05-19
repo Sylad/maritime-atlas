@@ -538,11 +538,6 @@ services:
       # ingesters cron. Doit matcher ORCHESTRATOR_JOB_TOKEN dans chaque
       # ingester. Default dev-only — override via .env.
       ORCHESTRATOR_JOB_TOKEN: ${ORCHESTRATOR_JOB_TOKEN:-dev-orchestrator-token-change-me}
-    volumes:
-      # APEX Satellites (2026-05-19) : volume partagé pour le sink file_save
-      # des sources NASA GIBS. Le frontend nginx l'expose en read-only via
-      # /satellites/*. Phase 2 — DL daily, Phase 2b → frontend bascule URL.
-      - satellite-data:/data/satellites
     depends_on:
       postgres:
         condition: service_healthy
@@ -561,9 +556,6 @@ services:
     volumes:
       # Sprint 6 : wind/wave arrows GeoJSON exposés via /wind-arrows/* depuis nginx.
       - wind-arrows-data:/usr/share/nginx/wind-arrows:ro
-      # APEX Satellites : volume read-only avec les images DL par l'orchestrator.
-      # Servi par nginx via /satellites/* (cf. frontend/nginx.conf).
-      - satellite-data:/usr/share/nginx/satellites:ro
     depends_on:
       - geoserver
       - api
@@ -600,6 +592,3 @@ volumes:
   wind-arrows-data:
   # Sprint stockage objet : SeaweedFS data dir (master + volume + filer + S3).
   seaweedfs-data:
-  # APEX Satellites (2026-05-19) : images NASA GIBS daily DL par l'orchestrator.
-  # Writer = maritime-api (sink file_save). Reader = nginx frontend (read-only).
-  satellite-data:

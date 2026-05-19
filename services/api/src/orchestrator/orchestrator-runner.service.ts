@@ -179,7 +179,7 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
     // Sprint N4 (2026-05-12) : si parser_kind est un des kinds GRIB/NetCDF,
     // on délègue au sidecar Python qui fetch+parse+écrit le GeoTIFF d'un
     // coup, puis on trigger reindex GeoServer si sink_config le précise.
-    const sidecarKinds = ['grib_wind10m', 'grib_wave', 'netcdf_sst', 'grib_gfs_multi'];
+    const sidecarKinds = ['grib_wind10m', 'grib_wave', 'netcdf_sst', 'grib_gfs_multi', 'sat_geotiff'];
     if (src.parserKind && sidecarKinds.includes(src.parserKind)) {
       try {
         const result = await this.runSidecarCycle(src);

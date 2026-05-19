@@ -25,7 +25,6 @@ import Cluster from 'ol/source/Cluster';
 import XYZ from 'ol/source/XYZ';
 import TileWMS from 'ol/source/TileWMS';
 import ImageWMS from 'ol/source/ImageWMS';
-import ImageStatic from 'ol/source/ImageStatic';
 import GeoJSON from 'ol/format/GeoJSON';
 import Overlay from 'ol/Overlay';
 import { fromLonLat } from 'ol/proj';
@@ -2540,16 +2539,17 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     { key: 'windArrows',     label: 'Flèches vent',   type: 'wms',    gsLayerName: 'maritime:wind-speed',     active: () => this.showWindArrows() },
     { key: 'waveArrows',     label: 'Flèches vagues', type: 'wms',    gsLayerName: 'maritime:wave-dir',       active: () => this.showWaveArrows() },
     { key: 'windParticles',  label: 'Particules vent',type: 'wms',    gsLayerName: 'maritime:wind-speed',     active: () => this.showWindParticles() },
-    // 2026-05-19 APEX Satellites Phase 3 — type 'wms' pour devenir master-éligibles
-    // et faire apparaître la time-bar même si le user n'active QUE des satellites.
-    // gsLayerName non utilisé (l'image est servie en static local), juste un placeholder.
-    { key: 'satTrueColor',      label: 'Satellite MODIS',     type: 'wms', gsLayerName: 'local:sat-true-color',    active: () => this.showSatTrueColor() },
-    { key: 'satTrueColorVIIRS', label: 'Satellite VIIRS',     type: 'wms', gsLayerName: 'local:sat-viirs',         active: () => this.showSatTrueColorVIIRS() },
-    { key: 'satIR',             label: 'Satellite IR',        type: 'wms', gsLayerName: 'local:sat-ir',            active: () => this.showSatIR() },
-    { key: 'satWaterVapor',     label: 'Satellite T° air',    type: 'wms', gsLayerName: 'local:sat-airs',          active: () => this.showSatWaterVapor() },
-    { key: 'satCloudTop',       label: 'Satellite nuages',    type: 'wms', gsLayerName: 'local:sat-cloud-top',     active: () => this.showSatCloudTop() },
-    { key: 'satAerosol',        label: 'Satellite aérosols',  type: 'wms', gsLayerName: 'local:sat-aerosol',       active: () => this.showSatAerosol() },
-    { key: 'satDayNight',       label: 'Satellite jour/nuit', type: 'wms', gsLayerName: 'local:sat-day-night',     active: () => this.showSatDayNight() },
+    // 2026-05-19 APEX Satellites Phase 4 — type 'wms' avec vrais gsLayerName
+    // pointant sur les coverages GeoServer auto-créées par grib-parser sidecar
+    // depuis les GeoTIFFs NASA. Master-éligibles → time-bar apparaît même si
+    // user n'active QUE des satellites.
+    { key: 'satTrueColor',      label: 'Satellite MODIS',     type: 'wms', gsLayerName: 'maritime:sat-modis-true-color', active: () => this.showSatTrueColor() },
+    { key: 'satTrueColorVIIRS', label: 'Satellite VIIRS',     type: 'wms', gsLayerName: 'maritime:sat-viirs-true-color', active: () => this.showSatTrueColorVIIRS() },
+    { key: 'satIR',             label: 'Satellite IR',        type: 'wms', gsLayerName: 'maritime:sat-modis-ir',         active: () => this.showSatIR() },
+    { key: 'satWaterVapor',     label: 'Satellite T° air',    type: 'wms', gsLayerName: 'maritime:sat-airs-air-temp',    active: () => this.showSatWaterVapor() },
+    { key: 'satCloudTop',       label: 'Satellite nuages',    type: 'wms', gsLayerName: 'maritime:sat-modis-cloud-top',  active: () => this.showSatCloudTop() },
+    { key: 'satAerosol',        label: 'Satellite aérosols',  type: 'wms', gsLayerName: 'maritime:sat-modis-aerosol',    active: () => this.showSatAerosol() },
+    { key: 'satDayNight',       label: 'Satellite jour/nuit', type: 'wms', gsLayerName: 'maritime:sat-viirs-day-night',  active: () => this.showSatDayNight() },
     { key: 'vessels',        label: 'Navires AIS',    type: 'vector',                                          active: () => this.showVessels() },
     { key: 'lightning',      label: 'Foudre',         type: 'vector',                                          active: () => this.showLightning() },
     { key: 'metar',          label: 'METAR',          type: 'vector',                                          active: () => this.showMetar() },
@@ -2818,33 +2818,33 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     return `${eff.getUTCFullYear()}-${String(eff.getUTCMonth() + 1).padStart(2, '0')}-${String(eff.getUTCDate()).padStart(2, '0')}`;
   });
 
-  /** Définition des 7 produits GIBS. `id` = identifier WMTS NASA (legacy
-   *  tile pyramid, plus utilisé depuis Phase 3), `localDir` = nom du dossier
-   *  côté volume satellite-data (matche orchestrator sink_config.filename),
-   *  `maxZ` = niveau max raisonnable pour le rendu (single image source),
-   *  `ext` = jpg|png, `label` = texte affiché dans le panel. */
+  /** Définition des 7 produits NASA GIBS (Phase 4 — GeoServer-native).
+   *  `id` = identifier WMTS NASA (legacy, juste pour traçabilité doc),
+   *  `gsName` = nom de la coverage GeoServer (= `output_prefix` côté
+   *  orchestrator sink_config). La layer WMS exposée = `maritime:{gsName}`.
+   *  `maxZ` = niveau max conseillé (les GeoTIFF source NASA ont une
+   *  résolution finie — au-delà OL up-scale). `label` = texte panel. */
   private readonly SAT_PRODUCTS: ReadonlyArray<{
     key: 'satTrueColor' | 'satTrueColorVIIRS' | 'satIR' | 'satWaterVapor' | 'satCloudTop' | 'satAerosol' | 'satDayNight';
     id: string;
-    localDir: string;
+    /** Nom de la coverage GeoServer (matche migrate.ts sink_config.geoserver_coverage
+     *  ET orchestrator output_prefix ET nom du dossier /coverage/<gsName>/). */
+    gsName: string;
     maxZ: number;
-    ext: 'jpg' | 'png';
     label: string;
     sub: string;
   }> = [
-    { key: 'satTrueColor',      id: 'MODIS_Terra_CorrectedReflectance_TrueColor',     localDir: 'MODIS_TrueColor',  maxZ: 9, ext: 'jpg', label: 'Vrai couleur MODIS',  sub: 'Terra · daily VIS' },
-    { key: 'satTrueColorVIIRS', id: 'VIIRS_SNPP_CorrectedReflectance_TrueColor',      localDir: 'VIIRS_TrueColor',  maxZ: 9, ext: 'jpg', label: 'Vrai couleur VIIRS',  sub: 'SNPP · daily VIS HD' },
-    { key: 'satIR',             id: 'MODIS_Terra_Brightness_Temp_Band31_Day',         localDir: 'MODIS_IR',         maxZ: 7, ext: 'png', label: 'Infrarouge thermique', sub: 'MODIS · band 31 day' },
-    { key: 'satWaterVapor',     id: 'AIRS_L2_Surface_Air_Temperature_Day',            localDir: 'AIRS_AirTemp',     maxZ: 6, ext: 'png', label: 'Température air',     sub: 'AIRS · proxy évap.' },
-    { key: 'satCloudTop',       id: 'MODIS_Terra_Cloud_Top_Pressure_Day',             localDir: 'MODIS_CloudTop',   maxZ: 6, ext: 'png', label: 'Sommet des nuages',   sub: 'MODIS · pression top' },
-    { key: 'satAerosol',        id: 'MODIS_Combined_Value_Added_AOD',                 localDir: 'MODIS_AOD',        maxZ: 6, ext: 'png', label: 'Aérosols / poussières', sub: 'MODIS · AOD combiné' },
-    { key: 'satDayNight',       id: 'VIIRS_SNPP_DayNightBand_ENCC',                   localDir: 'VIIRS_DayNight',   maxZ: 8, ext: 'png', label: 'VIIRS jour/nuit',     sub: 'lumières urbaines + navires' },
+    { key: 'satTrueColor',      id: 'MODIS_Terra_CorrectedReflectance_TrueColor',     gsName: 'sat-modis-true-color',  maxZ: 9, label: 'Vrai couleur MODIS',  sub: 'Terra · daily VIS' },
+    { key: 'satTrueColorVIIRS', id: 'VIIRS_SNPP_CorrectedReflectance_TrueColor',      gsName: 'sat-viirs-true-color',  maxZ: 9, label: 'Vrai couleur VIIRS',  sub: 'SNPP · daily VIS HD' },
+    { key: 'satIR',             id: 'MODIS_Terra_Brightness_Temp_Band31_Day',         gsName: 'sat-modis-ir',          maxZ: 7, label: 'Infrarouge thermique', sub: 'MODIS · band 31 day' },
+    { key: 'satWaterVapor',     id: 'AIRS_L2_Surface_Air_Temperature_Day',            gsName: 'sat-airs-air-temp',     maxZ: 6, label: 'Température air',     sub: 'AIRS · proxy évap.' },
+    { key: 'satCloudTop',       id: 'MODIS_Terra_Cloud_Top_Pressure_Day',             gsName: 'sat-modis-cloud-top',   maxZ: 6, label: 'Sommet des nuages',   sub: 'MODIS · pression top' },
+    { key: 'satAerosol',        id: 'MODIS_Combined_Value_Added_AOD',                 gsName: 'sat-modis-aerosol',     maxZ: 6, label: 'Aérosols / poussières', sub: 'MODIS · AOD combiné' },
+    { key: 'satDayNight',       id: 'VIIRS_SNPP_DayNightBand_ENCC',                   gsName: 'sat-viirs-day-night',   maxZ: 8, label: 'VIIRS jour/nuit',     sub: 'lumières urbaines + navires' },
   ];
 
-  /** Phase 3 (2026-05-19) — bbox de l'imagerie satellite locale, en
-   *  EPSG:4326 (lon/lat). Matche le BBOX du WMS GetMap de l'orchestrator
-   *  côté backend (services/api/src/db/migrate.ts seed). */
-  private readonly SAT_BBOX_4326: [number, number, number, number] = [-25, 30, 40, 70];
+  // Phase 4 (2026-05-19) — plus de SAT_BBOX_4326 client-side : GeoServer
+  // gère la bbox des coverages, le frontend ne fait que des WMS GetMap.
   // ─── V2 Observation #1 (2026-05-12) — METAR ────────────────────────
   // ~35 aéroports européens, refresh 60s côté front, données ingérées
   // par orchestrator (source `metar-fetcher-eu`, NOAA AWC, cron 30min).
@@ -3713,15 +3713,15 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private sstContoursSource?: ImageWMS;
   private rainLayer?: TileLayer<XYZ>;
   private rainSource?: XYZ;
-  /** 2026-05-19 APEX — Satellites NASA GIBS, Phase 3 = ImageStatic local.
-   *  1 ImageLayer par produit, keyé par `SAT_PRODUCTS[i].key`. La source
-   *  ImageStatic ne supporte pas setUrl — on `setSource(new ImageStatic(...))`
-   *  quand `currentSatDate` change (cursor scrub) ou quand l'opacity change.
-   *  URL = `/satellites/{localDir}/{YYYY-MM-DD}.{ext}` (servi par nginx
-   *  read-only depuis le PVC `maritime-satellites` rempli par l'orchestrator).
-   *  Note Record vs `Map<>` : import `Map` d'OpenLayers shadow le global. */
-  private satLayers: Record<string, ImageLayer<ImageStatic>> = {};
-  private satSources: Record<string, ImageStatic> = {};
+  /** 2026-05-19 APEX Satellites Phase 4 — TileLayer<TileWMS> pointant
+   *  sur GeoServer comme TOUTES les autres raster layers (sst, wind, waves).
+   *  Plus d'ImageStatic, plus de PVC dédié — le PVC `maritime-coverage`
+   *  existant héberge les GeoTIFFs sat-* écrits par grib-parser sidecar via
+   *  parser_kind=sat_geotiff. GeoServer auto-publie les ImageMosaic via le
+   *  pattern grib-parser._maybe_geoserver (cf grib-parser/src/main.py).
+   *  TIME dim géré nativement par GeoServer, cf sliderConfig + masterLayer. */
+  private satLayers: Record<string, TileLayer<TileWMS>> = {};
+  private satSources: Record<string, TileWMS> = {};
   private rainSnapshot?: RainViewerSnapshot;
   private rainSnapshotTimer?: ReturnType<typeof setInterval>;
   /** 2026-05-18 APEX 10 — polling 60s pour détecter nouvelles validités master
@@ -4223,25 +4223,16 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // Refresh tick toutes les 5 min — rolling window glissante.
     setInterval(() => this.vectorAvailabilityRefreshTick.update((n) => n + 1), 5 * 60_000);
 
-    // 2026-05-19 APEX Satellites Phase 3 — réactif au scrub du cursor.
-    // ImageStatic ne supporte pas setUrl (URL set à la construction). Au
-    // changement de date on recrée la source et on `setSource(new ImageStatic)`.
-    // Coût négligeable (juste une URL + extent), et OL re-fetch l'image
-    // unique automatiquement. Projection EPSG:4326 (cf bloc init plus haut).
+    // 2026-05-19 APEX Satellites Phase 4 — TileWMS supporte updateParams
+    // natif. Au changement de date, on update juste le TIME param et OL
+    // refait les requêtes WMS GetMap avec la nouvelle date. Pas besoin
+    // de recréer la source (contrairement à ImageStatic en Phase 3).
     effect(() => {
       const date = this.currentSatDate();
       for (const p of this.SAT_PRODUCTS) {
-        const layer = this.satLayers[p.key];
-        if (!layer) continue;
-        const newSrc = new ImageStatic({
-          url: `/satellites/${p.localDir}/${date}.${p.ext}`,
-          imageExtent: this.SAT_BBOX_4326,
-          projection: 'EPSG:4326',
-          crossOrigin: 'anonymous',
-          attributions: 'Imagery © <a href="https://earthdata.nasa.gov/eosdis/gibs" target="_blank">NASA EOSDIS GIBS</a> · cached locally',
-        });
-        layer.setSource(newSrc);
-        this.satSources[p.key] = newSrc;
+        const src = this.satSources[p.key];
+        if (!src) continue;
+        src.updateParams({ TIME: date });
       }
     });
   }
@@ -6316,40 +6307,34 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       visible: false,
     });
 
-    // 2026-05-19 APEX Satellites Phase 3 — ImageStatic local au lieu de
-    // NASA tile pyramid. 1 ImageLayer<ImageStatic> par produit, URL =
-    // /satellites/{localDir}/{YYYY-MM-DD}.{ext}. Image unique 2048-2600px
-    // bbox-anchored sur SAT_BBOX_4326 (Europe + Atlantique + Med).
+    // 2026-05-19 APEX Satellites Phase 4 — TileLayer<TileWMS> GeoServer.
+    // Architecture canonique au même titre que SST/wind/waves :
+    //   - source = ImageMosaic GS auto-créée par grib-parser sidecar
+    //   - layer name = maritime:sat-<product>
+    //   - TIME dim = jour J-1 par défaut (NASA lag 24h), suit le cursor
+    //     via updateParams() dans l'effect currentSatDate plus bas
+    //   - reprojection 4326→3857 native côté GS (plus de bug stretch)
+    //   - tile pyramid via GWC (nginx /geoserver/gwc) → zoom fluide
     //
-    // IMPORTANT projection : NASA WMS GetMap a été appelé avec SRS=EPSG:4326
-    // (cf migrate.ts seed), donc l'image stockée EST en équirectangulaire
-    // (plate carrée). On déclare ImageStatic en EPSG:4326 + extent en
-    // lon/lat → OL reprojete vers la View courante (EPSG:3857 défaut) avec
-    // un canvas-side reprojection. Sans ce mapping correct, l'image était
-    // étirée verticalement (la transformExtent étend +30/+70 en mètres
-    // Mercator donnait une projection visuelle décalée vs basemap 3857).
-    //
-    // Tradeoff vs tile pyramid : pas de zoom infini, l'image flou au-delà de
-    // z~6. Bénéfices : sovereignty (NASA peut tomber, on a notre cache),
-    // archive historique, latency LAN, 1 fetch HTTP au lieu de N tiles.
-    //
-    // zIndex 38 = au-dessus de SST/wind/wave rasters (30-35) mais sous radar
-    // pluie (40) — choix arbitraire, ajustable via DnD time-bar APEX 11.
+    // zIndex 38+idx : chaque produit a son slot distinct pour stacking
+    // déterministe (Phase 3 fix).
     const initialDate = this.currentSatDate();
     this.SAT_PRODUCTS.forEach((p, idx) => {
-      const src = new ImageStatic({
-        url: `/satellites/${p.localDir}/${initialDate}.${p.ext}`,
-        imageExtent: this.SAT_BBOX_4326,
-        projection: 'EPSG:4326',
+      const src = new TileWMS({
+        url: '/geoserver/maritime/wms',
+        params: {
+          LAYERS: `maritime:${p.gsName}`,
+          TIME: initialDate,
+          FORMAT: 'image/png',
+          TRANSPARENT: true,
+          TILED: true,
+        },
         crossOrigin: 'anonymous',
-        attributions: 'Imagery © <a href="https://earthdata.nasa.gov/eosdis/gibs" target="_blank">NASA EOSDIS GIBS</a> · cached locally',
+        attributions: 'Imagery © <a href="https://earthdata.nasa.gov/eosdis/gibs" target="_blank">NASA EOSDIS GIBS</a> · GeoServer ImageMosaic',
       });
-      const layer = new ImageLayer({
+      const layer = new TileLayer({
         source: src,
         opacity: 0.75,
-        // 2026-05-19 Phase 3 fix : z-index distinct par produit (38 + idx)
-        // pour éviter collision de stacking quand l'user active plusieurs
-        // satellites. Avant tous étaient à 38 → bug "un seul s'affiche".
         zIndex: 38 + idx,
         visible: false,
       });
