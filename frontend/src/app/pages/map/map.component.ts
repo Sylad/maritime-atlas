@@ -4074,9 +4074,24 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       const wantWaveArrows = this.showWaveArrows();
       const wantWindParticles = this.showWindParticles();
       const windSrc = this.windSource();
+      // 2026-05-19 APEX Satellites Phase 4 — wire validities sat-* depuis GS
+      // GetCapabilities (sinon time-bar "chargement validités…" + next/prev KO).
+      const wantSats: Record<string, boolean> = {
+        satTrueColor:      this.showSatTrueColor(),
+        satTrueColorVIIRS: this.showSatTrueColorVIIRS(),
+        satIR:             this.showSatIR(),
+        satWaterVapor:     this.showSatWaterVapor(),
+        satCloudTop:       this.showSatCloudTop(),
+        satAerosol:        this.showSatAerosol(),
+        satDayNight:       this.showSatDayNight(),
+      };
+      const anySat = Object.values(wantSats).some(Boolean);
 
       const now = Date.now();
-      const minTime = new Date(now - 168 * 3_600_000);
+      // 2026-05-19 — sat sources daily, archive jusqu'à 30j → fenêtre étendue
+      // si un sat est actif, sinon ±168h legacy.
+      const pastH = anySat ? 720 : 168;
+      const minTime = new Date(now - pastH * 3_600_000);
       const maxTime = new Date(now + 168 * 3_600_000);
 
       const windLayerName = windSrc === 'arpege' ? 'maritime:wind-speed-arpege'
@@ -4091,7 +4106,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       queueMicrotask(async () => {
         // Si aucune layer time-enabled active → clear le map et stop.
         const anyActive = wantSst || wantWind || wantWaves || wantWindArrows
-                       || wantWaveArrows || wantWindParticles;
+                       || wantWaveArrows || wantWindParticles || anySat;
         if (!anyActive) {
           this.validityListPerLayer.set({});
           this.masterValidityList.set([]);
@@ -4153,6 +4168,14 @@ export class MapComponent implements AfterViewInit, OnDestroy {
           if (wantWaveArrows) {
             const d = filterRange(this.parseTimeDimension(xml, 'wave-dir'));
             if (d.length > 0) newMap['waveArrows'] = d;
+          }
+          // 2026-05-19 APEX Satellites Phase 4 — parse les time dims des 7
+          // coverages sat-* GS. Le frontend ne demande GetCapabilities qu'une
+          // fois, on extrait toutes les couches en une passe.
+          for (const p of this.SAT_PRODUCTS) {
+            if (!wantSats[p.key]) continue;
+            const d = filterRange(this.parseTimeDimension(xml, p.gsName));
+            if (d.length > 0) newMap[p.key] = d;
           }
 
           this.validityListPerLayer.set(newMap);
