@@ -3962,6 +3962,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.showSstContours();
       this.showWindContours();
       this.showWaveContours();
+      // 2026-05-19 APEX Satellites Phase 3 — sans ces reads, toggler un
+      // satellite ne déclenche pas applyLayerVisibility() → la layer reste
+      // visible=false et le user ne voit rien apparaître. Bug live 2026-05-19.
+      this.showSatTrueColor(); this.showSatTrueColorVIIRS(); this.showSatIR();
+      this.showSatWaterVapor(); this.showSatCloudTop(); this.showSatAerosol();
+      this.showSatDayNight();
       // Defer pour s'exécuter après ngAfterViewInit (this.*Layer dispo)
       queueMicrotask(() => {
         this.applyLayerVisibility();
