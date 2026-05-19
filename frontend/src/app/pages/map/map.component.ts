@@ -3144,7 +3144,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   /** Persist current layer prefs to localStorage. Phase C.2 (2026-05-12) :
       si user connecté, push aussi vers DB (debounced 500ms). LocalStorage
       reste la source canonique pour les anonymes + le boot. */
-  private persistLayerPrefs(): void {
+  /** 2026-05-19 — accessible depuis le template pour les bindings APEX 13
+   *  (toggles + colors isolines qui doivent persister immédiatement). */
+  persistLayerPrefs(): void {
     const visibility = {
       vessels: this.showVessels(),
       tracks: this.showTracks(),
