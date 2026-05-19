@@ -301,11 +301,11 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
     if (!sinkCfg.output_dir) throw new Error('sink_config.output_dir required');
     const baseUrl = this.config.get<string>('gribParserUrl') ?? 'http://grib-parser:8500';
 
-    // Expand URL templating ({{today:YYYYMMDD}}, {{today_offset:-2,YYYYMM}}…).
-    // Permet aux sources d'avoir une URL stable côté DB malgré une date
-    // qui change chaque jour (typique des datasets quotidiens OISST,
-    // ARPEGE runs, etc.).
-    const expandedUrl = src.url ? this.expandUrlTemplate(src.url, new Date()) : '';
+    // Expand URL templating ({{today:YYYYMMDD}}, {{today_offset:-2,YYYYMM}}…)
+    // PUIS applyUrlTemplate ({date}, {date-1}, {date-2}, {date-7}) ajouté en
+    // Phase 2 satellites. Les 2 syntaxes coexistent. Sans la 2e ligne, les
+    // sources sat-* envoyaient le literal `{date}` à NASA → ExceptionReport.
+    const expandedUrl = src.url ? this.applyUrlTemplate(this.expandUrlTemplate(src.url, new Date())) : '';
 
     const payload = {
       url: expandedUrl,
