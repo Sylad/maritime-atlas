@@ -6336,7 +6336,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // zIndex 38 = au-dessus de SST/wind/wave rasters (30-35) mais sous radar
     // pluie (40) — choix arbitraire, ajustable via DnD time-bar APEX 11.
     const initialDate = this.currentSatDate();
-    for (const p of this.SAT_PRODUCTS) {
+    this.SAT_PRODUCTS.forEach((p, idx) => {
       const src = new ImageStatic({
         url: `/satellites/${p.localDir}/${initialDate}.${p.ext}`,
         imageExtent: this.SAT_BBOX_4326,
@@ -6347,12 +6347,15 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       const layer = new ImageLayer({
         source: src,
         opacity: 0.75,
-        zIndex: 38,
+        // 2026-05-19 Phase 3 fix : z-index distinct par produit (38 + idx)
+        // pour éviter collision de stacking quand l'user active plusieurs
+        // satellites. Avant tous étaient à 38 → bug "un seul s'affiche".
+        zIndex: 38 + idx,
         visible: false,
       });
       this.satSources[p.key] = src;
       this.satLayers[p.key] = layer;
-    }
+    });
     // Layers attachés au Map plus bas via `layers: [...]` (cf. constructeur).
 
     // Sprint Europe Chantier #4 : clustering vessels.
