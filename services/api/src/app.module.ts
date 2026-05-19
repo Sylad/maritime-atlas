@@ -13,6 +13,7 @@ import { MetarModule } from './metar/metar.module';
 import { HubeauModule } from './hubeau/hubeau.module';
 import { EarthquakesModule } from './earthquakes/earthquakes.module';
 import { FirmsModule } from './firms/firms.module';
+import { AvailabilityModule } from './availability/availability.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { FirmsModule } from './firms/firms.module';
     HubeauModule,
     EarthquakesModule,
     FirmsModule,
+    AvailabilityModule,
   ],
 })
 export class AppModule {}
