@@ -28,6 +28,10 @@ export interface RainViewerSnapshot {
   nowcast: RainFrame[];
   /** Sorted ascending (past + nowcast concaténés) — pratique pour binary search. */
   all: RainFrame[];
+  /** 2026-05-19 — IR satellite frames (10 min cadence, global IR clouds).
+   *  Source : raw.satellite.infrared du même endpoint /weather-maps.json.
+   *  ~2h d'archive past, pas de nowcast. */
+  satellite: RainFrame[];
 }
 
 @Injectable({ providedIn: 'root' })
@@ -46,13 +50,18 @@ export class RainviewerService {
       return this.cached.snapshot;
     }
     const raw = await firstValueFrom(
-      this.http.get<{ host: string; radar: { past: RainFrame[]; nowcast: RainFrame[] } }>(this.indexUrl),
+      this.http.get<{
+        host: string;
+        radar: { past: RainFrame[]; nowcast: RainFrame[] };
+        satellite?: { infrared: RainFrame[] };
+      }>(this.indexUrl),
     );
     const snapshot: RainViewerSnapshot = {
       host: raw.host,
       past: raw.radar.past ?? [],
       nowcast: raw.radar.nowcast ?? [],
       all: [...(raw.radar.past ?? []), ...(raw.radar.nowcast ?? [])].sort((a, b) => a.time - b.time),
+      satellite: (raw.satellite?.infrared ?? []).slice().sort((a, b) => a.time - b.time),
     };
     this.cached = { snapshot, fetchedAt: now };
     return snapshot;
@@ -91,5 +100,16 @@ export class RainviewerService {
    */
   buildTileUrl(host: string, path: string, color = 4, options = '1_1', size = 256): string {
     return `${host}${path}/${size}/{z}/{x}/{y}/${color}/${options}.png`;
+  }
+
+  /** 2026-05-19 — URL template pour les tiles satellite IR (path commence
+   *  par /v2/satellite/...). Color schema diffère du radar :
+   *    0 = Original IR (gris)
+   *    1 = Universal Blue
+   *    2 = TITAN
+   *    3 = The Weather Channel
+   *  Options "0_0" car le satellite n'a pas de notion snow/smooth — toujours 0_0. */
+  buildSatTileUrl(host: string, path: string, color = 0, size = 256): string {
+    return `${host}${path}/${size}/{z}/{x}/{y}/${color}/0_0.png`;
   }
 }

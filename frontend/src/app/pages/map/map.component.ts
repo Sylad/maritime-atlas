@@ -708,6 +708,21 @@ function toIsoTimestamp(d: Date): string {
                          (input)="setOpacity('satDayNight', +$any($event.target).value)" />
                 }
               </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showSatRainviewer()">
+                  <input type="checkbox" [checked]="showSatRainviewer()" (change)="showSatRainviewer.set($any($event.target).checked)" />
+                  <span class="toggle-glyph"><span class="glyph-icon">☁</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Satellite IR (RainViewer)</span>
+                    <span class="toggle-count">{{ satRainviewerStatus() }}</span>
+                  </span>
+                </label>
+                @if (showSatRainviewer()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getOpacity('satRainviewer')"
+                         (input)="setOpacity('satRainviewer', +$any($event.target).value)" />
+                }
+              </div>
             </div>
             }
           </div>
@@ -2550,6 +2565,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     { key: 'satCloudTop',       label: 'Satellite nuages',    type: 'wms', gsLayerName: 'maritime:sat-modis-cloud-top',  active: () => this.showSatCloudTop() },
     { key: 'satAerosol',        label: 'Satellite aérosols',  type: 'wms', gsLayerName: 'maritime:sat-modis-aerosol',    active: () => this.showSatAerosol() },
     { key: 'satDayNight',       label: 'Satellite jour/nuit', type: 'wms', gsLayerName: 'maritime:sat-viirs-day-night',  active: () => this.showSatDayNight() },
+    // RainViewer IR — type vector pour ne pas être master (validités gérées
+    // via snapshot RainViewer, pas via GS GetCapabilities) ; visible dans
+    // sliderLayerCoverage avec refreshIntervalMin=10.
+    { key: 'satRainviewer',     label: 'Satellite IR (RainViewer)', type: 'vector', active: () => this.showSatRainviewer() },
     { key: 'vessels',        label: 'Navires AIS',    type: 'vector',                                          active: () => this.showVessels() },
     { key: 'lightning',      label: 'Foudre',         type: 'vector',                                          active: () => this.showLightning() },
     { key: 'metar',          label: 'METAR',          type: 'vector',                                          active: () => this.showMetar() },
@@ -2805,6 +2824,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly showSatCloudTop       = signal(false);
   readonly showSatAerosol        = signal(false);
   readonly showSatDayNight       = signal(false);
+  // 2026-05-19 — Satellite RainViewer IR (10 min cadence, ~3h archive,
+  // global IR clouds). Source XYZ tiles via api.rainviewer.com, pas GS.
+  readonly showSatRainviewer     = signal(false);
+  readonly satRainviewerStatus   = signal('IR clouds (10 min)');
 
   /** Date du jour à utiliser pour le TIME des layers GIBS — dérivée du
    *  cursor time-slider (computed). Format YYYY-MM-DD. Snap UTC day floor :
@@ -2933,6 +2956,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     satCloudTop:       { kind: 'obs', stepH: 24, pastH: 168, futureH: 0 },
     satAerosol:        { kind: 'obs', stepH: 24, pastH: 168, futureH: 0 },
     satDayNight:       { kind: 'obs', stepH: 24, pastH: 168, futureH: 0 },
+    // RainViewer satellite IR — 10 min, archive ~3h côté API.
+    satRainviewer:     { kind: 'live', stepH: 0, pastH: 3, futureH: 0 },
   };
 
   /** Computed : drive l'input du time-slider selon le MASTER du temps (= la
@@ -3029,6 +3054,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     if (this.showSatCloudTop())       n++;
     if (this.showSatAerosol())        n++;
     if (this.showSatDayNight())       n++;
+    if (this.showSatRainviewer())     n++;
     return n;
   });
 
@@ -3079,6 +3105,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     satCloudTop:       '#e2e8f0',
     satAerosol:        '#d97706',
     satDayNight:       '#9333ea',
+    satRainviewer:     '#a8a29e',
   };
 
   /** 2026-05-18 APEX 12 — refresh interval (minutes) pour les vector layers
@@ -3103,6 +3130,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     satCloudTop: 1440,
     satAerosol: 1440,
     satDayNight: 1440,
+    satRainviewer: 10,
   };
 
   readonly sliderLayerCoverage = computed((): TimeSliderLayerCoverage[] => {
@@ -3163,6 +3191,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     push(this.showSatCloudTop(),       'satCloudTop',       'sat-cloud-top');
     push(this.showSatAerosol(),        'satAerosol',        'sat-aerosol');
     push(this.showSatDayNight(),       'satDayNight',       'sat-day-night');
+    push(this.showSatRainviewer(),     'satRainviewer',     'sat-rainviewer-ir');
     // 2026-05-18 APEX 11 — réordonne selon le z-index user (persisté). Les
     // layers non listées dans layerZIndexOrder gardent leur ordre relatif
     // d'origine (= ordre déclaratif ci-dessus).
@@ -3197,6 +3226,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // basemap derrière sans masquer l'imagerie.
     satTrueColor: 0.75, satTrueColorVIIRS: 0.75, satIR: 0.75,
     satWaterVapor: 0.75, satCloudTop: 0.75, satAerosol: 0.75, satDayNight: 0.75,
+    satRainviewer: 0.7,
   });
 
   /** Defaults visibility — utilisés par resetLayerPrefs() pour restaurer. */
@@ -3210,6 +3240,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // 2026-05-19 APEX Satellites — tous off par défaut (overlay lourd).
     satTrueColor: false, satTrueColorVIIRS: false, satIR: false,
     satWaterVapor: false, satCloudTop: false, satAerosol: false, satDayNight: false,
+    satRainviewer: false,
   };
   private readonly DEFAULT_OPACITIES = { ...this.layerOpacities() };
 
@@ -3261,6 +3292,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       satCloudTop:       this.satLayers['satCloudTop'],
       satAerosol:        this.satLayers['satAerosol'],
       satDayNight:       this.satLayers['satDayNight'],
+      satRainviewer:     this.satRainviewerLayer,
     } as Record<string, { setOpacity: (n: number) => void } | undefined>)[key];
     layer?.setOpacity(value);
     // Wind particles = canvas overlay, opacity réglée via CSS sur le
@@ -3463,6 +3495,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       satCloudTop: this.showSatCloudTop(),
       satAerosol: this.showSatAerosol(),
       satDayNight: this.showSatDayNight(),
+      satRainviewer: this.showSatRainviewer(),
     };
     const opacity = this.layerOpacities();
     // 2026-05-18 APEX 11+12 — persiste aussi l'ordre user des layers (zIndex)
@@ -3574,6 +3607,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       satCloudTop:       (v) => this.showSatCloudTop.set(v),
       satAerosol:        (v) => this.showSatAerosol.set(v),
       satDayNight:       (v) => this.showSatDayNight.set(v),
+      satRainviewer:     (v) => this.showSatRainviewer.set(v),
     };
     return map[key] ?? null;
   }
@@ -3613,6 +3647,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       if (typeof vis.satCloudTop === 'boolean')       this.showSatCloudTop.set(vis.satCloudTop);
       if (typeof vis.satAerosol === 'boolean')        this.showSatAerosol.set(vis.satAerosol);
       if (typeof vis.satDayNight === 'boolean')       this.showSatDayNight.set(vis.satDayNight);
+      if (typeof vis.satRainviewer === 'boolean')     this.showSatRainviewer.set(vis.satRainviewer);
       const op = data?.opacity ?? {};
       this.layerOpacities.update((m) => ({ ...m, ...op }));
       // 2026-05-18 APEX 11+12 — restore ordre user des layers (zIndex). Compat
@@ -3712,6 +3747,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private sstContoursSource?: ImageWMS;
   private rainLayer?: TileLayer<XYZ>;
   private rainSource?: XYZ;
+  // 2026-05-19 — Satellite RainViewer IR. Pattern identique au rain : XYZ
+  // tiles avec setUrl() à chaque cursor change vers la frame la plus proche.
+  private satRainviewerLayer?: TileLayer<XYZ>;
+  private satRainviewerSource?: XYZ;
   /** 2026-05-19 APEX Satellites Phase 4 — TileLayer<TileWMS> pointant
    *  sur GeoServer comme TOUTES les autres raster layers (sst, wind, waves).
    *  Plus d'ImageStatic, plus de PVC dédié — le PVC `maritime-coverage`
@@ -3977,6 +4016,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.showSatTrueColor(); this.showSatTrueColorVIIRS(); this.showSatIR();
       this.showSatWaterVapor(); this.showSatCloudTop(); this.showSatAerosol();
       this.showSatDayNight();
+      this.showSatRainviewer();
       // Defer pour s'exécuter après ngAfterViewInit (this.*Layer dispo)
       queueMicrotask(() => {
         this.applyLayerVisibility();
@@ -4493,6 +4533,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.refreshForTime(t);
     this.startLiveLoopIfNeeded();
     this.updateRainLayer(t);
+    this.updateSatRainviewerLayer(t);
     this.refreshArrowsForTime(t);
     if (this.showWindParticles() && this.particlesEngine) {
       this.loadParticlesGrid(t);
@@ -4540,6 +4581,34 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.rainStatus.set(`frame ${sign} du cursor`);
   }
 
+  // ─── RainViewer satellite IR (clone pattern updateRainLayer) ──────────
+  private currentSatRainviewerPath?: string;
+  private updateSatRainviewerLayer(t: Date): void {
+    if (!this.satRainviewerSource || !this.rainSnapshot) return;
+    const frames = this.rainSnapshot.satellite ?? [];
+    if (frames.length === 0) return;
+    const atSec = Math.floor(t.getTime() / 1000);
+    // Choisir la frame la plus proche du cursor (max time <= cursor sinon plus ancienne).
+    let chosen = frames[frames.length - 1];
+    const eligible = frames.filter((f) => f.time <= atSec);
+    if (eligible.length > 0) chosen = eligible[eligible.length - 1];
+    const delta = Math.abs(chosen.time - atSec);
+    // Tolérance large : RainViewer sat couvre ~3h, on accepte ±1h pour
+    // ne pas hide la layer au moindre écart en mode replay archive.
+    if (delta > 3600) {
+      this.satRainviewerStatus.set('hors fenêtre (-3h)');
+      return;
+    }
+    if (this.currentSatRainviewerPath !== chosen.path) {
+      this.currentSatRainviewerPath = chosen.path;
+      const url = this.rainviewer.buildSatTileUrl(this.rainSnapshot.host, chosen.path);
+      this.satRainviewerSource.setUrl(url);
+    }
+    const deltaMin = Math.round((atSec - chosen.time) / 60);
+    const sign = deltaMin === 0 ? '=' : (deltaMin > 0 ? `+${deltaMin}min` : `${deltaMin}min`);
+    this.satRainviewerStatus.set(`frame ${sign} du cursor`);
+  }
+
   // ─── Layer visibility logic (combine user toggles + currentTime mode) ─
   private isLive(): boolean {
     return Math.abs(Date.now() - this.currentTime.getTime()) < LIVE_THRESHOLD_MS;
@@ -4573,6 +4642,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // Rain : visible si toggle ON + frame disponible pour le cursor courant
     if (this.rainLayer) {
       this.rainLayer.setVisible(this.showRain() && this.rainHasFrame());
+    }
+    // Satellite RainViewer IR (2026-05-19) : pareil que rain, visible si
+    // toggle ON. Pas de hasFrame check ici — la fenêtre 3h gère silently.
+    if (this.satRainviewerLayer) {
+      this.satRainviewerLayer.setVisible(this.showSatRainviewer());
     }
     // Wind/Waves : visibles à n'importe quel moment où il y a un forecast
     // (NOAA accepte TIME=NEAREST → matche le timestep le plus proche).
@@ -6328,6 +6402,22 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       visible: false,
     });
 
+    // 2026-05-19 — Satellite RainViewer IR (10 min frames mondiales).
+    // URL initiale = tile transparent ; sera remplacée par updateSatRainviewerLayer()
+    // dès le 1er snapshot fetch + à chaque cursor change.
+    this.satRainviewerSource = new XYZ({
+      url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgAAIAAAUAAarVyFEAAAAASUVORK5CYII=',
+      crossOrigin: 'anonymous',
+      attributions: '© <a href="https://rainviewer.com" target="_blank">RainViewer</a> · satellite IR',
+      maxZoom: 8,
+    });
+    this.satRainviewerLayer = new TileLayer({
+      source: this.satRainviewerSource,
+      opacity: 0.7,
+      zIndex: 45,    // au-dessus rain (40) car nuages sur le radar
+      visible: false,
+    });
+
     // 2026-05-19 APEX Satellites Phase 4 — TileLayer<TileWMS> GeoServer.
     // Architecture canonique au même titre que SST/wind/waves :
     //   - source = ImageMosaic GS auto-créée par grib-parser sidecar
@@ -6489,6 +6579,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         this.wavesLayer,
         this.wavesContoursLayer,
         this.rainLayer,
+        this.satRainviewerLayer,
         // 2026-05-19 APEX — Satellites NASA GIBS (7 produits) en couche unique
         // par produit. Insérés ici (zIndex 38) pour rester sous radar pluie (40)
         // mais au-dessus des layers oceano (30-35).
