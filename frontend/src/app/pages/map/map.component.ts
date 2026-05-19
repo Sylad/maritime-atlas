@@ -2924,15 +2924,15 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     windArrows:    { kind: 'forecast', stepH: 6,  pastH: 0,   futureH: 168 },
     waveArrows:    { kind: 'forecast', stepH: 6,  pastH: 0,   futureH: 168 },
     windParticles: { kind: 'forecast', stepH: 6,  pastH: 0,   futureH: 168 },
-    // 2026-05-19 Phase 4 + politique data layer : 1j past, 0 future pour
-    // toutes les obs satellites (cf data_layer_policy_2026_05_19.md).
-    satTrueColor:      { kind: 'obs', stepH: 24, pastH: 24, futureH: 0 },
-    satTrueColorVIIRS: { kind: 'obs', stepH: 24, pastH: 24, futureH: 0 },
-    satIR:             { kind: 'obs', stepH: 24, pastH: 24, futureH: 0 },
-    satWaterVapor:     { kind: 'obs', stepH: 24, pastH: 24, futureH: 0 },
-    satCloudTop:       { kind: 'obs', stepH: 24, pastH: 24, futureH: 0 },
-    satAerosol:        { kind: 'obs', stepH: 24, pastH: 24, futureH: 0 },
-    satDayNight:       { kind: 'obs', stepH: 24, pastH: 24, futureH: 0 },
+    // 2026-05-19 Phase 4 + politique data layer (rev 7j past) : 7 jours past,
+    // 0 future pour toutes les obs satellites. cf data_layer_policy_2026_05_19.md.
+    satTrueColor:      { kind: 'obs', stepH: 24, pastH: 168, futureH: 0 },
+    satTrueColorVIIRS: { kind: 'obs', stepH: 24, pastH: 168, futureH: 0 },
+    satIR:             { kind: 'obs', stepH: 24, pastH: 168, futureH: 0 },
+    satWaterVapor:     { kind: 'obs', stepH: 24, pastH: 168, futureH: 0 },
+    satCloudTop:       { kind: 'obs', stepH: 24, pastH: 168, futureH: 0 },
+    satAerosol:        { kind: 'obs', stepH: 24, pastH: 168, futureH: 0 },
+    satDayNight:       { kind: 'obs', stepH: 24, pastH: 168, futureH: 0 },
   };
 
   /** Computed : drive l'input du time-slider selon le MASTER du temps (= la
@@ -4087,10 +4087,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       const anySat = Object.values(wantSats).some(Boolean);
 
       const now = Date.now();
-      // 2026-05-19 — fenêtre alignée sur la politique data layer
-      // (cf data_layer_policy_2026_05_19.md) : obs 1j past, forecast 1j+7j.
-      // pastH=24, futureH=168 couvre les deux cas sans rien rater.
-      const minTime = new Date(now - 24 * 3_600_000);
+      // 2026-05-19 (rev 7j past) — politique : obs 7j past / forecast 7j+7j.
+      // Fenêtre -168h / +168h couvre les deux cas.
+      const minTime = new Date(now - 168 * 3_600_000);
       const maxTime = new Date(now + 168 * 3_600_000);
 
       const windLayerName = windSrc === 'arpege' ? 'maritime:wind-speed-arpege'
