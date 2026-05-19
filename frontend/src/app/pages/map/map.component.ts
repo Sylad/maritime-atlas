@@ -4586,7 +4586,14 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private updateSatRainviewerLayer(t: Date): void {
     if (!this.satRainviewerSource || !this.rainSnapshot) return;
     const frames = this.rainSnapshot.satellite ?? [];
-    if (frames.length === 0) return;
+    if (frames.length === 0) {
+      // 2026-05-19 — l'endpoint satellite.infrared de RainViewer est public
+      // mais retourne souvent un tableau vide (feature en alpha, service
+      // intermittent côté provider). Plutôt que de laisser le toggle en
+      // état "IR clouds (10 min)" trompeur, on affiche clairement l'indispo.
+      this.satRainviewerStatus.set('indispo (RainViewer 0 frame)');
+      return;
+    }
     const atSec = Math.floor(t.getTime() / 1000);
     // Choisir la frame la plus proche du cursor (max time <= cursor sinon plus ancienne).
     let chosen = frames[frames.length - 1];

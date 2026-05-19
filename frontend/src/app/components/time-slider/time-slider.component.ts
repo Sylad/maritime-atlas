@@ -155,6 +155,13 @@ export interface TimeSliderLayerCoverage {
                     [style.background]="cov.color"
                     [style.left.%]="coverageLeftPercent(cov)"
                     [style.width.%]="coverageWidthPercent(cov)"></div>
+                  <!-- 2026-05-19 — cursor vertical aligné sur la track principale.
+                       Permet de voir d'un coup d'œil OÙ se trouve le cursor courant
+                       par rapport à la couverture data de CETTE layer (sinon on perd
+                       le repère temporel sur les sous-barres). -->
+                  <div class="ts-coverage-cursor"
+                       [style.left.%]="cursorPercent()"
+                       aria-hidden="true"></div>
                   <!-- 2026-05-18 APEX 12 — markers data presence.
                        Variant 1 : pour les WMS time-enabled (validities[]), 1 tick par validity.
                        Variant 2 : pour les vector layers (refreshIntervalMin), segments fins. -->
@@ -532,6 +539,19 @@ export interface TimeSliderLayerCoverage {
       background: var(--bg-3);
       border-radius: 4px;
       overflow: hidden;
+    }
+    /* 2026-05-19 — cursor courant répété dans chaque sous-barre. Aligné sur
+       la même % que .ts-cursor de la track principale (même axe minTime/maxTime). */
+    .ts-coverage-cursor {
+      position: absolute;
+      top: -1px;
+      bottom: -1px;
+      width: 2px;
+      margin-left: -1px;
+      background: var(--accent-bright, hsl(224 95% 65%));
+      box-shadow: 0 0 4px 1px hsl(224 95% 60% / 0.6);
+      pointer-events: none;
+      z-index: 3;
     }
     .ts-coverage-bar {
       position: absolute;
