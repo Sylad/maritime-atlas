@@ -38,6 +38,10 @@ export const users = pgTable('users', {
    *  défaut), 'EPSG:4326' (lat/lon), 'EPSG:3035' (Lambert LAEA Europe).
    *  NULL = fallback EPSG:3857 (Phase C.4 — 2026-05-12). */
   preferredProjection: text('preferred_projection'),
+  /** APEX 18 (2026-05-19) : ordre user des layers (z-index) persisté en DB
+   *  pour sync multi-device. JSONB array de strings layerKind. NULL = fallback
+   *  localStorage (`maritime.layer-prefs-v1`.zIndexOrder) ou ordre déclaratif. */
+  layerOrder: jsonb('layer_order').$type<string[] | null>(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({
   emailIdx: uniqueIndex('users_email_idx').on(t.email),

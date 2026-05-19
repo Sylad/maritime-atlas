@@ -11,7 +11,7 @@ export interface LayerPref {
 }
 
 interface MeResponse {
-  user: { id: number; email: string };
+  user: { id: number; email: string; layerOrder?: string[] | null };
   preferences: LayerPref[];
   palettes: unknown[];
 }
@@ -44,6 +44,33 @@ export class PreferencesSyncService {
     }
   }
 
+  /** APEX 18 (2026-05-19) — GET /api/me → ordre user des layers (z-index)
+   *  pour sync multi-device. NULL = jamais set côté DB → fallback localStorage. */
+  async fetchMyLayerOrder(): Promise<string[] | null> {
+    try {
+      const res = await firstValueFrom(this.http.get<MeResponse>('/api/me'));
+      return res.user?.layerOrder ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** APEX 18 — push debounced (700ms, plus long que le batch state pour
+   *  ne pas spammer pendant un DnD multi-rangées). Idempotent côté backend. */
+  private orderPushTimer?: ReturnType<typeof setTimeout>;
+  private readonly ORDER_DEBOUNCE_MS = 700;
+  scheduleLayerOrderPush(order: string[]): void {
+    if (this.orderPushTimer) clearTimeout(this.orderPushTimer);
+    this.orderPushTimer = setTimeout(() => {
+      this.orderPushTimer = undefined;
+      this.http.put('/api/me/layer-order', { order }).subscribe({
+        error: () => {
+          // Silent fail : localStorage reste la source canonique.
+        },
+      });
+    }, this.ORDER_DEBOUNCE_MS);
+  }
+
   /**
    * Push batch debounced 500ms. Si la fonction est appelée plusieurs fois
    * en moins de 500ms (typique du drag opacity slider), seul le dernier
@@ -67,6 +94,10 @@ export class PreferencesSyncService {
     if (this.pushTimer) {
       clearTimeout(this.pushTimer);
       this.pushTimer = undefined;
+    }
+    if (this.orderPushTimer) {
+      clearTimeout(this.orderPushTimer);
+      this.orderPushTimer = undefined;
     }
   }
 }

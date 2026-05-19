@@ -65,6 +65,15 @@ class BatchLayerStateDto {
   states!: LayerStateDto[];
 }
 
+/** APEX 18 (2026-05-19) : ordre user des layers (z-index). Tableau de
+ *  strings (layerKind). Validation : 0..40 entrées, chacune ≤ 32 chars
+ *  alphanumériques pour éviter l'injection de payload arbitraire en DB. */
+class SetLayerOrderDto {
+  @IsArray()
+  @IsString({ each: true })
+  order!: string[];
+}
+
 @Controller('me')
 @UseGuards(JwtAuthGuard)
 export class PreferencesController {
@@ -81,6 +90,7 @@ export class PreferencesController {
     const rows = await this.db.select({
       defaultZone: users.defaultZone,
       preferredProjection: users.preferredProjection,
+      layerOrder: users.layerOrder,
     }).from(users).where(eq(users.id, user.sub)).limit(1);
     return {
       user: {
@@ -88,9 +98,30 @@ export class PreferencesController {
         email: user.email,
         defaultZone: rows[0]?.defaultZone ?? null,
         preferredProjection: rows[0]?.preferredProjection ?? null,
+        layerOrder: rows[0]?.layerOrder ?? null,
       },
       ...ctx,
     };
+  }
+
+  /** APEX 18 (2026-05-19) : set ordre user des layers (z-index). Pousse
+   *  l'ordre courant en DB pour sync multi-device. Validation : chaque key
+   *  ≤ 32 chars alphanumériques, tableau ≤ 40 entrées. */
+  @Put('layer-order')
+  async setLayerOrder(@CurrentUser('sub') userId: number, @Body() body: SetLayerOrderDto) {
+    if (body.order.length > 40) {
+      throw new BadRequestException('Layer order array too long (max 40)');
+    }
+    const KEY_RE = /^[a-zA-Z0-9_-]{1,32}$/;
+    for (const k of body.order) {
+      if (!KEY_RE.test(k)) {
+        throw new BadRequestException(`Invalid layerKind "${k}" in order`);
+      }
+    }
+    await this.db.update(users)
+      .set({ layerOrder: body.order })
+      .where(eq(users.id, userId));
+    return { ok: true, order: body.order };
   }
 
   /** Phase C.3 : set la zone d'arrivée préférée. La validation du slug

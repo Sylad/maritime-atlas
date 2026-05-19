@@ -67,6 +67,10 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS default_zone TEXT;
 -- Phase C.4 (2026-05-12) : projection OL préférée — 'EPSG:3857' (défaut),
 -- 'EPSG:4326', 'EPSG:3035' (Lambert LAEA Europe).
 ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_projection TEXT;
+-- 2026-05-19 APEX 18 : ordre user des layers (z-index) sync multi-device.
+-- JSONB array de strings (layerKind), persiste l'ordre du DnD time-bar.
+-- NULL = pas encore set → fallback localStorage / ordre déclaratif.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS layer_order JSONB;
 
 -- Backfill username + email_verified_at pour les users existants
 -- (créés avant la refonte). username dérivé du local-part email avec

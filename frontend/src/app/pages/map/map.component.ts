@@ -3185,12 +3185,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       efas: this.showEfas(),
     };
     const opacity = this.layerOpacities();
+    // 2026-05-18 APEX 11+12 — persiste aussi l'ordre user des layers (zIndex)
+    // dans le même blob pour cohérence.
+    // 2026-05-19 APEX 18 — l'ordre est aussi push en DB (PUT /api/me/layer-order)
+    // pour sync cross-device. Cf scheduleLayerOrderPush plus bas.
+    const zIndexOrder = this.layerZIndexOrder();
     try {
-      // 2026-05-18 APEX 11+12 — persiste aussi l'ordre user des layers (zIndex)
-      // dans le même blob pour cohérence. Note : Phase C.2 DB sync ne push pas
-      // encore le zIndexOrder (nécessiterait migration backend) ; pour le moment
-      // l'ordre est cross-tab via localStorage uniquement. Cross-device sync = TODO.
-      const zIndexOrder = this.layerZIndexOrder();
       // 2026-05-19 APEX 16 — persiste aussi l'ordre d'activation user (master
       // du temps = activationOrder[0] filtré WMS). Permet de retrouver son
       // setup après reload.
@@ -3213,6 +3213,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         batch.push({ layerKind: k, visible: v, opacity: opacity[k] ?? 1 });
       }
       this.prefsSync.schedulePushBatch(batch);
+      // 2026-05-19 APEX 18 — push aussi l'ordre user des layers (cross-device).
+      // Debounced 700ms côté service pour ne pas spammer pendant un DnD.
+      if (zIndexOrder.length > 0) {
+        this.prefsSync.scheduleLayerOrderPush(zIndexOrder);
+      }
     }
   }
 
@@ -3221,6 +3226,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private async mergePrefsFromDb(): Promise<void> {
     if (!this.auth.isAuthenticated()) return;
     const dbPrefs = await this.prefsSync.fetchMyPrefs();
+    // 2026-05-19 APEX 18 — fetch aussi l'ordre user des layers (cross-device).
+    const dbLayerOrder = await this.prefsSync.fetchMyLayerOrder();
+    if (dbLayerOrder && dbLayerOrder.length > 0) {
+      this.layerZIndexOrder.set(dbLayerOrder);
+      // Re-applique tout de suite si le map est déjà initialisé.
+      queueMicrotask(() => this.applyLayerZIndices());
+    }
     if (dbPrefs.length === 0) {
       // User connecté mais aucune pref DB → upload localStorage maintenant
       // pour qu'il retrouve son setup sur un autre device.
