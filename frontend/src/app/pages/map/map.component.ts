@@ -2924,16 +2924,15 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     windArrows:    { kind: 'forecast', stepH: 6,  pastH: 0,   futureH: 168 },
     waveArrows:    { kind: 'forecast', stepH: 6,  pastH: 0,   futureH: 168 },
     windParticles: { kind: 'forecast', stepH: 6,  pastH: 0,   futureH: 168 },
-    // 2026-05-19 APEX Satellites Phase 3 — granularité quotidienne, stockage
-    // local 30j. NASA GIBS lag ~24h, donc pastH=720 (30j) et futureH=0.
-    // kind='obs' : behaviour identique aux observations daily SST.
-    satTrueColor:      { kind: 'obs', stepH: 24, pastH: 720, futureH: 0 },
-    satTrueColorVIIRS: { kind: 'obs', stepH: 24, pastH: 720, futureH: 0 },
-    satIR:             { kind: 'obs', stepH: 24, pastH: 720, futureH: 0 },
-    satWaterVapor:     { kind: 'obs', stepH: 24, pastH: 720, futureH: 0 },
-    satCloudTop:       { kind: 'obs', stepH: 24, pastH: 720, futureH: 0 },
-    satAerosol:        { kind: 'obs', stepH: 24, pastH: 720, futureH: 0 },
-    satDayNight:       { kind: 'obs', stepH: 24, pastH: 720, futureH: 0 },
+    // 2026-05-19 Phase 4 + politique data layer : 1j past, 0 future pour
+    // toutes les obs satellites (cf data_layer_policy_2026_05_19.md).
+    satTrueColor:      { kind: 'obs', stepH: 24, pastH: 24, futureH: 0 },
+    satTrueColorVIIRS: { kind: 'obs', stepH: 24, pastH: 24, futureH: 0 },
+    satIR:             { kind: 'obs', stepH: 24, pastH: 24, futureH: 0 },
+    satWaterVapor:     { kind: 'obs', stepH: 24, pastH: 24, futureH: 0 },
+    satCloudTop:       { kind: 'obs', stepH: 24, pastH: 24, futureH: 0 },
+    satAerosol:        { kind: 'obs', stepH: 24, pastH: 24, futureH: 0 },
+    satDayNight:       { kind: 'obs', stepH: 24, pastH: 24, futureH: 0 },
   };
 
   /** Computed : drive l'input du time-slider selon le MASTER du temps (= la
@@ -4088,10 +4087,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       const anySat = Object.values(wantSats).some(Boolean);
 
       const now = Date.now();
-      // 2026-05-19 — sat sources daily, archive jusqu'à 30j → fenêtre étendue
-      // si un sat est actif, sinon ±168h legacy.
-      const pastH = anySat ? 720 : 168;
-      const minTime = new Date(now - pastH * 3_600_000);
+      // 2026-05-19 — fenêtre alignée sur la politique data layer
+      // (cf data_layer_policy_2026_05_19.md) : obs 1j past, forecast 1j+7j.
+      // pastH=24, futureH=168 couvre les deux cas sans rien rater.
+      const minTime = new Date(now - 24 * 3_600_000);
       const maxTime = new Date(now + 168 * 3_600_000);
 
       const windLayerName = windSrc === 'arpege' ? 'maritime:wind-speed-arpege'
