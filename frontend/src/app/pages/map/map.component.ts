@@ -392,20 +392,28 @@ function toIsoTimestamp(d: Date): string {
                   <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
                          [value]="getOpacity('sst')"
                          (input)="setOpacity('sst', +$any($event.target).value)" />
-                  <div class="contour-control">
-                    <label class="contour-toggle">
-                      <input type="checkbox" [checked]="showSstContours()" (change)="showSstContours.set($any($event.target).checked)" />
-                      <span>Isolignes</span>
-                    </label>
-                    @if (showSstContours()) {
-                      <input type="range" min="0.5" max="5" step="0.5"
-                             [value]="sstContourInterval()"
-                             (input)="sstContourInterval.set(+$any($event.target).value)"
-                             title="Intervalle isolignes" />
-                      <span class="contour-value">{{ sstContourInterval() }}°C</span>
-                    }
-                  </div>
                 }
+                <!-- 2026-05-19 APEX 13 — isolignes indépendantes du raster.
+                     Toggle + intervalle + opacity + color picker. -->
+                <div class="contour-control">
+                  <label class="contour-toggle">
+                    <input type="checkbox" [checked]="showSstContours()" (change)="showSstContours.set($any($event.target).checked); persistLayerPrefs()" />
+                    <span>Isolignes</span>
+                  </label>
+                  @if (showSstContours()) {
+                    <input type="range" min="0.5" max="5" step="0.5"
+                           [value]="sstContourInterval()"
+                           (input)="sstContourInterval.set(+$any($event.target).value)"
+                           title="Intervalle isolignes" />
+                    <span class="contour-value">{{ sstContourInterval() }}°C</span>
+                    <input type="color" class="contour-color" title="Couleur des lignes"
+                           [value]="sstContourColor()"
+                           (input)="sstContourColor.set($any($event.target).value); persistLayerPrefs()" />
+                    <input class="layer-opacity layer-opacity-contour" type="range" min="0" max="1" step="0.05" title="Opacité isolignes"
+                           [value]="getOpacity('sstContours')"
+                           (input)="setOpacity('sstContours', +$any($event.target).value)" />
+                  }
+                </div>
               </div>
               <div class="layer-row">
                 <label class="layer-toggle" [class.dim]="!wavesActive()">
@@ -428,20 +436,26 @@ function toIsoTimestamp(d: Date): string {
                   <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
                          [value]="getOpacity('waves')"
                          (input)="setOpacity('waves', +$any($event.target).value)" />
-                  <div class="contour-control">
-                    <label class="contour-toggle">
-                      <input type="checkbox" [checked]="showWaveContours()" (change)="showWaveContours.set($any($event.target).checked)" />
-                      <span>Isolignes</span>
-                    </label>
-                    @if (showWaveContours()) {
-                      <input type="range" min="0.25" max="2" step="0.25"
-                             [value]="waveContourInterval()"
-                             (input)="waveContourInterval.set(+$any($event.target).value)"
-                             title="Intervalle isolignes" />
-                      <span class="contour-value">{{ waveContourInterval() }} m</span>
-                    }
-                  </div>
                 }
+                <div class="contour-control">
+                  <label class="contour-toggle">
+                    <input type="checkbox" [checked]="showWaveContours()" (change)="showWaveContours.set($any($event.target).checked); persistLayerPrefs()" />
+                    <span>Isolignes</span>
+                  </label>
+                  @if (showWaveContours()) {
+                    <input type="range" min="0.25" max="2" step="0.25"
+                           [value]="waveContourInterval()"
+                           (input)="waveContourInterval.set(+$any($event.target).value)"
+                           title="Intervalle isolignes" />
+                    <span class="contour-value">{{ waveContourInterval() }} m</span>
+                    <input type="color" class="contour-color" title="Couleur des lignes"
+                           [value]="waveContourColor()"
+                           (input)="waveContourColor.set($any($event.target).value); persistLayerPrefs()" />
+                    <input class="layer-opacity layer-opacity-contour" type="range" min="0" max="1" step="0.05" title="Opacité isolignes"
+                           [value]="getOpacity('waveContours')"
+                           (input)="setOpacity('waveContours', +$any($event.target).value)" />
+                  }
+                </div>
               </div>
               <div class="layer-row">
                 <label class="layer-toggle" [class.dim]="!showWaveArrows()">
@@ -632,20 +646,26 @@ function toIsoTimestamp(d: Date): string {
                   <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
                          [value]="getOpacity('wind')"
                          (input)="setOpacity('wind', +$any($event.target).value)" />
-                  <div class="contour-control">
-                    <label class="contour-toggle">
-                      <input type="checkbox" [checked]="showWindContours()" (change)="showWindContours.set($any($event.target).checked)" />
-                      <span>Isolignes</span>
-                    </label>
-                    @if (showWindContours()) {
-                      <input type="range" min="1" max="10" step="1"
-                             [value]="windContourInterval()"
-                             (input)="windContourInterval.set(+$any($event.target).value)"
-                             title="Intervalle isolignes" />
-                      <span class="contour-value">{{ windContourInterval() }} m/s</span>
-                    }
-                  </div>
                 }
+                <div class="contour-control">
+                  <label class="contour-toggle">
+                    <input type="checkbox" [checked]="showWindContours()" (change)="showWindContours.set($any($event.target).checked); persistLayerPrefs()" />
+                    <span>Isolignes</span>
+                  </label>
+                  @if (showWindContours()) {
+                    <input type="range" min="1" max="10" step="1"
+                           [value]="windContourInterval()"
+                           (input)="windContourInterval.set(+$any($event.target).value)"
+                           title="Intervalle isolignes" />
+                    <span class="contour-value">{{ windContourInterval() }} m/s</span>
+                    <input type="color" class="contour-color" title="Couleur des lignes"
+                           [value]="windContourColor()"
+                           (input)="windContourColor.set($any($event.target).value); persistLayerPrefs()" />
+                    <input class="layer-opacity layer-opacity-contour" type="range" min="0" max="1" step="0.05" title="Opacité isolignes"
+                           [value]="getOpacity('windContours')"
+                           (input)="setOpacity('windContours', +$any($event.target).value)" />
+                  }
+                </div>
               </div>
               <div class="layer-row">
                 <label class="layer-toggle" [class.dim]="!showWindArrows()">
@@ -1545,6 +1565,21 @@ function toIsoTimestamp(d: Date): string {
       font-size: 0.65rem;
       color: var(--fg);
       min-width: 30px;
+    }
+    /* 2026-05-19 APEX 13 — color picker compact + opacity dédiée isoline. */
+    .contour-color {
+      width: 22px;
+      height: 16px;
+      padding: 0;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      cursor: pointer;
+      background: transparent;
+      &::-webkit-color-swatch-wrapper { padding: 0; }
+      &::-webkit-color-swatch { border: 0; border-radius: 2px; }
+    }
+    .layer-opacity-contour {
+      max-width: 60px;
     }
     /* Placeholder rows = "à venir" — désactivées visuellement */
     .layer-row.layer-soon {
@@ -2585,6 +2620,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly waveContourInterval = signal(0.5); // m
   readonly showWindContours = signal(false);
   readonly windContourInterval = signal(5);   // m/s
+  // 2026-05-19 APEX 13 — couleur custom des lignes contour. Passée en env var
+  // `stroke` côté WMS GetMap. Le SLD utilise `${env('stroke','#ffffff')}` sur
+  // le `<CssParameter name="stroke">` du LineSymbolizer.
+  readonly sstContourColor = signal<string>('#ffffff');
+  readonly windContourColor = signal<string>('#ffffff');
+  readonly waveContourColor = signal<string>('#ffffff');
   // ─── V2 Observation #1 (2026-05-12) — METAR ────────────────────────
   // ~35 aéroports européens, refresh 60s côté front, données ingérées
   // par orchestrator (source `metar-fetcher-eu`, NOAA AWC, cron 30min).
@@ -2886,6 +2927,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     vessels: 1, tracks: 1, alerts: 1, buoys: 1, metar: 1, hubeau: 1, quakes: 1, piezo: 1, firms: 1, eez: 0.6, mpa: 0.6,
     sst: 0.7, waves: 0.7, waveArrows: 0.9,
     wind: 0.7, windArrows: 0.9, windParticles: 0.9,
+    // 2026-05-19 APEX 13 — opacity dédiée par isoline layer
+    sstContours: 0.9, windContours: 0.9, waveContours: 0.9,
     rain: 0.8, lightning: 0.9,
   });
 
@@ -2935,6 +2978,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       firms: this.firmsLayer,
       eez: this.eezLayer,
       mpa: this.mpaLayer,
+      // 2026-05-19 APEX 13 — opacity dédiée pour les isolines (couches séparées
+      // des rasters parents depuis cette version).
+      sstContours: this.sstContoursLayer,
+      windContours: this.windContoursLayer,
+      waveContours: this.wavesContoursLayer,
     } as Record<string, { setOpacity: (n: number) => void } | undefined>)[key];
     layer?.setOpacity(value);
     // Wind particles = canvas overlay, opacity réglée via CSS sur le
@@ -3131,7 +3179,14 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       // du temps = activationOrder[0] filtré WMS). Permet de retrouver son
       // setup après reload.
       const activationOrder = this.activationOrder();
-      localStorage.setItem(LAYER_PREFS_KEY, JSON.stringify({ visibility, opacity, zIndexOrder, activationOrder }));
+      // 2026-05-19 APEX 13 — toggles + colors isolines (les intervales sont
+      // déjà reflétés via env contourInterval mais pas persistés ici).
+      const contours = {
+        sst:  { show: this.showSstContours(),  interval: this.sstContourInterval(),  color: this.sstContourColor() },
+        wind: { show: this.showWindContours(), interval: this.windContourInterval(), color: this.windContourColor() },
+        wave: { show: this.showWaveContours(), interval: this.waveContourInterval(), color: this.waveContourColor() },
+      };
+      localStorage.setItem(LAYER_PREFS_KEY, JSON.stringify({ visibility, opacity, zIndexOrder, activationOrder, contours }));
     } catch {
       // localStorage full / disabled — ignore, user reverra son default au reload
     }
@@ -3248,6 +3303,25 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       // l'ordre déclaratif d'animatableLayers).
       if (Array.isArray(data?.activationOrder) && data.activationOrder.every((k: unknown) => typeof k === 'string')) {
         this.restoredActivationOrder = data.activationOrder;
+      }
+      // 2026-05-19 APEX 13 — restore contours (toggle + interval + color)
+      const c = data?.contours;
+      if (c) {
+        if (c.sst) {
+          if (typeof c.sst.show === 'boolean') this.showSstContours.set(c.sst.show);
+          if (typeof c.sst.interval === 'number') this.sstContourInterval.set(c.sst.interval);
+          if (typeof c.sst.color === 'string') this.sstContourColor.set(c.sst.color);
+        }
+        if (c.wind) {
+          if (typeof c.wind.show === 'boolean') this.showWindContours.set(c.wind.show);
+          if (typeof c.wind.interval === 'number') this.windContourInterval.set(c.wind.interval);
+          if (typeof c.wind.color === 'string') this.windContourColor.set(c.wind.color);
+        }
+        if (c.wave) {
+          if (typeof c.wave.show === 'boolean') this.showWaveContours.set(c.wave.show);
+          if (typeof c.wave.interval === 'number') this.waveContourInterval.set(c.wave.interval);
+          if (typeof c.wave.color === 'string') this.waveContourColor.set(c.wave.color);
+        }
       }
     } catch {
       // JSON corrupt → ignore, fall back to defaults
@@ -3633,13 +3707,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       queueMicrotask(() => this.applyUserStyles(prefs));
     });
 
-    // V2 Isolignes (2026-05-12) : effect qui swap STYLES + env vars
-    // selon les signaux showSstContours / sstContourInterval.
+    // V2 Isolignes (2026-05-12) + APEX 13 (2026-05-19 color picker) : effect
+    // qui swap STYLES + env vars (contourInterval + stroke color) selon les
+    // 9 signaux toggle/interval/color contours.
     effect(() => {
-      // Lecture des 6 signaux contours pour s'abonner
-      this.showSstContours(); this.sstContourInterval();
-      this.showWaveContours(); this.waveContourInterval();
-      this.showWindContours(); this.windContourInterval();
+      this.showSstContours();  this.sstContourInterval();  this.sstContourColor();
+      this.showWaveContours(); this.waveContourInterval(); this.waveContourColor();
+      this.showWindContours(); this.windContourInterval(); this.windContourColor();
       queueMicrotask(() => this.applyContours());
     });
 
@@ -3823,19 +3897,21 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // Plus de swap STYLES sur les sources raster (windWmsSource/wavesSource),
     // juste update env contourInterval sur les sources contours dédiées.
     // Les raster restent sur leur SLD rainbow normal.
+    // 2026-05-19 APEX 13 — passe aussi la couleur custom en env stroke. Le SLD
+    // côté GS doit supporter `${env('stroke','#FFFFFF')}` dans son LineSymbolizer.
     if (this.sstContoursSource && this.showSstContours()) {
       this.sstContoursSource.updateParams({
-        env: `contourInterval:${this.sstContourInterval()}`,
+        env: `contourInterval:${this.sstContourInterval()};stroke:${this.sstContourColor()}`,
       });
     }
     if (this.windContoursSource && this.showWindContours()) {
       this.windContoursSource.updateParams({
-        env: `contourInterval:${this.windContourInterval()}`,
+        env: `contourInterval:${this.windContourInterval()};stroke:${this.windContourColor()}`,
       });
     }
     if (this.wavesContoursSource && this.showWaveContours()) {
       this.wavesContoursSource.updateParams({
-        env: `contourInterval:${this.waveContourInterval()}`,
+        env: `contourInterval:${this.waveContourInterval()};stroke:${this.waveContourColor()}`,
       });
     }
   }
@@ -4062,9 +4138,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // (Le drift de currentTime reste à investiguer demain à froid.)
     this.sstLayer.setVisible(this.showSST());
     if (this.sstContoursLayer) {
-      this.sstContoursLayer.setVisible(
-        this.showSST() && this.showSstContours(),
-      );
+      // 2026-05-19 APEX 13 — isolines indépendantes du raster parent.
+      // L'user peut afficher les contours seuls (sans le raster SST en-dessous).
+      this.sstContoursLayer.setVisible(this.showSstContours());
     }
     // Rain : visible si toggle ON + frame disponible pour le cursor courant
     if (this.rainLayer) {
@@ -4074,11 +4150,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // (NOAA accepte TIME=NEAREST → matche le timestep le plus proche).
     if (this.windLayer)  this.windLayer.setVisible(this.showWind());
     if (this.windContoursLayer) {
-      this.windContoursLayer.setVisible(this.showWind() && this.showWindContours());
+      // APEX 13 — isolines vent indépendantes du raster
+      this.windContoursLayer.setVisible(this.showWindContours());
     }
     if (this.wavesLayer) this.wavesLayer.setVisible(this.showWaves());
     if (this.wavesContoursLayer) {
-      this.wavesContoursLayer.setVisible(this.showWaves() && this.showWaveContours());
+      // APEX 13 — isolines vagues indépendantes du raster
+      this.wavesContoursLayer.setVisible(this.showWaveContours());
     }
     // Arrows : visibles si toggle ON. Le contenu est rafraîchi par
     // refreshArrowsForTime() à chaque cursor change.
