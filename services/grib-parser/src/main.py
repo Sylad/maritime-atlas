@@ -147,14 +147,20 @@ def parse(req: ParseRequest) -> ParseResponse:
 
         if req.kind == 'sat_geotiff':
             # 2026-05-19 APEX Satellites Phase 4 — NASA GIBS WMS retourne déjà
-            # un GeoTIFF avec EPSG:4326 baked-in quand FORMAT=image/tiff. Pas
-            # besoin de re-parser ni reprojetter — juste rename + déposer
-            # dans le coverage dir + déclencher l'auto-create ImageMosaic.
+            # un GeoTIFF avec EPSG:4326 baked-in quand FORMAT=image/tiff.
             #
-            # NB : NASA WMS donne du tiff "single-pass", pas un GeoTIFF
-            # multi-temporel. 1 image par jour par produit. ImageMosaic GS
-            # indexera par timestamp via timeregex.properties.
-            final = out_dir / f'{req.output_prefix}_{ts_str}.tif'
+            # IMPORTANT: le nom de fichier doit refléter la date des DONNÉES
+            # (param TIME de l'URL NASA), pas le moment du fetch. Sinon la
+            # timeregex côté ImageMosaic GS indexe avec NOW au lieu de J-1,
+            # et le frontend qui demande WMS TIME=2026-05-18 ne match rien.
+            import re as _re
+            m = _re.search(r'[?&]TIME=([0-9]{4}-[0-9]{2}-[0-9]{2})', req.url, _re.IGNORECASE)
+            if m:
+                data_date = m.group(1).replace('-', '')  # 2026-05-18 → 20260518
+                data_ts = f'{data_date}T000000Z'
+            else:
+                data_ts = ts_str  # fallback : timestamp du fetch
+            final = out_dir / f'{req.output_prefix}_{data_ts}.tif'
             final.write_bytes(tmp_path.read_bytes())
             _maybe_geoserver(req, out_dir)
             return ParseResponse(ok=True, paths=[str(final)], records_out=1, bytes_in=bytes_in)
