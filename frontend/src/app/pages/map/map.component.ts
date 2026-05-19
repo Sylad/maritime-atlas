@@ -2914,6 +2914,16 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     windArrows:    { kind: 'forecast', stepH: 6,  pastH: 0,   futureH: 168 },
     waveArrows:    { kind: 'forecast', stepH: 6,  pastH: 0,   futureH: 168 },
     windParticles: { kind: 'forecast', stepH: 6,  pastH: 0,   futureH: 168 },
+    // 2026-05-19 APEX Satellites Phase 3 — granularité quotidienne, stockage
+    // local 30j. NASA GIBS lag ~24h, donc pastH=720 (30j) et futureH=0.
+    // kind='obs' : behaviour identique aux observations daily SST.
+    satTrueColor:      { kind: 'obs', stepH: 24, pastH: 720, futureH: 0 },
+    satTrueColorVIIRS: { kind: 'obs', stepH: 24, pastH: 720, futureH: 0 },
+    satIR:             { kind: 'obs', stepH: 24, pastH: 720, futureH: 0 },
+    satWaterVapor:     { kind: 'obs', stepH: 24, pastH: 720, futureH: 0 },
+    satCloudTop:       { kind: 'obs', stepH: 24, pastH: 720, futureH: 0 },
+    satAerosol:        { kind: 'obs', stepH: 24, pastH: 720, futureH: 0 },
+    satDayNight:       { kind: 'obs', stepH: 24, pastH: 720, futureH: 0 },
   };
 
   /** Computed : drive l'input du time-slider selon le MASTER du temps (= la
@@ -3003,6 +3013,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     if (this.showWindArrows())    n++;
     if (this.showWaveArrows())    n++;
     if (this.showWindParticles()) n++;
+    if (this.showSatTrueColor())      n++;
+    if (this.showSatTrueColorVIIRS()) n++;
+    if (this.showSatIR())             n++;
+    if (this.showSatWaterVapor())     n++;
+    if (this.showSatCloudTop())       n++;
+    if (this.showSatAerosol())        n++;
+    if (this.showSatDayNight())       n++;
     return n;
   });
 
@@ -3044,6 +3061,15 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     windArrows:    '#34d399',
     waveArrows:    '#67e8f9',
     windParticles: '#86efac',
+    // 2026-05-19 APEX Satellites Phase 3 — palette ambre/orange (cohérent
+    // avec section-satellites #fbbf24 dans le panel layers).
+    satTrueColor:      '#fbbf24',
+    satTrueColorVIIRS: '#facc15',
+    satIR:             '#ef4444',
+    satWaterVapor:     '#06b6d4',
+    satCloudTop:       '#e2e8f0',
+    satAerosol:        '#d97706',
+    satDayNight:       '#9333ea',
   };
 
   /** 2026-05-18 APEX 12 — refresh interval (minutes) pour les vector layers
@@ -3060,6 +3086,14 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     alerts: 1,       // RMQ push direct
     vessels: 1,      // AIS stream live (vector point)
     tracks: 1440,    // tracks daily — 1 segment / jour
+    // 2026-05-19 APEX Satellites Phase 3 — daily, 1 image/jour/produit
+    satTrueColor: 1440,
+    satTrueColorVIIRS: 1440,
+    satIR: 1440,
+    satWaterVapor: 1440,
+    satCloudTop: 1440,
+    satAerosol: 1440,
+    satDayNight: 1440,
   };
 
   readonly sliderLayerCoverage = computed((): TimeSliderLayerCoverage[] => {
@@ -3112,6 +3146,14 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     push(this.showWindArrows(),    'windArrows',    'wind-arrows');
     push(this.showWaveArrows(),    'waveArrows',    'wave-arrows');
     push(this.showWindParticles(), 'windParticles', 'wind-particles');
+    // 2026-05-19 APEX Satellites Phase 3 — 7 produits, granularité daily.
+    push(this.showSatTrueColor(),      'satTrueColor',      'sat-true-color');
+    push(this.showSatTrueColorVIIRS(), 'satTrueColorVIIRS', 'sat-viirs-color');
+    push(this.showSatIR(),             'satIR',             'sat-ir');
+    push(this.showSatWaterVapor(),     'satWaterVapor',     'sat-air-temp');
+    push(this.showSatCloudTop(),       'satCloudTop',       'sat-cloud-top');
+    push(this.showSatAerosol(),        'satAerosol',        'sat-aerosol');
+    push(this.showSatDayNight(),       'satDayNight',       'sat-day-night');
     // 2026-05-18 APEX 11 — réordonne selon le z-index user (persisté). Les
     // layers non listées dans layerZIndexOrder gardent leur ordre relatif
     // d'origine (= ordre déclaratif ci-dessus).
