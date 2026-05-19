@@ -47,7 +47,7 @@ import {
       (click)="toggleOpen($event)">
     </button>
     @if (open()) {
-      <div class="popover" role="dialog" aria-label="Choisir une couleur">
+      <div class="popover" role="dialog" aria-label="Choisir une couleur" (click)="$event.stopPropagation()">
         <div class="popover-title">Couleur</div>
         <div class="swatches">
           @for (sw of SWATCHES; track sw) {
@@ -60,6 +60,24 @@ import {
               (click)="pick(sw)">
             </button>
           }
+        </div>
+        <!-- 2026-05-19 — input HEX custom pour couleurs hors preset.
+             Validation : doit matcher /^#[0-9a-fA-F]{6}$/ avant emit. -->
+        <div class="hex-input-row">
+          <span class="hex-preview" [style.background]="hexInput()"></span>
+          <span class="hex-prefix">#</span>
+          <input
+            type="text"
+            class="hex-input"
+            maxlength="6"
+            placeholder="ffffff"
+            spellcheck="false"
+            autocomplete="off"
+            [value]="hexInputRaw()"
+            (input)="onHexInputChange($any($event.target).value)"
+            (keydown.enter)="commitHexInput()"
+            (blur)="commitHexInput()"
+            aria-label="Couleur hex personnalisée" />
         </div>
       </div>
     }
@@ -145,6 +163,45 @@ import {
         0 0 0 2px hsl(224 95% 65%),
         inset 0 0 0 2px hsl(224 30% 8%);
     }
+    .hex-input-row {
+      display: flex;
+      align-items: center;
+      gap: 0.4em;
+      margin-top: 0.7em;
+      padding-top: 0.6em;
+      border-top: 1px solid hsl(224 30% 18%);
+    }
+    .hex-preview {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      box-shadow: 0 0 0 1px hsl(224 35% 30%), inset 0 0 0 2px hsl(224 30% 8%);
+    }
+    .hex-prefix {
+      color: hsl(224 25% 60%);
+      font-family: var(--font-mono, 'JetBrains Mono', monospace);
+      font-size: 0.75rem;
+    }
+    .hex-input {
+      flex: 1;
+      min-width: 0;
+      background: hsl(224 30% 5%);
+      border: 1px solid hsl(224 30% 22%);
+      border-radius: 4px;
+      padding: 0.25em 0.45em;
+      color: hsl(224 15% 90%);
+      font-family: var(--font-mono, 'JetBrains Mono', monospace);
+      font-size: 0.72rem;
+      letter-spacing: 0.04em;
+      text-transform: lowercase;
+      outline: none;
+      transition: border-color 100ms;
+    }
+    .hex-input:focus {
+      border-color: hsl(224 85% 60%);
+      box-shadow: 0 0 0 1px hsl(224 95% 60% / 0.3);
+    }
   `,
 })
 export class ColorSwatchPickerComponent {
@@ -158,26 +215,62 @@ export class ColorSwatchPickerComponent {
 
   readonly open = signal(false);
 
-  /** 8 swatches preset adaptés à des contours sur fond dark Carto. */
+  /** 12 swatches preset organisés sur 3 rangées de 4 (neutres / warm / cool).
+   *  Couvre les couleurs typiques pour des contours sur fond dark Carto. */
   readonly SWATCHES: ReadonlyArray<string> = [
-    '#ffffff', // blanc — défaut
-    '#a3a3a3', // gris clair
-    '#fde047', // jaune
-    '#fb923c', // orange
-    '#ef4444', // rouge
-    '#22c55e', // vert
-    '#06b6d4', // cyan
-    '#d946ef', // magenta
+    // Row 1 — neutres
+    '#ffffff', '#d4d4d4', '#737373', '#0a0a0a',
+    // Row 2 — warm
+    '#fde047', '#fb923c', '#ef4444', '#d946ef',
+    // Row 3 — cool
+    '#84cc16', '#22c55e', '#06b6d4', '#3b82f6',
   ];
+
+  /** Raw value affichée dans l'input HEX (sans le '#'). Synchronisée
+   *  avec `value()` au popover open, mais peut diverger pendant la frappe
+   *  (tant que pas commit via Enter/blur). */
+  readonly hexInputRaw = signal<string>('');
+
+  /** Valeur HEX preview (avec '#'). Si l'input courant n'est pas valide,
+   *  on garde la dernière valeur valide. */
+  readonly hexInput = signal<string>('#ffffff');
 
   toggleOpen(evt: Event): void {
     evt.stopPropagation();
-    this.open.update((v) => !v);
+    const next = !this.open();
+    if (next) {
+      // Sync l'input HEX avec la value courante au moment d'ouvrir
+      this.hexInputRaw.set(this.value().replace(/^#/, ''));
+      this.hexInput.set(this.value());
+    }
+    this.open.set(next);
   }
 
   pick(color: string): void {
     this.valueChange.emit(color);
+    this.hexInputRaw.set(color.replace(/^#/, ''));
+    this.hexInput.set(color);
     this.open.set(false);
+  }
+
+  onHexInputChange(raw: string): void {
+    // Strip '#' si l'user le tape, garde alphanumeric, lowercase, max 6
+    const cleaned = raw.replace(/[^0-9a-fA-F]/g, '').toLowerCase().slice(0, 6);
+    this.hexInputRaw.set(cleaned);
+    // Preview live si 6 chars valides
+    if (/^[0-9a-f]{6}$/.test(cleaned)) {
+      this.hexInput.set(`#${cleaned}`);
+    }
+  }
+
+  commitHexInput(): void {
+    const raw = this.hexInputRaw();
+    if (/^[0-9a-f]{6}$/.test(raw)) {
+      this.pick(`#${raw}`);
+    } else {
+      // Revert input à la dernière valeur valide
+      this.hexInputRaw.set(this.value().replace(/^#/, ''));
+    }
   }
 
   @HostListener('document:click', ['$event'])
