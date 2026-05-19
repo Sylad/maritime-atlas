@@ -2546,6 +2546,17 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // TIMEs absents en granule → nearestMatch GS coûteux → 502).
   readonly validityListPerLayer = signal<Record<string, Date[]>>({});
 
+  /** 2026-05-19 APEX 14 — bins de présence data RÉELLE par vector layer,
+   *  agrégés côté backend via `/api/availability/<layerKey>?from=&to=&bin=`.
+   *  Override le rendu refreshIntervalMin (cadence supposée) par un rendu
+   *  fidèle (markers avec opacity ∝ count). Re-fetché par l'effect quand
+   *  un toggle vector layer change ou périodiquement (cf
+   *  vectorAvailabilityRefreshTick). */
+  readonly vectorAvailabilityBins = signal<Record<string, Array<{ t: number; count: number }>>>({});
+  /** Tick incrémenté toutes les 5 min pour re-fetcher les bins (rolling
+   *  window glissante). Garde les markers à jour sans flood le backend. */
+  private readonly vectorAvailabilityRefreshTick = signal(0);
+
   /** Union triée dédupliquée des validités de TOUTES les layers actives.
    *  Drive le time-slider (ticks visibles + nav ⏪⏩). Quand l'user navigue,
    *  il saute à la validité SUIVANTE/PRÉCÉDENTE toutes layers confondues,
@@ -2856,6 +2867,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly sliderLayerCoverage = computed((): TimeSliderLayerCoverage[] => {
     const master = this.masterLayerKey();
     const validityMap = this.validityListPerLayer();
+    const binsMap = this.vectorAvailabilityBins();
     // Layers master-éligibles = dans animatableLayers ET de type 'wms' (cf
     // masterLayerKey computed qui filtre WMS-only). Le bouton ★ n'est rendu
     // que pour ces layers pour éviter les clicks no-op.
@@ -2871,6 +2883,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       const k = key as string;
       const validities = validityMap[k];
       const refreshMin = this.LAYER_REFRESH_MIN[k];
+      const bins = binsMap[k];
       out.push({
         name: label,
         key: k,
@@ -2881,6 +2894,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         canBeMaster: masterEligibleKeys.has(k),
         validities: validities && validities.length > 0 ? validities : undefined,
         refreshIntervalMin: refreshMin,
+        bins: bins && bins.length > 0 ? bins : undefined,
       });
     };
     push(this.showVessels(),       'vessels',       'vessels');
@@ -3830,6 +3844,60 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         } catch { /* network/timeout/abort — silence, re-fire au prochain toggle */ }
       });
     });
+
+    // 2026-05-19 APEX 14 — fetch des bins data presence depuis /api/availability
+    // pour chaque vector layer actif. Refire quand un toggle vector change ou
+    // au tick périodique (toutes les 5 min). Window = ±168h centré sur now,
+    // bin = 300s (5 min) → ~2016 buckets max, downsamplé côté UI.
+    effect(() => {
+      // Subscribe aux toggles vector. NE PAS subscribe à sliderConfig (loop).
+      const flags: Record<string, boolean> = {
+        lightning: this.showLightning(),
+        metar:     this.showMetar(),
+        hubeau:    this.showHubeau(),
+        piezo:     this.showPiezo(),
+        quakes:    this.showQuakes(),
+        firms:     this.showFirms(),
+        buoys:     this.showBuoys(),
+        alerts:    this.showAlerts(),
+        vessels:   this.showVessels(),
+      };
+      // Re-fire périodique
+      this.vectorAvailabilityRefreshTick();
+
+      const active = Object.keys(flags).filter((k) => flags[k]);
+      if (active.length === 0) {
+        this.vectorAvailabilityBins.set({});
+        return;
+      }
+
+      const now = Date.now();
+      const fromIso = new Date(now - 168 * 3_600_000).toISOString();
+      const toIso = new Date(now + 168 * 3_600_000).toISOString();
+      const bin = 300;  // 5 min
+
+      queueMicrotask(async () => {
+        const results = await Promise.allSettled(
+          active.map(async (key) => {
+            const url = `/api/availability/${key}?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}&bin=${bin}`;
+            const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json() as { bins: Array<{ t: number; count: number }> };
+            return { key, bins: data.bins ?? [] };
+          }),
+        );
+        const newMap: Record<string, Array<{ t: number; count: number }>> = {};
+        for (const r of results) {
+          if (r.status === 'fulfilled' && r.value.bins.length > 0) {
+            newMap[r.value.key] = r.value.bins;
+          }
+        }
+        this.vectorAvailabilityBins.set(newMap);
+      });
+    }, { allowSignalWrites: true });
+
+    // Refresh tick toutes les 5 min — rolling window glissante.
+    setInterval(() => this.vectorAvailabilityRefreshTick.update((n) => n + 1), 5 * 60_000);
   }
 
   /** Mémoize la liste des palettes par layer kind. */

@@ -36,6 +36,10 @@ export interface TimeSliderLayerCoverage {
    *  intervalle de refresh (minutes). Rendu comme segments fins continus à
    *  cette cadence (ex: lightning 1min, metar 60min, buoys 30min). */
   refreshIntervalMin?: number;
+  /** 2026-05-19 APEX 14 — vraies bins de présence data (depuis /api/availability).
+   *  Si fourni, override le rendu refreshIntervalMin par des markers avec
+   *  opacity proportionnelle à count. */
+  bins?: Array<{ t: number; count: number }>;
 }
 
 /**
@@ -154,7 +158,17 @@ export interface TimeSliderLayerCoverage {
                   <!-- 2026-05-18 APEX 12 — markers data presence.
                        Variant 1 : pour les WMS time-enabled (validities[]), 1 tick par validity.
                        Variant 2 : pour les vector layers (refreshIntervalMin), segments fins. -->
-                  @if (cov.validities && cov.validities.length > 0) {
+                  @if (cov.bins && cov.bins.length > 0) {
+                    <!-- 2026-05-19 APEX 14 — bins data presence (depuis /api/availability).
+                         Opacity proportionnelle au log(count) → distingue "1 obs" de "100 obs". -->
+                    @for (b of visibleBinMarkers(cov); track b.t) {
+                      <span class="ts-coverage-marker ts-coverage-marker-bin"
+                            [style.background]="cov.color"
+                            [style.left.%]="positionPercentForTimestamp(b.t * 1000)"
+                            [style.opacity]="b.opacity"
+                            [title]="binTooltip(b)"></span>
+                    }
+                  } @else if (cov.validities && cov.validities.length > 0) {
                     @for (v of visibleValidityMarkers(cov); track v.getTime()) {
                       <span class="ts-coverage-marker ts-coverage-marker-tick"
                             [style.background]="cov.color"
@@ -554,6 +568,15 @@ export interface TimeSliderLayerCoverage {
       border-radius: 2px;
       opacity: 0.6;
     }
+    /* 2026-05-19 APEX 14 — bin marker : largeur fixe 3px, opacity drivée
+       par l'attribut style (count log-scale). Box-shadow léger pour faire
+       ressortir les bins forts. */
+    .ts-coverage-marker-bin {
+      width: 3px;
+      transform: translateX(-1.5px);
+      border-radius: 1px;
+      box-shadow: 0 0 4px currentColor;
+    }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -753,7 +776,8 @@ export class TimeSliderComponent {
   /** True si la rangée a des markers concrets (validities OU segments vector).
    *  Quand true, on fade la barre de fond pour mettre l'accent sur les markers. */
   hasConcreteMarkers(cov: TimeSliderLayerCoverage): boolean {
-    return (!!cov.validities && cov.validities.length > 0)
+    return (!!cov.bins && cov.bins.length > 0)
+      || (!!cov.validities && cov.validities.length > 0)
       || (!!cov.refreshIntervalMin && cov.refreshIntervalMin > 0);
   }
 
@@ -808,6 +832,12 @@ export class TimeSliderComponent {
   /** Tooltip détaillé pour le hover sur la sous-barre. */
   coverageTrackTooltip(cov: TimeSliderLayerCoverage): string {
     const range = `${cov.name} : -${cov.pastH}h → +${cov.futureH}h`;
+    if (cov.bins && cov.bins.length > 0) {
+      const total = cov.bins.reduce((s, b) => s + b.count, 0);
+      const first = new Date(cov.bins[0].t * 1000);
+      const last = new Date(cov.bins[cov.bins.length - 1].t * 1000);
+      return `${range}\n${cov.bins.length} bins · ${total} obs · ${first.toISOString().slice(0,16)} → ${last.toISOString().slice(0,16)}`;
+    }
     if (cov.validities && cov.validities.length > 0) {
       const first = cov.validities[0];
       const last = cov.validities[cov.validities.length - 1];
@@ -817,6 +847,46 @@ export class TimeSliderComponent {
       return `${range}\nrafraîchi toutes les ${cov.refreshIntervalMin}min`;
     }
     return range;
+  }
+
+  /** 2026-05-19 APEX 14 — bins visibles dans la fenêtre [minTime, maxTime].
+   *  Downsample pour rester sous MAX_VISIBLE_MARKERS (~50). Opacity dérivée
+   *  du log(count) clampé entre 0.25 (1 obs) et 1.0 (100+ obs) pour que
+   *  l'œil distingue "présence symbolique" de "burst d'obs". */
+  visibleBinMarkers(
+    cov: TimeSliderLayerCoverage,
+  ): Array<{ t: number; count: number; opacity: number }> {
+    const bins = cov.bins ?? [];
+    if (bins.length === 0) return [];
+    const minS = this.minTime().getTime() / 1000;
+    const maxS = this.maxTime().getTime() / 1000;
+    const inWindow = bins.filter((b) => b.t >= minS && b.t <= maxS);
+    if (inWindow.length === 0) return [];
+    // Downsample (stride) si trop denses pour rester ≤ MAX_VISIBLE_MARKERS.
+    const stride = Math.max(1, Math.ceil(inWindow.length / this.MAX_VISIBLE_MARKERS));
+    const sampled: Array<{ t: number; count: number }> = [];
+    if (stride === 1) {
+      sampled.push(...inWindow);
+    } else {
+      // Bucket sum sur les bins agrégés pour ne pas perdre les pics.
+      for (let i = 0; i < inWindow.length; i += stride) {
+        const slice = inWindow.slice(i, i + stride);
+        const t = slice[Math.floor(slice.length / 2)].t;
+        const count = slice.reduce((s, b) => s + b.count, 0);
+        sampled.push({ t, count });
+      }
+    }
+    return sampled.map((b) => ({
+      t: b.t,
+      count: b.count,
+      opacity: Math.max(0.25, Math.min(1, 0.25 + 0.75 * (Math.log10(b.count + 1) / 2))),
+    }));
+  }
+
+  /** Tooltip pour un marker bin individuel. */
+  binTooltip(b: { t: number; count: number }): string {
+    const d = new Date(b.t * 1000);
+    return `${d.toISOString().slice(0,16)} · ${b.count} obs`;
   }
 
   // LIVE strict (Sylvain 2026-05-16) : true uniquement quand le cursor est
