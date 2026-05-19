@@ -2771,9 +2771,16 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
   // Toggles user — par défaut tout visible (sauf rain/wind/waves : opt-in
   // pour éviter d'écraser l'image avec des tiles tant que pas demandé)
-  readonly showVessels = signal(true);
-  readonly showTracks = signal(true);
-  readonly showSST = signal(true);
+  // 2026-05-19 — defaults `false` partout. Avant : showSST=true par défaut,
+  // ce qui faisait que masterLayerKey='sst' au boot → snap-master pushait
+  // currentTime à la dernière validité obs J-1/J-2 → `isLive()` = false →
+  // alerts/buoys/lightning/metar (live-only) silencieusement invisibles.
+  // Sylvain : "j'avais aucun data layer actif" pensait à raison ; SST était
+  // ON sans qu'il le sache → bug pénible à diagnostiquer. Defaults plus
+  // honnêtes maintenant : l'user choisit explicitement ce qu'il veut voir.
+  readonly showVessels = signal(false);
+  readonly showTracks = signal(false);
+  readonly showSST = signal(false);
   readonly showRain = signal(false);
   readonly showWind = signal(false);
   readonly showWaves = signal(false);
