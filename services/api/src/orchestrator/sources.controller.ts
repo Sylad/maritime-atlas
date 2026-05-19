@@ -201,4 +201,32 @@ export class SourcesController {
     });
     return { ok: true, message: `Triggered ${src.name}` };
   }
+
+  /** 2026-05-19 APEX Satellites — backfill historique d'une source à URL
+   *  templatée `{date}` / `{date-N}`. Lance `days` runs séquentiels (J-1..J-N)
+   *  pour seed GeoServer avec une vraie série temporelle. Synchrone (await)
+   *  car NASA GIBS sait être lent → on veut un compte-rendu en fin de loop.
+   *
+   *  Cas d'usage : après ajout d'une layer sat-* en BDD, la source ne tire
+   *  qu'1 TIFF/jour via son cron → 1 seule validité GS → time-bar next/prev
+   *  no-op. Le backfill résout en seedant N validités d'un coup. */
+  @Post(':id/backfill')
+  async backfill(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { days?: number },
+  ) {
+    const days = Math.max(1, Math.min(30, Number(body?.days ?? 7)));
+    const found = await this.db.select().from(dataSources).where(eq(dataSources.id, id)).limit(1);
+    if (found.length === 0) {
+      throw new NotFoundException(`Source ${id} not found`);
+    }
+    const src = found[0];
+    if (!src.url || !/\{date(-\d+)?\}/.test(src.url)) {
+      throw new BadRequestException(`Source ${src.name} url has no {date} placeholder, cannot backfill`);
+    }
+    // Synchrone : le caller voit le résultat. Pour des backfills longs,
+    // appeler en background depuis un job mais ici 7-14 j × ~1-3s/img = OK.
+    const result = await this.runner.runBackfill(src, days);
+    return { ok: result.errors.length === 0, ...result, days, source: src.name };
+  }
 }

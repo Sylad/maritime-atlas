@@ -459,23 +459,43 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
   /** APEX Satellites — résout les placeholders dynamiques dans l'URL.
    *  Supportés :
    *    {date}      = YYYY-MM-DD UTC de J-1 (latest available NASA GIBS)
-   *    {date-1}    = J-1, idem (alias)
-   *    {date-2}    = J-2
-   *    {date-7}    = J-7
+   *    {date-N}    = J-N (N entier ≥ 0, ex {date-7} = il y a 7 jours UTC)
    *  Utilisé pour les sources satellite qui pointent vers une URL
    *  paramétrée par la date du jour. Idempotent : si l'URL ne contient
-   *  pas de placeholder, retourne tel quel. */
+   *  pas de placeholder, retourne tel quel.
+   *  2026-05-19 — `{date-N}` est maintenant dynamique (regex) pour
+   *  supporter n'importe quel offset (utile pour le backfill historique). */
   private applyUrlTemplate(url: string): string {
     if (!url.includes('{date')) return url;
     const fmt = (offsetDays: number): string => {
       const d = new Date(Date.now() - offsetDays * 86_400_000);
       return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
     };
-    return url
-      .replace(/\{date\}/g, fmt(1))
-      .replace(/\{date-1\}/g, fmt(1))
-      .replace(/\{date-2\}/g, fmt(2))
-      .replace(/\{date-7\}/g, fmt(7));
+    return url.replace(/\{date(?:-(\d+))?\}/g, (_m, n) => fmt(n ? parseInt(n, 10) : 1));
+  }
+
+  /** 2026-05-19 APEX Satellites — backfill historique : exécute N runs
+   *  consécutifs en remplaçant tout `{date}` ou `{date-N}` de l'URL src
+   *  par `{date-K}` pour K allant de 1 à `daysAgo`. Utilisé pour seed
+   *  GeoServer avec une vraie série temporelle (sinon 1 seul TIFF/jour
+   *  = time-bar avec une seule validité = next/prev no-op). Séquentiel
+   *  pour ne pas saturer le sidecar grib-parser ni NASA GIBS. */
+  async runBackfill(src: DataSource, daysAgo: number): Promise<{ ran: number; errors: string[] }> {
+    if (!src.url) throw new Error('Source has no url to backfill');
+    const errors: string[] = [];
+    let ran = 0;
+    for (let k = 1; k <= daysAgo; k++) {
+      // Remplace tous les placeholders {date} ou {date-N} par {date-k}.
+      const overrideUrl = src.url.replace(/\{date(?:-\d+)?\}/g, `{date-${k}}`);
+      const clone: DataSource = { ...src, url: overrideUrl } as DataSource;
+      try {
+        await this.runCycle(clone);
+        ran++;
+      } catch (err) {
+        errors.push(`day-${k}: ${(err as Error).message}`);
+      }
+    }
+    return { ran, errors };
   }
 
   // ─── PARSE ──────────────────────────────────────────────────────────
