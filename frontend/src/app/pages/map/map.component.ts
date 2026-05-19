@@ -25,9 +25,10 @@ import Cluster from 'ol/source/Cluster';
 import XYZ from 'ol/source/XYZ';
 import TileWMS from 'ol/source/TileWMS';
 import ImageWMS from 'ol/source/ImageWMS';
+import ImageStatic from 'ol/source/ImageStatic';
 import GeoJSON from 'ol/format/GeoJSON';
 import Overlay from 'ol/Overlay';
-import { fromLonLat } from 'ol/proj';
+import { fromLonLat, transformExtent } from 'ol/proj';
 import { Style, Circle as CircleStyle, Fill, Stroke, Icon, Text as TextStyle } from 'ol/style';
 import { defaults as defaultControls, ScaleLine, MousePosition, Zoom } from 'ol/control';
 import { toStringHDMS } from 'ol/coordinate';
@@ -2807,25 +2808,33 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     return `${eff.getUTCFullYear()}-${String(eff.getUTCMonth() + 1).padStart(2, '0')}-${String(eff.getUTCDate()).padStart(2, '0')}`;
   });
 
-  /** Définition des 7 produits GIBS. `id` = identifier WMTS NASA,
-   *  `maxZ` = niveau max disponible (varie par produit), `ext` = jpg|png,
-   *  `label` = texte affiché dans le panel layers. */
+  /** Définition des 7 produits GIBS. `id` = identifier WMTS NASA (legacy
+   *  tile pyramid, plus utilisé depuis Phase 3), `localDir` = nom du dossier
+   *  côté volume satellite-data (matche orchestrator sink_config.filename),
+   *  `maxZ` = niveau max raisonnable pour le rendu (single image source),
+   *  `ext` = jpg|png, `label` = texte affiché dans le panel. */
   private readonly SAT_PRODUCTS: ReadonlyArray<{
     key: 'satTrueColor' | 'satTrueColorVIIRS' | 'satIR' | 'satWaterVapor' | 'satCloudTop' | 'satAerosol' | 'satDayNight';
     id: string;
+    localDir: string;
     maxZ: number;
     ext: 'jpg' | 'png';
     label: string;
     sub: string;
   }> = [
-    { key: 'satTrueColor',      id: 'MODIS_Terra_CorrectedReflectance_TrueColor',     maxZ: 9, ext: 'jpg', label: 'Vrai couleur MODIS',  sub: 'Terra · daily VIS' },
-    { key: 'satTrueColorVIIRS', id: 'VIIRS_SNPP_CorrectedReflectance_TrueColor',      maxZ: 9, ext: 'jpg', label: 'Vrai couleur VIIRS',  sub: 'SNPP · daily VIS HD' },
-    { key: 'satIR',             id: 'MODIS_Terra_Brightness_Temp_Band31_Day',         maxZ: 7, ext: 'png', label: 'Infrarouge thermique', sub: 'MODIS · band 31 day' },
-    { key: 'satWaterVapor',     id: 'AIRS_L2_Surface_Air_Temperature_Day',            maxZ: 6, ext: 'png', label: 'Température air',     sub: 'AIRS · proxy évap.' },
-    { key: 'satCloudTop',       id: 'MODIS_Terra_Cloud_Top_Pressure_Day',             maxZ: 6, ext: 'png', label: 'Sommet des nuages',   sub: 'MODIS · pression top' },
-    { key: 'satAerosol',        id: 'MODIS_Combined_Value_Added_AOD',                 maxZ: 6, ext: 'png', label: 'Aérosols / poussières', sub: 'MODIS · AOD combiné' },
-    { key: 'satDayNight',       id: 'VIIRS_SNPP_DayNightBand_ENCC',                   maxZ: 8, ext: 'png', label: 'VIIRS jour/nuit',     sub: 'lumières urbaines + navires' },
+    { key: 'satTrueColor',      id: 'MODIS_Terra_CorrectedReflectance_TrueColor',     localDir: 'MODIS_TrueColor',  maxZ: 9, ext: 'jpg', label: 'Vrai couleur MODIS',  sub: 'Terra · daily VIS' },
+    { key: 'satTrueColorVIIRS', id: 'VIIRS_SNPP_CorrectedReflectance_TrueColor',      localDir: 'VIIRS_TrueColor',  maxZ: 9, ext: 'jpg', label: 'Vrai couleur VIIRS',  sub: 'SNPP · daily VIS HD' },
+    { key: 'satIR',             id: 'MODIS_Terra_Brightness_Temp_Band31_Day',         localDir: 'MODIS_IR',         maxZ: 7, ext: 'png', label: 'Infrarouge thermique', sub: 'MODIS · band 31 day' },
+    { key: 'satWaterVapor',     id: 'AIRS_L2_Surface_Air_Temperature_Day',            localDir: 'AIRS_AirTemp',     maxZ: 6, ext: 'png', label: 'Température air',     sub: 'AIRS · proxy évap.' },
+    { key: 'satCloudTop',       id: 'MODIS_Terra_Cloud_Top_Pressure_Day',             localDir: 'MODIS_CloudTop',   maxZ: 6, ext: 'png', label: 'Sommet des nuages',   sub: 'MODIS · pression top' },
+    { key: 'satAerosol',        id: 'MODIS_Combined_Value_Added_AOD',                 localDir: 'MODIS_AOD',        maxZ: 6, ext: 'png', label: 'Aérosols / poussières', sub: 'MODIS · AOD combiné' },
+    { key: 'satDayNight',       id: 'VIIRS_SNPP_DayNightBand_ENCC',                   localDir: 'VIIRS_DayNight',   maxZ: 8, ext: 'png', label: 'VIIRS jour/nuit',     sub: 'lumières urbaines + navires' },
   ];
+
+  /** Phase 3 (2026-05-19) — bbox de l'imagerie satellite locale, en
+   *  EPSG:4326 (lon/lat). Matche le BBOX du WMS GetMap de l'orchestrator
+   *  côté backend (services/api/src/db/migrate.ts seed). */
+  private readonly SAT_BBOX_4326: [number, number, number, number] = [-25, 30, 40, 70];
   // ─── V2 Observation #1 (2026-05-12) — METAR ────────────────────────
   // ~35 aéroports européens, refresh 60s côté front, données ingérées
   // par orchestrator (source `metar-fetcher-eu`, NOAA AWC, cron 30min).
@@ -3652,13 +3661,15 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private sstContoursSource?: ImageWMS;
   private rainLayer?: TileLayer<XYZ>;
   private rainSource?: XYZ;
-  /** 2026-05-19 APEX — Satellites NASA GIBS. 1 layer par produit, keyé
-   *  par `SAT_PRODUCTS[i].key`. URL update via effect quand `currentSatDate`
-   *  change (cursor time-slider) → re-fetch des tiles pour le nouveau jour.
-   *  Note : on utilise un Record plutôt que `Map<>` natif car l'import
-   *  `Map` d'OpenLayers shadow le constructeur global. */
-  private satLayers: Record<string, TileLayer<XYZ>> = {};
-  private satSources: Record<string, XYZ> = {};
+  /** 2026-05-19 APEX — Satellites NASA GIBS, Phase 3 = ImageStatic local.
+   *  1 ImageLayer par produit, keyé par `SAT_PRODUCTS[i].key`. La source
+   *  ImageStatic ne supporte pas setUrl — on `setSource(new ImageStatic(...))`
+   *  quand `currentSatDate` change (cursor scrub) ou quand l'opacity change.
+   *  URL = `/satellites/{localDir}/{YYYY-MM-DD}.{ext}` (servi par nginx
+   *  read-only depuis le PVC `maritime-satellites` rempli par l'orchestrator).
+   *  Note Record vs `Map<>` : import `Map` d'OpenLayers shadow le global. */
+  private satLayers: Record<string, ImageLayer<ImageStatic>> = {};
+  private satSources: Record<string, ImageStatic> = {};
   private rainSnapshot?: RainViewerSnapshot;
   private rainSnapshotTimer?: ReturnType<typeof setInterval>;
   /** 2026-05-18 APEX 10 — polling 60s pour détecter nouvelles validités master
@@ -4154,18 +4165,26 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // Refresh tick toutes les 5 min — rolling window glissante.
     setInterval(() => this.vectorAvailabilityRefreshTick.update((n) => n + 1), 5 * 60_000);
 
-    // 2026-05-19 APEX Satellites — réactif au scrub du cursor time-slider.
-    // Quand `currentSatDate` change (= user navigue à un autre jour), on
-    // reconstruit l'URL XYZ de chaque layer satellite avec le nouveau TIME.
-    // OpenLayers re-fetch les tiles automatiquement (cache key = URL).
+    // 2026-05-19 APEX Satellites Phase 3 — réactif au scrub du cursor.
+    // ImageStatic ne supporte pas setUrl (URL set à la construction). Au
+    // changement de date on recrée la source et on `setSource(new ImageStatic)`.
+    // Coût négligeable (juste une URL + extent), et OL re-fetch l'image
+    // unique automatiquement.
+    const imageExtent3857 = transformExtent(this.SAT_BBOX_4326, 'EPSG:4326', 'EPSG:3857');
     effect(() => {
       const date = this.currentSatDate();
       for (const p of this.SAT_PRODUCTS) {
-        const src = this.satSources[p.key];
-        if (!src) continue;
-        src.setUrl(
-          `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${p.id}/default/${date}/GoogleMapsCompatible_Level${p.maxZ}/{z}/{y}/{x}.${p.ext}`,
-        );
+        const layer = this.satLayers[p.key];
+        if (!layer) continue;
+        const newSrc = new ImageStatic({
+          url: `/satellites/${p.localDir}/${date}.${p.ext}`,
+          imageExtent: imageExtent3857,
+          projection: 'EPSG:3857',
+          crossOrigin: 'anonymous',
+          attributions: 'Imagery © <a href="https://earthdata.nasa.gov/eosdis/gibs" target="_blank">NASA EOSDIS GIBS</a> · cached locally',
+        });
+        layer.setSource(newSrc);
+        this.satSources[p.key] = newSrc;
       }
     });
   }
@@ -6240,21 +6259,29 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       visible: false,
     });
 
-    // 2026-05-19 APEX — Satellites NASA GIBS. 7 TileLayer XYZ, 1 par produit.
-    // URL templatée avec {Layer}/{Date}/Level{MaxZ} + format {z}/{y}/{x}.{ext}.
-    // Note : NASA met `{y}` AVANT `{x}` dans l'URL — OpenLayers `XYZ.url`
-    // remplace les placeholders peu importe l'ordre, donc OK direct.
+    // 2026-05-19 APEX Satellites Phase 3 — ImageStatic local au lieu de
+    // NASA tile pyramid. 1 ImageLayer<ImageStatic> par produit, URL =
+    // /satellites/{localDir}/{YYYY-MM-DD}.{ext}. Image unique 2048-2600px
+    // bbox-anchored sur SAT_BBOX_4326 (Europe + Atlantique + Med en EPSG:4326).
+    // OL reprojete pour la View courante (EPSG:3857 défaut).
+    //
+    // Tradeoff vs tile pyramid : pas de zoom infini, l'image flou au-delà de
+    // z~6. Bénéfices : sovereignty (NASA peut tomber, on a notre cache),
+    // archive historique, latency LAN, 1 fetch HTTP au lieu de N tiles.
+    //
     // zIndex 38 = au-dessus de SST/wind/wave rasters (30-35) mais sous radar
     // pluie (40) — choix arbitraire, ajustable via DnD time-bar APEX 11.
     const initialDate = this.currentSatDate();
+    const imageExtent3857 = transformExtent(this.SAT_BBOX_4326, 'EPSG:4326', 'EPSG:3857');
     for (const p of this.SAT_PRODUCTS) {
-      const src = new XYZ({
-        url: `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${p.id}/default/${initialDate}/GoogleMapsCompatible_Level${p.maxZ}/{z}/{y}/{x}.${p.ext}`,
+      const src = new ImageStatic({
+        url: `/satellites/${p.localDir}/${initialDate}.${p.ext}`,
+        imageExtent: imageExtent3857,
+        projection: 'EPSG:3857',
         crossOrigin: 'anonymous',
-        maxZoom: p.maxZ,
-        attributions: 'Imagery © <a href="https://earthdata.nasa.gov/eosdis/gibs" target="_blank">NASA EOSDIS GIBS</a>',
+        attributions: 'Imagery © <a href="https://earthdata.nasa.gov/eosdis/gibs" target="_blank">NASA EOSDIS GIBS</a> · cached locally',
       });
-      const layer = new TileLayer({
+      const layer = new ImageLayer({
         source: src,
         opacity: 0.75,
         zIndex: 38,
