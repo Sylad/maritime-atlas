@@ -583,6 +583,83 @@ INSERT INTO data_sources (
   true
 )
 ON CONFLICT (name) DO NOTHING;
+
+-- ─── APEX Satellites (2026-05-19) — NASA GIBS daily imagery ─────────
+-- 7 produits satellite NASA GIBS (WMTS public, license PD). Chaque source
+-- DL une image WMS GetMap (EPSG:4326, bbox Europe étendue, 2048×1366px JPG)
+-- pour J-1 (NASA lag ~24h) à 03h30 UTC, sauvée dans /data/satellites/.
+-- L'orchestrator template {date} dans l'URL avant fetch.
+-- Frontend Phase 1 reste sur tiles directes NASA ; Phase 2b basculera
+-- vers /satellites/{layer}/{date}.jpg local via nginx.
+INSERT INTO data_sources (
+  name, kind, url, schedule_kind, schedule_expr,
+  parser_kind, parser_config,
+  sink_kind, sink_config, sink_label, bbox, enabled
+) VALUES
+  ('satellite-modis-true-color',
+   'http_binary',
+   'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1&LAYERS=MODIS_Terra_CorrectedReflectance_TrueColor&TIME={date}&BBOX=-25,30,40,70&SRS=EPSG:4326&WIDTH=2600&HEIGHT=1600&FORMAT=image/jpeg',
+   'cron', '30 3 * * *',
+   'identity_binary', NULL,
+   'file_save',
+   '{"output_dir": "/data/satellites", "filename": "MODIS_TrueColor/{date}.jpg", "skipIfExists": true}',
+   '/data/satellites/MODIS_TrueColor/YYYY-MM-DD.jpg',
+   '[-25,30,40,70]', false),
+  ('satellite-viirs-true-color',
+   'http_binary',
+   'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1&LAYERS=VIIRS_SNPP_CorrectedReflectance_TrueColor&TIME={date}&BBOX=-25,30,40,70&SRS=EPSG:4326&WIDTH=2600&HEIGHT=1600&FORMAT=image/jpeg',
+   'cron', '35 3 * * *',
+   'identity_binary', NULL,
+   'file_save',
+   '{"output_dir": "/data/satellites", "filename": "VIIRS_TrueColor/{date}.jpg", "skipIfExists": true}',
+   '/data/satellites/VIIRS_TrueColor/YYYY-MM-DD.jpg',
+   '[-25,30,40,70]', false),
+  ('satellite-modis-ir',
+   'http_binary',
+   'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1&LAYERS=MODIS_Terra_Brightness_Temp_Band31_Day&TIME={date}&BBOX=-25,30,40,70&SRS=EPSG:4326&WIDTH=2048&HEIGHT=1260&FORMAT=image/png',
+   'cron', '40 3 * * *',
+   'identity_binary', NULL,
+   'file_save',
+   '{"output_dir": "/data/satellites", "filename": "MODIS_IR/{date}.png", "skipIfExists": true}',
+   '/data/satellites/MODIS_IR/YYYY-MM-DD.png',
+   '[-25,30,40,70]', false),
+  ('satellite-airs-air-temp',
+   'http_binary',
+   'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1&LAYERS=AIRS_L2_Surface_Air_Temperature_Day&TIME={date}&BBOX=-25,30,40,70&SRS=EPSG:4326&WIDTH=1300&HEIGHT=800&FORMAT=image/png',
+   'cron', '45 3 * * *',
+   'identity_binary', NULL,
+   'file_save',
+   '{"output_dir": "/data/satellites", "filename": "AIRS_AirTemp/{date}.png", "skipIfExists": true}',
+   '/data/satellites/AIRS_AirTemp/YYYY-MM-DD.png',
+   '[-25,30,40,70]', false),
+  ('satellite-modis-cloud-top',
+   'http_binary',
+   'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1&LAYERS=MODIS_Terra_Cloud_Top_Pressure_Day&TIME={date}&BBOX=-25,30,40,70&SRS=EPSG:4326&WIDTH=1300&HEIGHT=800&FORMAT=image/png',
+   'cron', '50 3 * * *',
+   'identity_binary', NULL,
+   'file_save',
+   '{"output_dir": "/data/satellites", "filename": "MODIS_CloudTop/{date}.png", "skipIfExists": true}',
+   '/data/satellites/MODIS_CloudTop/YYYY-MM-DD.png',
+   '[-25,30,40,70]', false),
+  ('satellite-modis-aerosol',
+   'http_binary',
+   'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1&LAYERS=MODIS_Combined_Value_Added_AOD&TIME={date}&BBOX=-25,30,40,70&SRS=EPSG:4326&WIDTH=1300&HEIGHT=800&FORMAT=image/png',
+   'cron', '55 3 * * *',
+   'identity_binary', NULL,
+   'file_save',
+   '{"output_dir": "/data/satellites", "filename": "MODIS_AOD/{date}.png", "skipIfExists": true}',
+   '/data/satellites/MODIS_AOD/YYYY-MM-DD.png',
+   '[-25,30,40,70]', false),
+  ('satellite-viirs-day-night',
+   'http_binary',
+   'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1&LAYERS=VIIRS_SNPP_DayNightBand_ENCC&TIME={date}&BBOX=-25,30,40,70&SRS=EPSG:4326&WIDTH=2048&HEIGHT=1260&FORMAT=image/png',
+   'cron', '0 4 * * *',
+   'identity_binary', NULL,
+   'file_save',
+   '{"output_dir": "/data/satellites", "filename": "VIIRS_DayNight/{date}.png", "skipIfExists": true}',
+   '/data/satellites/VIIRS_DayNight/YYYY-MM-DD.png',
+   '[-25,30,40,70]', false)
+ON CONFLICT (name) DO NOTHING;
 `;
 
 export async function runMigrations(databaseUrl: string): Promise<void> {

@@ -7,6 +7,8 @@ import { Subject } from 'rxjs';
 import { DB_TOKEN, type Db } from '../db/db.module';
 import { dataSources, dataJobs, type DataSource } from '../db/schema';
 import { connect, type Channel, type ChannelModel } from 'amqplib';
+import { promises as fs } from 'fs';
+import { dirname } from 'path';
 
 /** Event poussé sur le bus SSE quand un job est persisté (runner OU
  *  POST /admin/jobs/log depuis les ingesters externes). Format minimal
@@ -416,7 +418,8 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
       if (!src.url) throw new Error('url required');
       const params = (src.httpParams ?? {}) as Record<string, string>;
       const qs = new URLSearchParams(params).toString();
-      const url = qs ? `${src.url}${src.url.includes('?') ? '&' : '?'}${qs}` : src.url;
+      const baseUrl = this.applyUrlTemplate(src.url);
+      const url = qs ? `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}${qs}` : baseUrl;
       const headers = (src.httpHeaders ?? {}) as Record<string, string>;
       const method = (src.httpMethod ?? 'GET') as string;
       const resp = await fetch(url, { method, headers, signal: AbortSignal.timeout(30_000) });
@@ -427,7 +430,52 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
       try { return { body: JSON.parse(text), bytes }; }
       catch { return { body: text, bytes }; }
     }
+    if (src.kind === 'http_binary') {
+      // 2026-05-19 APEX Satellites — fetch raw bytes (image PNG/JPG) sans
+      // tenter de JSON parse. Pass-through pour parser=identity_binary
+      // qui retourne [{ bytes: Buffer, contentType, ... }].
+      if (!src.url) throw new Error('url required');
+      const baseUrl = this.applyUrlTemplate(src.url);
+      const params = (src.httpParams ?? {}) as Record<string, string>;
+      const qs = new URLSearchParams(params).toString();
+      const url = qs ? `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}${qs}` : baseUrl;
+      const headers = (src.httpHeaders ?? {}) as Record<string, string>;
+      const resp = await fetch(url, {
+        method: (src.httpMethod ?? 'GET') as string,
+        headers,
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status} on binary fetch`);
+      const arrayBuf = await resp.arrayBuffer();
+      const buf = Buffer.from(arrayBuf);
+      return {
+        body: { bytes: buf, contentType: resp.headers.get('content-type') ?? 'application/octet-stream', url },
+        bytes: buf.length,
+      };
+    }
     throw new Error(`Unsupported fetch kind: ${src.kind}`);
+  }
+
+  /** APEX Satellites — résout les placeholders dynamiques dans l'URL.
+   *  Supportés :
+   *    {date}      = YYYY-MM-DD UTC de J-1 (latest available NASA GIBS)
+   *    {date-1}    = J-1, idem (alias)
+   *    {date-2}    = J-2
+   *    {date-7}    = J-7
+   *  Utilisé pour les sources satellite qui pointent vers une URL
+   *  paramétrée par la date du jour. Idempotent : si l'URL ne contient
+   *  pas de placeholder, retourne tel quel. */
+  private applyUrlTemplate(url: string): string {
+    if (!url.includes('{date')) return url;
+    const fmt = (offsetDays: number): string => {
+      const d = new Date(Date.now() - offsetDays * 86_400_000);
+      return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+    };
+    return url
+      .replace(/\{date\}/g, fmt(1))
+      .replace(/\{date-1\}/g, fmt(1))
+      .replace(/\{date-2\}/g, fmt(2))
+      .replace(/\{date-7\}/g, fmt(7));
   }
 
   // ─── PARSE ──────────────────────────────────────────────────────────
@@ -436,6 +484,11 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
     if (kind === 'identity') {
       // Si body est un array, on l'itère. Sinon, on wrap en single-item.
       return Array.isArray(body) ? body : [body];
+    }
+    if (kind === 'identity_binary') {
+      // 2026-05-19 APEX Satellites — no-op pour les fetches binaires.
+      // body est déjà { bytes: Buffer, contentType, url } depuis http_binary.
+      return [body];
     }
     if (kind === 'json_path') {
       const cfg = (src.parserConfig ?? {}) as { extractPath?: string };
@@ -621,6 +674,37 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
       // utilise le client pg direct via $client.
       const pgClient = (this.db as unknown as { $client: { unsafe: (sql: string, params: unknown[]) => Promise<unknown> } }).$client;
       await pgClient.unsafe(sql, values);
+      return 'inserted';
+    }
+    if (kind === 'file_save') {
+      // 2026-05-19 APEX Satellites — écrit les bytes du record sur disque
+      // dans `{output_dir}/{filename}`. Placeholders supportés dans filename :
+      //   {date}  → YYYY-MM-DD UTC J-1
+      //   {date-N} → J-N
+      // output_dir doit pré-exister (volume mount). Crée les sous-dossiers
+      // si filename contient un `/` (ex: `MODIS_TrueColor/{date}.jpg`).
+      const cfg = (src.sinkConfig ?? {}) as {
+        output_dir?: string;
+        filename?: string;
+        /** Si true, ne réécrit pas si le fichier existe déjà (skip rapide). */
+        skipIfExists?: boolean;
+      };
+      if (!cfg.output_dir) throw new Error('sinkConfig.output_dir required for file_save');
+      if (!cfg.filename) throw new Error('sinkConfig.filename required for file_save');
+      const rec = (record ?? {}) as { bytes?: Buffer };
+      if (!rec.bytes || !Buffer.isBuffer(rec.bytes)) {
+        throw new Error('file_save sink expects record.bytes Buffer (use http_binary fetch)');
+      }
+      const fname = this.applyUrlTemplate(cfg.filename);
+      const fullPath = `${cfg.output_dir.replace(/\/$/, '')}/${fname}`;
+      if (cfg.skipIfExists) {
+        try {
+          await fs.access(fullPath);
+          return 'skipped';   // fichier existe déjà → no-op
+        } catch { /* n'existe pas → on continue */ }
+      }
+      await fs.mkdir(dirname(fullPath), { recursive: true });
+      await fs.writeFile(fullPath, rec.bytes);
       return 'inserted';
     }
     throw new Error(`Unsupported sink kind: ${kind}`);
