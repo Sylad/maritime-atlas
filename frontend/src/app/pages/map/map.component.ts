@@ -5989,13 +5989,52 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       const trimmed = token.trim();
       if (!trimmed) continue;
       if (trimmed.includes('/')) {
-        // Interval : start/end/PERIOD (rare en pratique pour mosaïque, on ignore)
+        // 2026-05-19 — Interval ISO `START/END/PT{N}M|PT{N}H` : utilisé par
+        // les WMS cascadés EUMETSAT (PT5M MSG RSS, PT10M MTG, PT15M MSG FES),
+        // KNMI radar (PT5M), DWD radar (PT5M). On énumère les timesteps dans
+        // la fenêtre `now-168h..now+168h` puis on retourne (le filterRange
+        // côté caller raffinera). Cappé à 500 timestamps max pour éviter
+        // de saturer la time-bar (5min × 7j = ~2000 → on downsample).
+        const parts = trimmed.split('/');
+        if (parts.length !== 3) continue;
+        const start = new Date(parts[0]);
+        const end = new Date(parts[1]);
+        if (isNaN(start.getTime()) || isNaN(end.getTime())) continue;
+        const periodMs = this.parseIsoPeriodMs(parts[2]);
+        if (periodMs <= 0) continue;
+        // Limite : on n'expose que la fenêtre utile centrée sur `now`. Les
+        // 6 mois d'historique KNMI ne servent à rien dans la time-bar.
+        const now = Date.now();
+        const windowStart = Math.max(start.getTime(), now - 168 * 3_600_000);
+        const windowEnd = Math.min(end.getTime(), now + 168 * 3_600_000);
+        if (windowStart > windowEnd) continue;
+        // Cap nombre de timesteps pour pas exploser le rendu
+        const MAX_TS = 500;
+        const stepMsEff = Math.max(periodMs, (windowEnd - windowStart) / MAX_TS);
+        // Snap au multiple de step (depuis epoch UTC)
+        const firstSnap = Math.ceil(windowStart / periodMs) * periodMs;
+        for (let t = firstSnap; t <= windowEnd; t += stepMsEff) {
+          out.push(new Date(t));
+        }
         continue;
       }
       const d = new Date(trimmed);
       if (!isNaN(d.getTime())) out.push(d);
     }
     return out;
+  }
+
+  /** Parse une période ISO 8601 simple `PT{N}M` ou `PT{N}H` ou `P{N}D` →
+   *  retourne ms. Ne gère pas les combos genre `P1DT2H` (pas le cas usage). */
+  private parseIsoPeriodMs(period: string): number {
+    const m = period.match(/^P(?:T)?(\d+)([MHD])$/);
+    if (!m) return 0;
+    const n = parseInt(m[1], 10);
+    const unit = m[2];
+    if (unit === 'M') return n * 60_000;
+    if (unit === 'H') return n * 3_600_000;
+    if (unit === 'D') return n * 86_400_000;
+    return 0;
   }
 
   /** Appelé quand l'utilisateur click le bouton ▶︎ du time-slider.
