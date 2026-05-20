@@ -14,6 +14,7 @@ import { HubeauModule } from './hubeau/hubeau.module';
 import { EarthquakesModule } from './earthquakes/earthquakes.module';
 import { FirmsModule } from './firms/firms.module';
 import { AvailabilityModule } from './availability/availability.module';
+import { OutdoorModule } from './outdoor/outdoor.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { AvailabilityModule } from './availability/availability.module';
     EarthquakesModule,
     FirmsModule,
     AvailabilityModule,
+    OutdoorModule,
   ],
 })
 export class AppModule {}

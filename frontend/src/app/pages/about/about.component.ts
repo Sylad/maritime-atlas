@@ -241,7 +241,7 @@ import { RouterLink } from '@angular/router';
                 NOAA Aviation Weather Centre <span class="ext">⤤</span>
               </a>
               — ~400 stations aéroports France. Températures, vents,
-              conditions au sol. Endpoint backend `/api/metar/recent` (V2 Obs #1).
+              conditions au sol. Endpoint backend /api/metar/recent (V2 Obs #1).
             </div>
           </div>
           <div class="source-card">
@@ -251,7 +251,7 @@ import { RouterLink } from '@angular/router';
                 Eaufrance Hub'eau <span class="ext">⤤</span>
               </a>
               — API publique temps réel des stations débitmètre françaises
-              (réseau HYDRO). Niveaux et débits fluviaux. Endpoint `/api/hubeau/recent` (V2 Obs #2).
+              (réseau HYDRO). Niveaux et débits fluviaux. Endpoint /api/hubeau/recent (V2 Obs #2).
             </div>
           </div>
         </div>
