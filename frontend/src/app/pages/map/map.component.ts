@@ -2876,10 +2876,11 @@ function toIsoTimestamp(d: Date): string {
            tronqué) → format compact + flex-wrap controls
          - map-legend-overlay : repositionné pour pas overlap time-bar
          - touch targets : checkbox bump 16 → 22px */
+      /* 2026-05-20 — logo AetherWX caché en mobile (Sylvain "très laid
+         étalé comme ça"). Le mot AETHERWX en pill compact reste lisible
+         via .catalog-section title + auth-corner pour l'identité brand. */
       .catalog-header {
-        height: 60px;          /* divise par ~2 vs desktop 130px */
-        background-size: contain;
-        background-position: left center;
+        display: none;
       }
       .legend {
         padding-top: 0.7em;     /* clear le hamburger sans dévorer trop */
@@ -2888,36 +2889,60 @@ function toIsoTimestamp(d: Date): string {
         width: 22px;
         height: 22px;
       }
-      /* Time-bar : layout flex-wrap pour 2 lignes contrôles + label si étroit */
+      /* Time-bar mobile : centrée pleine largeur. Cache la partie
+         drag-and-drop coverage (rangées par layer) — trop dense pour
+         tactile. Cache aussi le bouton ▼ dépliage (déjà caché via
+         .ts-expand-btn dans le bloc 1). */
       app-time-slider {
-        max-width: calc(100vw - 0.8em);
-        left: 0.4em;
-        right: 0.4em;
+        max-width: 100vw;
+        left: 0;
+        right: 0;
+        width: 100vw;
       }
       app-time-slider .ts-controls {
         flex-wrap: wrap;
         gap: 0.3em;
+        justify-content: center;
       }
       app-time-slider .ts-label {
         font-size: 0.65rem;
         white-space: normal;
         line-height: 1.2;
+        text-align: center;
       }
       app-time-slider .ts-btn {
         min-width: 36px;
         min-height: 36px;
       }
-      /* Map-legend overlay : compact + bottom au-dessus time-bar 2-lignes */
+      /* Partie coverage (rangées drag-and-drop par layer) cachée mobile :
+         drag tactile mal supporté + densité forte = inutilisable. L'user
+         passe en "Vue avancée" + desktop si besoin de master-switch. */
+      app-time-slider .ts-coverage {
+        display: none;
+      }
+      /* Map-legend overlay : compact en collapsed (pastille 36px),
+         repositionné gauche en mobile pour éviter overlap avec zoom +
+         scale + attribution qui sont bottom-right. */
       .map-legend-overlay {
-        bottom: 9em;
-        right: 0.5em;
+        bottom: 8em;
+        left: 0.5em;
+        right: auto;
         max-width: calc(100vw - 1em);
         font-size: 0.7rem;
+      }
+      .map-legend-overlay.collapsed {
+        bottom: 8em;
       }
       .map-legend-overlay.collapsed .map-legend-toggle {
         width: 36px;
         height: 36px;
         font-size: 1.1rem;
+      }
+      /* Controls dock bottom-right (zoom + scale + attribution + HDMS) :
+         remontés au-dessus de la time-bar mobile (qui prend 100vw + ~6em
+         hauteur), sinon overlap visuel. */
+      .controls-dock-bottom-right {
+        bottom: 8em;
       }
     }
   `,
