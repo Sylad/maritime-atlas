@@ -2877,8 +2877,9 @@ function toIsoTimestamp(d: Date): string {
          - map-legend-overlay : repositionné pour pas overlap time-bar
          - touch targets : checkbox bump 16 → 22px */
       /* 2026-05-20 — logo AetherWX caché en mobile (Sylvain "très laid
-         étalé comme ça"). Le mot AETHERWX en pill compact reste lisible
-         via .catalog-section title + auth-corner pour l'identité brand. */
+         étalé comme ça"). Selector .data-catalog .catalog-header pour
+         override la règle desktop ligne ~1779 (specificity 020). */
+      .data-catalog .catalog-header,
       .catalog-header {
         display: none;
       }
