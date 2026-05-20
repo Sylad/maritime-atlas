@@ -22,7 +22,7 @@
 >
 > **100% du code écrit en pair-programming avec [Claude Code](https://claude.com/claude-code).**
 > Premier projet *solo avec Claude* — pas de ChatGPT pour les visuels, pas de
-> Copilot pour le code. Voir la page [/about](https://maritime.sladoire.dev/about)
+> Copilot pour le code. Voir la page [/about](https://aetherwx.sladoire.dev/about)
 > du site live pour le récit complet.
 
 Atlas live du trafic maritime et de l'environnement marin sur la **France métropolitaine**
@@ -37,8 +37,10 @@ utilisateur.
 ## Aperçu
 
 > Tous les layers se synchronisent sur le **time slider unique** en bas — un
-> signal Angular écouté par 7 sous-systèmes (WMS, WFS, RainViewer, GeoJSON arrows,
-> particules, alertes, lightning).
+> signal Angular écouté par tous les sous-systèmes actifs (WMS, WFS, RainViewer,
+> GeoJSON arrows, particules, alertes, lightning, METAR, Hub'eau). Snap 30 min
+> pour les layers haute-fréquence (satellites, radar cascade) ; fenêtre asymétrique
+> [-10min, +20min] pour les layers satellite/cascade temps réel.
 
 | Layer | Source | Aperçu |
 |---|---|---|
@@ -48,6 +50,11 @@ utilisateur.
 | **Vagues** raster + flèches direction | NOAA WaveWatch III, Hs + DIRPW | ![Vagues](docs/screenshots/04-waves.jpg) |
 | **Radar pluie** + **foudre** | RainViewer XYZ tiles + Blitzortung WSS (LZW JSON) | ![Pluie + foudre](docs/screenshots/05-rain-lightning.jpg) |
 | **Alertes maritimes** (panel + cercles colorisés) | alerts-engine croise AIS × foudre × vent fort via RMQ | ![Alertes](docs/screenshots/06-alerts.jpg) |
+| **Satellites** (7 produits NASA GIBS daily) | cascade WMS → NASA GIBS (MODIS, VIIRS, IR, vapeur d'eau, aérosols, jour/nuit) | — |
+| **Satellites EUMETSAT** (3 layers quasi-temps réel) | cascade WMS → EUMETSAT : MSG RSS IR 5min · MTG IR global 10min · MSG HRV RGB 15min | — |
+| **Radar cascade** (DWD + KNMI) | cascade WMS → DWD (Allemagne 5min) · KNMI (Pays-Bas 5min) | — |
+| **METAR** (observations aéroports) | API NOAA Aviation Weather · ~400 stations France | — |
+| **Hub'eau** (hydrologie fluviale) | Eaufrance API temps réel · stations débitmètre France | — |
 
 ### Particules de vent — flux animé
 
@@ -85,7 +92,7 @@ https://github.com/Sylad/maritime-atlas/raw/main/docs/screenshots/07-particles.m
    [weather-fetcher Python] ───────────┤                                    │
        │                               ▼                                    │
        │                         ┌──────────────────┐                       │
-       └─wind/wave arrows GeoJSON│   GeoServer 2.27 │ ◄─REST provision──────┘
+       └─wind/wave arrows GeoJSON│   GeoServer 2.28.3│ ◄─REST provision──────┘
                        │         │   (WMS/WFS/WMTS) │
                        ▼         └────────┬─────────┘
               /wind-arrows/ (vol)         │
@@ -118,7 +125,8 @@ https://github.com/Sylad/maritime-atlas/raw/main/docs/screenshots/07-particles.m
 | `weather-fetcher-arpege` | Python (cfgrib + xarray) | — | **Sprint Europe Chantier #2**. Cron 03:30/09:30/15:30/21:30 UTC, Météo-France ARPEGE 0.1° (~11km) sur Europe étroite, forecasts +48h, layer `wind-speed-arpege` |
 | `weather-fetcher-arome` | Python (cfgrib + xarray) | — | **Phase C.6 (réintroduit 2026-05-12)**. Cron 02:30/08:30/14:30/20:30 UTC, Météo-France AROME 0.025° (~2.5km) FR métropole uniquement, forecasts +24h, layer `wind-speed-arome`. Coexiste avec ARPEGE — 3 sources vent sélectionnables côté frontend (GFS / ARPEGE / AROME). |
 | `buoy-fetcher` | Python (requests + psycopg) | — | **Sprint Europe Chantier #3** (remplace l'ex-`candhis-fetcher` 118 bouées FR/CEREMA). Re-seed quotidien, EMODnet Physics WFS `ERD_EP_WAVES_INSITU` → ~28 plateformes vagues Europe (bbox étroite), UPSERT dans `buoys` (PK héritée `candhis_id` = PLATFORMCODE EMODnet) |
-| `api` | NestJS 11 + Drizzle | — | Auth JWT 24h · CRUD palettes (max 5/user) · vérif email Resend · Google OAuth (`/auth/google`) · RBAC admin (`/admin/users` list/promote/delete) · cron dormants 03:00 Europe/Paris |
+| `api` | NestJS 11 + Drizzle | — | Auth JWT 24h · CRUD palettes (max 5/user) · vérif email Resend · Google OAuth (`/auth/google`) · RBAC admin (`/admin/users` list/promote/delete) · cron dormants 03:00 Europe/Paris · orchestrator runner (jobs log, heartbeat) · METAR endpoint (`/api/metar/recent`) · Hub'eau endpoint (`/api/hubeau/recent`) |
+| `grib-parser` | Python 3 + xarray + rioxarray + cfgrib + gdal | — | Sidecar HTTP (port 8500) appelé par l'orchestrator via `POST /parse` — absorbe les fetchers historiques dans le pipeline orchestrator sans réécrire la stack Python en Node |
 | `frontend` | Angular 19 + nginx | 4204 | UI map, nginx proxy `/api/` et `/geoserver/` (CORS-free) |
 
 ## Stack technique
@@ -132,7 +140,7 @@ https://github.com/Sylad/maritime-atlas/raw/main/docs/screenshots/07-particles.m
 | Backend | NestJS 11 + TypeScript 5, Drizzle ORM (api), amqplib (ais), node-cron (track-builder) |
 | Raster pipeline | Python 3 + xarray + rioxarray + cfgrib + gdal natif |
 | Frontend | Angular 19 + OpenLayers 10 + nginx alpine |
-| Sources externes | aisstream.io · NOAA OISST · NOAA GFS · NOAA WaveWatch III · Météo-France ARPEGE (data.gouv.fr) · RainViewer · EMODnet Physics (WFS public) |
+| Sources externes | aisstream.io · NOAA OISST · NOAA GFS · NOAA WaveWatch III · Météo-France ARPEGE (data.gouv.fr) · Météo-France AROME · RainViewer · EMODnet Physics (WFS public) · **NASA GIBS** (cascade WMS, 7 produits satellite) · **EUMETSAT** (cascade WMS : MSG RSS, MTG, MSG HRV) · **DWD** (radar cascade WMS, Allemagne) · **KNMI** (radar cascade WMS, Pays-Bas) · NOAA Aviation Weather (METAR) · Eaufrance Hub'eau (hydrologie) |
 | Auth | JWT (`@nestjs/jwt`) 24h · bcrypt · vérification email via **Resend SDK** · Google OAuth 2.0 (`passport-google-oauth20`) · RBAC 2 rôles (`user` / `admin`) · cron dormants 90j (`DormantCleanupService`) |
 | Build | Docker multi-stage par service |
 
@@ -215,6 +223,13 @@ docker compose exec postgres psql -U maritime -d maritime -c \
 | Radar pluie | RainViewer | XYZ tiles | 10 min | 4b |
 | Foudre | Blitzortung WSS (LZW JSON) | event WS → PostGIS | continu | 7 |
 | Plateformes vagues | EMODnet Physics WFS (`ERD_EP_WAVES_INSITU`) | JSON → PostGIS | quotidien | Europe #3 |
+| Vent 10m (France HD) | Météo-France AROME 0.025° (~2.5km) | GRIB → GeoTIFF + GeoJSON | 4×/jour | Phase C.6 |
+| Satellites daily (7 produits) | NASA GIBS (cascade WMS) | WMS time-aware | quotidien | APEX 19 |
+| Satellites quasi-temps réel (3 produits) | EUMETSAT cascade WMS (MSG RSS, MTG, MSG HRV) | WMS | 5-15 min | 2026-05-20 |
+| Radar Allemagne | DWD cascade WMS | WMS | 5 min | 2026-05-20 |
+| Radar Pays-Bas | KNMI cascade WMS | WMS | 5 min | 2026-05-20 |
+| Observations météo (METAR) | NOAA Aviation Weather Centre | GeoJSON → api endpoint | ~1h | V2 Obs #1 |
+| Hydrologie (Hub'eau) | Eaufrance Hub'eau API | GeoJSON → api endpoint | temps réel | V2 Obs #2 |
 
 ### Pipelines d'ingestion détaillés
 
@@ -338,8 +353,11 @@ flowchart LR
 ```
 
 Le slider est l'unique source de vérité côté frontend : un signal Angular qui
-émet à chaque déplacement du cursor, écouté par 7 sous-systèmes qui se
-rafraichissent indépendamment. Pas de polling synchrone — chaque source a son
+émet à chaque déplacement du cursor, écouté par chaque sous-système (WMS,
+WFS, RainViewer, arrows, particules, alertes, lightning, METAR, Hub'eau,
+satellites, radar cascade) — chacun avec son propre cache de timestamp et
+debounce. Snap 30 min pour les layers haute-fréquence (EUMETSAT 5-15min,
+DWD/KNMI 5min). Pas de polling synchrone — chaque source a son
 propre cache de timestamp et debounce.
 
 ### TTL différentiels (sprint 10b)
@@ -430,6 +448,20 @@ docker compose exec postgres psql -U maritime -d maritime -c \
 docker compose up -d
 # → re-bootstrap JDBCConfig + re-provisioning via le sidecar (workspace, layers, styles)
 ```
+
+## Déploiement production — K8s Mini-Blue + ArgoCD
+
+Depuis le 2026-05-19, AetherWX tourne sur un cluster **K8s single-node
+(Mini-Blue)** géré via **ArgoCD GitOps** (Helm chart dans `developpeur-gitops/charts/maritime/`).
+Le docker-compose ci-dessus reste la référence locale (dev + test sur Big-Blue).
+
+```
+Sources Big-Blue → CI build + push GHCR → ArgoCD Mini-Blue sync → prod live
+```
+
+- URL prod : **https://aetherwx.sladoire.dev** (Cloudflare Tunnel)
+- Bump de tag via `./scripts/upgrade-app.sh maritime <tag>` (met à jour
+  `values.yaml` dans le repo gitops → ArgoCD détecte + redéploie)
 
 ## Limitations & roadmap
 

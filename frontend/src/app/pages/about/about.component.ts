@@ -83,17 +83,18 @@ import { RouterLink } from '@angular/router';
             <div class="stack-eyebrow">Frontend</div>
             <ul>
               <li>Angular 19 (standalone components, signals, OnPush)</li>
-              <li>OpenLayers 10 (carte, time-enabled WMS, custom VectorLayer)</li>
-              <li>SCSS pur, theme custom dark</li>
-              <li>Canvas 2D pour les particules de vent (~1500 advectées par IDW)</li>
+              <li>OpenLayers 10 (carte, time-enabled WMS, custom VectorLayer, cascade WMS)</li>
+              <li>SCSS pur, theme custom dark — mode simple mobile (6 toggles essentiels)</li>
+              <li>Canvas 2D pour les particules de vent (~2500 advectées par IDW sur 4 plus-proches voisins)</li>
+              <li>Prefs layers + ordre + contours isolignes synchronisés en DB multi-device</li>
             </ul>
           </div>
           <div class="stack-card">
             <div class="stack-eyebrow">Backend & ingestion</div>
             <ul>
-              <li>NestJS 11 (api auth JWT + Google OAuth + RBAC, palettes, ais-decoder, track-builder)</li>
-              <li>Python 3.12 + xarray + rioxarray + cfgrib (3 fetchers météo)</li>
-              <li>Node 22 + ws (ais-ingester, lightning-fetcher, alerts-engine)</li>
+              <li>NestJS 11 (api : auth JWT + Google OAuth + RBAC, palettes, orchestrator runner, METAR + Hub'eau endpoints)</li>
+              <li>Python 3.12 + xarray + rioxarray + cfgrib — 4 fetchers météo (GFS, WW3, ARPEGE, AROME) + sidecar grib-parser HTTP</li>
+              <li>Node 22 + ws (ais-ingester, ais-decoder, track-builder, lightning-fetcher, alerts-engine)</li>
               <li>Drizzle ORM (Postgres, schémas isolés)</li>
               <li>Resend SDK (vérification email) · passport-google-oauth20</li>
             </ul>
@@ -102,9 +103,10 @@ import { RouterLink } from '@angular/router';
             <div class="stack-eyebrow">Infra & data</div>
             <ul>
               <li>PostgreSQL 16 + PostGIS + TimescaleDB (hypertables vessels, lightning, alerts)</li>
-              <li>GeoServer 2.27 cluster 3 replicas + JDBCConfig (catalog Postgres)</li>
+              <li>GeoServer 2.28.3 cluster 3 replicas + JDBCConfig + JDBCStore (catalog Postgres-backed, stateless replicas)</li>
+              <li>SeaweedFS (S3-compatible, backend GWC tiles)</li>
               <li>RabbitMQ 3.13 (topic exchanges, fanout raster.ready)</li>
-              <li>Docker Compose, déployé sur NAS Synology 1821+, exposé via Cloudflare Tunnel</li>
+              <li>K8s Mini-Blue + ArgoCD GitOps (Helm chart, prod 2026-05-19). Docker Compose conservé en local dev.</li>
             </ul>
           </div>
         </div>
@@ -193,6 +195,63 @@ import { RouterLink } from '@angular/router';
               — réseau communautaire de détecteurs d'éclairs (signal radio
               VLF). WebSocket public, JSON LZW-compressé, ~10 strikes/s
               globaux dont 10-40/30s en bbox France pendant un orage.
+            </div>
+          </div>
+          <div class="source-card">
+            <div class="source-name">Satellites (7 produits daily)</div>
+            <div class="source-detail">
+              <a href="https://gibs.earthdata.nasa.gov/" target="_blank" rel="noopener">
+                NASA GIBS <span class="ext">⤤</span>
+              </a>
+              — couverture globale via cascade WMS : MODIS Terra/Aqua couleur vraie,
+              VIIRS, infrarouge thermique, vapeur d'eau, aérosols, jour/nuit.
+              Données journalières time-aware synchronisées sur le time slider.
+            </div>
+          </div>
+          <div class="source-card">
+            <div class="source-name">Satellites quasi-temps réel (EUMETSAT)</div>
+            <div class="source-detail">
+              <a href="https://view.eumetsat.int/" target="_blank" rel="noopener">
+                EUMETSAT view.eumetsat.int <span class="ext">⤤</span>
+              </a>
+              — 3 produits cascade WMS : MSG RSS infrarouge Europe (5 min),
+              MTG infrarouge global (10 min), MSG HRV RGB Europe (15 min).
+              Snap time-bar 30 min pour coller aux fréquences d'émission.
+            </div>
+          </div>
+          <div class="source-card">
+            <div class="source-name">Radar pluie cascade (DWD + KNMI)</div>
+            <div class="source-detail">
+              <a href="https://maps.dwd.de/geoserver/web/" target="_blank" rel="noopener">
+                DWD GeoServer <span class="ext">⤤</span>
+              </a>
+              +
+              <a href="https://geoservices.knmi.nl/" target="_blank" rel="noopener">
+                KNMI GeoServices <span class="ext">⤤</span>
+              </a>
+              — radar composite Allemagne (5 min) et Pays-Bas (5 min) servis
+              en cascade WMS par GeoServer — pas de proxy backend, WMS direct vers les
+              services météo nationaux.
+            </div>
+          </div>
+          <div class="source-card">
+            <div class="source-name">Observations météo (METAR)</div>
+            <div class="source-detail">
+              <a href="https://aviationweather.gov/" target="_blank" rel="noopener">
+                NOAA Aviation Weather Centre <span class="ext">⤤</span>
+              </a>
+              — ~400 stations aéroports France. Températures, vents,
+              conditions au sol. Endpoint backend `/api/metar/recent` (V2 Obs #1).
+            </div>
+          </div>
+          <div class="source-card">
+            <div class="source-name">Hydrologie (Hub'eau)</div>
+            <div class="source-detail">
+              <a href="https://hubeau.eaufrance.fr/" target="_blank" rel="noopener">
+                Eaufrance Hub'eau <span class="ext">⤤</span>
+              </a>
+              — API publique temps réel des stations débitmètre françaises
+              (réseau HYDRO). Niveaux et débits fluviaux. Endpoint `/api/hubeau/recent` (V2 Obs #2).
             </div>
           </div>
         </div>
