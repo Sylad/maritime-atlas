@@ -3317,6 +3317,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     alerts: 1,       // RMQ push direct
     vessels: 1,      // AIS stream live (vector point)
     tracks: 1440,    // tracks daily — 1 segment / jour
+    // 2026-05-20 — RainViewer rain XYZ tiles ~10min cadence, archive ~2h.
+    rain: 10,
     // 2026-05-19 APEX Satellites Phase 3 — daily, 1 image/jour/produit
     satTrueColor: 1440,
     satTrueColorVIIRS: 1440,
@@ -4205,9 +4207,17 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       // 2026-05-18 (audit APEX 08 Step 04) — bypass guard "user away" si
       // firstTimeSeen : c'est notre Run 1 fallback profile qui a poussé
       // curT à -24h (pas l'user). Run 2 doit re-snap sur la VRAIE validité
-      // pour aligner le label sur la WMS TIME. Sans ce bypass, label affiche
-      // "lun 18 mai 02:00" alors que WMS envoie "16/05 00:00Z" → confusion.
-      if (Math.abs(now - curT) > 3_600_000 && !firstTimeSeen) return;
+      // pour aligner le label sur la WMS TIME.
+      // 2026-05-20 — bypass aussi le guard si curT EST HORS de la fenêtre
+      // [validities[0], validities[last]] du nouveau master (ex : cursor
+      // resté à FORECAST+6h après switch vers RainViewer live où max=now).
+      // Sans ça, cursor stale → "FORECAST" badge incorrect + frame absente.
+      const realValiditiesCheck = masterKey ? this.validityListPerLayer()[masterKey] : undefined;
+      const outOfWindow = realValiditiesCheck && realValiditiesCheck.length > 0 && (
+        curT < realValiditiesCheck[0].getTime() ||
+        curT > realValiditiesCheck[realValiditiesCheck.length - 1].getTime()
+      );
+      if (Math.abs(now - curT) > 3_600_000 && !firstTimeSeen && !outOfWindow) return;
 
       const profile = this.LAYER_PROFILES[masterKey];
       if (!profile) return;
