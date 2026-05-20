@@ -8,7 +8,8 @@ name: Build & push to GHCR
 #   1. Sylvain commit + push sur main
 #   2. GitHub Actions détecte quel(s) service(s) ont changé
 #   3. Pour chaque service modifié : docker build + tag :sha-short + :latest
-#      + push sur ghcr.io/sylad/maritime-<service>
+#      + push sur ghcr.io/sylad/aetherwx-<service> ET ghcr.io/sylad/
+#      maritime-<service> (dual-tag pendant la transition rebrand 2026-05-20)
 #   4. À la fin : trigger optionnel ArgoCD refresh via webhook (TODO)
 
 on:
@@ -120,11 +121,17 @@ jobs:
 
       - name: Compute image name & tag
         id: meta
+        # 2026-05-20 Sprint 0 rebrand phase 2 : dual-tag transition.
+        # On tag SIMULTANÉMENT sur l'ancien nom (maritime-*) et le
+        # nouveau (aetherwx-*) pendant la fenêtre de migration. Une fois
+        # toutes les images aetherwx-* présentes en GHCR ET les values.yaml
+        # gitops bumpés, on cleanera le tag ancien (TODO commit séparé).
         run: |
           SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-7)
-          IMAGE="ghcr.io/sylad/maritime-${{ matrix.service }}"
-          echo "image=$IMAGE" >> $GITHUB_OUTPUT
-          echo "tags=$IMAGE:sha-$SHA_SHORT,$IMAGE:latest" >> $GITHUB_OUTPUT
+          IMAGE_NEW="ghcr.io/sylad/aetherwx-${{ matrix.service }}"
+          IMAGE_OLD="ghcr.io/sylad/maritime-${{ matrix.service }}"
+          echo "image=$IMAGE_NEW" >> $GITHUB_OUTPUT
+          echo "tags=$IMAGE_NEW:sha-$SHA_SHORT,$IMAGE_NEW:latest,$IMAGE_OLD:sha-$SHA_SHORT,$IMAGE_OLD:latest" >> $GITHUB_OUTPUT
           echo "sha-tag=sha-$SHA_SHORT" >> $GITHUB_OUTPUT
 
       - name: Build & push
