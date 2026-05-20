@@ -104,7 +104,7 @@ FETCH_INTERVAL_MIN = int(os.environ.get('BUOY_FETCH_INTERVAL_MIN', '1440'))
 
 USER_AGENT = os.environ.get(
     'BUOY_USER_AGENT',
-    'maritime-atlas/0.1 (https://maritime.sladoire.dev; sylvain.ladoire@gmail.com)',
+    'aetherwx/0.1 (https://aetherwx.sladoire.dev; sylvain.ladoire@gmail.com)',
 )
 REQUEST_TIMEOUT = int(os.environ.get('BUOY_REQUEST_TIMEOUT', '60'))
 

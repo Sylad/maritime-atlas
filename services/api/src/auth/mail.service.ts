@@ -38,12 +38,12 @@ export class MailService {
    */
   async sendVerificationEmail(toEmail: string, username: string, token: string): Promise<void> {
     const verifyUrl = `${this.publicBaseUrl}/auth/verify?token=${encodeURIComponent(token)}`;
-    const subject = 'Maritime Atlas — vérifie ton email';
+    const subject = 'AetherWX — vérifie ton email';
 
     const text = [
       `Bonjour ${username},`,
       ``,
-      `Merci pour ton inscription sur Maritime Atlas !`,
+      `Merci pour ton inscription sur AetherWX !`,
       ``,
       `Pour finaliser la création de ton compte, clique sur le lien ci-dessous`,
       `(valide 24h) :`,
@@ -52,14 +52,14 @@ export class MailService {
       ``,
       `Si tu n'es pas à l'origine de cette inscription, ignore ce mail.`,
       ``,
-      `— L'équipe Maritime Atlas`,
+      `— L'équipe AetherWX`,
     ].join('\n');
 
     const html = `
 <!DOCTYPE html>
 <html><body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#0a0e1a; color:#e6ecf3; padding: 24px;">
   <div style="max-width: 480px; margin: 0 auto; background: rgb(15, 23, 42); border: 1px solid hsl(224, 85%, 55%); border-radius: 12px; padding: 32px;">
-    <h1 style="margin-top:0; color: hsl(226, 92%, 72%); font-size: 20px;">Maritime Atlas</h1>
+    <h1 style="margin-top:0; color: hsl(226, 92%, 72%); font-size: 20px;">AetherWX</h1>
     <p>Bonjour <strong>${this.escapeHtml(username)}</strong>,</p>
     <p>Merci pour ton inscription. Clique sur le bouton ci-dessous pour vérifier ton email (valide 24h) :</p>
     <p style="margin: 24px 0;">
@@ -102,12 +102,12 @@ export class MailService {
    */
   async sendPasswordResetEmail(toEmail: string, username: string, token: string): Promise<void> {
     const resetUrl = `${this.publicBaseUrl}/auth/reset-password?token=${encodeURIComponent(token)}`;
-    const subject = 'Maritime Atlas — réinitialise ton mot de passe';
+    const subject = 'AetherWX — réinitialise ton mot de passe';
 
     const text = [
       `Bonjour ${username},`,
       ``,
-      `Tu as demandé une réinitialisation de mot de passe sur Maritime Atlas.`,
+      `Tu as demandé une réinitialisation de mot de passe sur AetherWX.`,
       ``,
       `Clique sur le lien ci-dessous (valide 1h) :`,
       ``,
@@ -116,14 +116,14 @@ export class MailService {
       `Si tu n'es pas à l'origine de cette demande, ignore ce mail —`,
       `ton mot de passe actuel reste inchangé.`,
       ``,
-      `— L'équipe Maritime Atlas`,
+      `— L'équipe AetherWX`,
     ].join('\n');
 
     const html = `
 <!DOCTYPE html>
 <html><body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#0a0e1a; color:#e6ecf3; padding: 24px;">
   <div style="max-width: 480px; margin: 0 auto; background: rgb(15, 23, 42); border: 1px solid hsl(224, 85%, 55%); border-radius: 12px; padding: 32px;">
-    <h1 style="margin-top:0; color: hsl(226, 92%, 72%); font-size: 20px;">Maritime Atlas</h1>
+    <h1 style="margin-top:0; color: hsl(226, 92%, 72%); font-size: 20px;">AetherWX</h1>
     <p>Bonjour <strong>${this.escapeHtml(username)}</strong>,</p>
     <p>Tu as demandé une réinitialisation de mot de passe. Clique sur le bouton ci-dessous (valide 1h) :</p>
     <p style="margin: 24px 0;">
