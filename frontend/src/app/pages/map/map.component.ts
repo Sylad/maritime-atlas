@@ -2714,6 +2714,56 @@ function toIsoTimestamp(d: Date): string {
       /* Particles canvas et controls OL — pas de fix nécessaire
          (les controls OL ScaleLine et Zoom sont déjà dans styles.scss
          global et positionnés bottom-left, hors collision slider). */
+
+      /* 2026-05-20 — Fixes mobile responsive (Sylvain) :
+         - logo AetherWX énorme cache 30% hauteur → réduit à 32px icon-only
+         - time-bar overflow horizontal (label "mer. 20 mai 2026 · 09:01"
+           tronqué) → format compact + flex-wrap controls
+         - map-legend-overlay : repositionné pour pas overlap time-bar
+         - touch targets : checkbox bump 16 → 22px */
+      .catalog-header {
+        height: 60px;          /* divise par ~2 vs desktop 130px */
+        background-size: contain;
+        background-position: left center;
+      }
+      .legend {
+        padding-top: 0.7em;     /* clear le hamburger sans dévorer trop */
+      }
+      .layer-toggle input[type="checkbox"] {
+        width: 22px;
+        height: 22px;
+      }
+      /* Time-bar : layout flex-wrap pour 2 lignes contrôles + label si étroit */
+      app-time-slider {
+        max-width: calc(100vw - 0.8em);
+        left: 0.4em;
+        right: 0.4em;
+      }
+      app-time-slider .ts-controls {
+        flex-wrap: wrap;
+        gap: 0.3em;
+      }
+      app-time-slider .ts-label {
+        font-size: 0.65rem;
+        white-space: normal;
+        line-height: 1.2;
+      }
+      app-time-slider .ts-btn {
+        min-width: 36px;
+        min-height: 36px;
+      }
+      /* Map-legend overlay : compact + bottom au-dessus time-bar 2-lignes */
+      .map-legend-overlay {
+        bottom: 9em;
+        right: 0.5em;
+        max-width: calc(100vw - 1em);
+        font-size: 0.7rem;
+      }
+      .map-legend-overlay.collapsed .map-legend-toggle {
+        width: 36px;
+        height: 36px;
+        font-size: 1.1rem;
+      }
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,

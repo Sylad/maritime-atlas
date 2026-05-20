@@ -91,7 +91,8 @@ export interface TimeSliderLayerCoverage {
           } @else if (isFuture()) {
             <span class="ts-future">FORECAST</span>
           }
-          {{ displayTime() | date:'EEE dd MMM yyyy · HH:mm' }}
+          <span class="ts-label-full">{{ displayTime() | date:'EEE dd MMM yyyy · HH:mm' }}</span>
+          <span class="ts-label-compact">{{ displayTime() | date:'dd/MM · HH:mm' }}</span>
           @if (statusLabel()) {
             <span class="ts-status">{{ statusLabel() }}</span>
           }
@@ -341,9 +342,20 @@ export interface TimeSliderLayerCoverage {
       &.future {
         color: var(--warning);
       }
-      @media (max-width: 760px) {
+    }
+    /* 2026-05-20 — toggle label full/compact selon viewport. Format full
+       "EEE dd MMM yyyy · HH:mm" visible desktop, compact "dd/MM · HH:mm"
+       visible mobile ≤ 760px (économise ~50% de largeur). */
+    .ts-label-compact { display: none; }
+    @media (max-width: 760px) {
+      .ts-label-full { display: none; }
+      .ts-label-compact { display: inline; }
+    }
+    @media (max-width: 760px) {
+      .ts-label {
         font-size: 0.72rem;
         gap: 0.4em;
+        flex-wrap: wrap;
         justify-content: center;
       }
     }
