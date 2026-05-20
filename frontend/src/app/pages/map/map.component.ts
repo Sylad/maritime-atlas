@@ -284,7 +284,62 @@ function toIsoTimestamp(d: Date): string {
                 (click)="toggleLegend()"></button>
 
 
-        <div class="layer-toggles">
+        <!-- 2026-05-20 — Mode simple/avancé mobile (Sylvain). Toggle visible
+             uniquement sur mobile ≤ 760px. En mode simple, masque les
+             sections catalog complètes et affiche 6 toggles essentiels en
+             grid 2×3 pour usage rapide sur smartphone. Mode avancé = UI
+             desktop intégrale dans un drawer scrollable. -->
+        <div class="mobile-mode-bar">
+          <button type="button" class="mobile-mode-toggle"
+                  (click)="mobileSimpleMode.set(!mobileSimpleMode())">
+            {{ mobileSimpleMode() ? '⊕ Vue avancée' : '⊖ Vue simple' }}
+          </button>
+        </div>
+
+        @if (mobileSimpleMode()) {
+          <div class="essential-layers">
+            <div class="essential-layers-title">Layers essentielles</div>
+            <div class="essential-grid">
+              <label class="essential-toggle" [class.active]="showVessels()">
+                <input type="checkbox" [checked]="showVessels()" (change)="showVessels.set($any($event.target).checked)" />
+                <span class="essential-icon">🚢</span>
+                <span class="essential-label">Navires</span>
+              </label>
+              <label class="essential-toggle" [class.active]="showWind()">
+                <input type="checkbox" [checked]="showWind()" (change)="showWind.set($any($event.target).checked)" />
+                <span class="essential-icon">💨</span>
+                <span class="essential-label">Vent</span>
+              </label>
+              <label class="essential-toggle" [class.active]="showRain()">
+                <input type="checkbox" [checked]="showRain()" (change)="showRain.set($any($event.target).checked)" />
+                <span class="essential-icon">🌧</span>
+                <span class="essential-label">Pluie</span>
+              </label>
+              <label class="essential-toggle" [class.active]="showSatEuIrRss()">
+                <input type="checkbox" [checked]="showSatEuIrRss()" (change)="showSatEuIrRss.set($any($event.target).checked)" />
+                <span class="essential-icon">🛰</span>
+                <span class="essential-label">Sat IR</span>
+              </label>
+              <label class="essential-toggle" [class.active]="showLightning()"
+                     [class.mode-incompatible]="!!layerModeWarning('lightning')"
+                     [title]="layerModeWarning('lightning')">
+                <input type="checkbox" [checked]="showLightning()" (change)="showLightning.set($any($event.target).checked)" />
+                <span class="essential-icon">⚡</span>
+                <span class="essential-label">Foudre</span>
+              </label>
+              <label class="essential-toggle" [class.active]="showAlerts()"
+                     [class.mode-incompatible]="!!layerModeWarning('alerts')"
+                     [title]="layerModeWarning('alerts')">
+                <input type="checkbox" [checked]="showAlerts()" (change)="showAlerts.set($any($event.target).checked)" />
+                <span class="essential-icon">⚠</span>
+                <span class="essential-label">Alertes</span>
+              </label>
+            </div>
+            <p class="essential-hint">Tap "Vue avancée" pour toutes les layers + isolignes + opacité.</p>
+          </div>
+        }
+
+        <div class="layer-toggles" [class.layer-toggles-hidden]="mobileSimpleMode()">
           <!-- ═══ Section MARITIME ═══════════════════════════════════ -->
           <div class="catalog-section" [class.is-open]="catalogSections().maritime">
             <button type="button" class="catalog-section-head section-maritime"
@@ -2715,6 +2770,106 @@ function toIsoTimestamp(d: Date): string {
          (les controls OL ScaleLine et Zoom sont déjà dans styles.scss
          global et positionnés bottom-left, hors collision slider). */
 
+      /* 2026-05-20 — Mode mobile simplifié (Mode C — Sylvain) :
+         - 6 toggles essentiels en grid 2×3 (vessels/wind/rain/satIR/lightning/alerts)
+         - Bouton toggle Simple/Avancée
+         - Time-bar : masque le bouton ▲ extended (sous-barres trop denses) */
+      .mobile-mode-bar {
+        display: none;       /* hidden desktop */
+      }
+      .essential-layers {
+        display: none;       /* hidden desktop par défaut */
+      }
+      .layer-toggles-hidden {
+        /* desktop : ignore le flag, l'UI complète reste visible */
+      }
+      @media (max-width: 760px) {
+        .mobile-mode-bar {
+          display: flex;
+          justify-content: flex-end;
+          padding: 0.4em 0 0.6em 0;
+        }
+        .mobile-mode-toggle {
+          background: hsl(224 30% 12%);
+          border: 1px solid hsl(224 85% 55% / 0.4);
+          color: hsl(224 95% 75%);
+          padding: 0.4em 0.9em;
+          border-radius: 16px;
+          font-size: 0.72rem;
+          font-family: var(--font-mono);
+          cursor: pointer;
+          letter-spacing: 0.05em;
+        }
+        .mobile-mode-toggle:hover {
+          background: hsl(224 85% 55% / 0.2);
+        }
+        .essential-layers {
+          display: block;
+        }
+        .essential-layers-title {
+          font-size: 0.62rem;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          color: hsl(224 25% 65%);
+          margin-bottom: 0.5em;
+        }
+        .essential-grid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 0.5em;
+        }
+        .essential-toggle {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          padding: 0.8em 0.4em;
+          background: hsl(224 30% 12%);
+          border: 1px solid hsl(224 30% 22%);
+          border-radius: 8px;
+          cursor: pointer;
+          gap: 0.3em;
+          min-height: 72px;
+          transition: background 150ms, border-color 150ms;
+          input {
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+          }
+        }
+        .essential-toggle.active {
+          background: hsl(224 85% 30% / 0.35);
+          border-color: hsl(224 85% 60%);
+        }
+        .essential-toggle.mode-incompatible {
+          opacity: 0.5;
+        }
+        .essential-icon {
+          font-size: 1.4rem;
+          line-height: 1;
+        }
+        .essential-label {
+          font-size: 0.7rem;
+          color: hsl(224 15% 90%);
+        }
+        .essential-hint {
+          margin-top: 0.8em;
+          font-size: 0.62rem;
+          color: hsl(224 25% 55%);
+          font-style: italic;
+        }
+        /* Quand mode simple ON : cache catalog sections desktop intégrales */
+        .layer-toggles-hidden {
+          display: none;
+        }
+        /* Time-bar mobile : cache le bouton ▲ qui ouvre les sous-barres
+           extended (rangées par layer avec drag-drop). Densité trop forte
+           sur smartphone, et tactile pas idéal pour drag. */
+        app-time-slider .ts-expand-btn {
+          display: none;
+        }
+      }
+
       /* 2026-05-20 — Fixes mobile responsive (Sylvain) :
          - logo AetherWX énorme cache 30% hauteur → réduit à 32px icon-only
          - time-bar overflow horizontal (label "mer. 20 mai 2026 · 09:01"
@@ -4173,6 +4328,25 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly currentTimeSig = signal<Date>(new Date());
   readonly modeIsLive = computed(() => Math.abs(Date.now() - this.currentTimeSig().getTime()) < LIVE_THRESHOLD_MS);
   readonly modeIsFuture = computed(() => this.currentTimeSig().getTime() > Date.now() + LIVE_THRESHOLD_MS);
+
+  /** 2026-05-20 — Mode simple mobile (Sylvain). Sur mobile ≤ 760px, default
+   *  true → affiche 6 toggles essentiels (vessels/wind/rain/satIR/lightning/
+   *  alerts) en grid 2×3 et masque les catalog sections desktop. Toggle
+   *  "Vue avancée" remet l'UI complète. Sur desktop, default false (l'UI
+   *  desktop intégrale reste visible). Persisté localStorage. */
+  readonly mobileSimpleMode = signal<boolean>(this.loadMobileSimpleMode());
+
+  private loadMobileSimpleMode(): boolean {
+    try {
+      const v = localStorage.getItem('aetherwx.mobile-simple-mode');
+      if (v !== null) return v === '1';
+    } catch {}
+    return typeof window !== 'undefined' && window.innerWidth <= 760;
+  }
+  private persistMobileSimpleOnChange = effect(() => {
+    const v = this.mobileSimpleMode();
+    try { localStorage.setItem('aetherwx.mobile-simple-mode', v ? '1' : '0'); } catch {}
+  });
 
   /** 2026-05-20 — Légende globale flottante sur la map. Toggle (persisté
    *  localStorage `aetherwx.show-map-legend`). Open par défaut au boot. */
