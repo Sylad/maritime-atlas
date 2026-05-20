@@ -505,23 +505,8 @@ function toIsoTimestamp(d: Date): string {
                          (input)="setOpacity('lightning', +$any($event.target).value)" />
                 }
               </div>
-              <div class="layer-row">
-                <label class="layer-toggle" [class.dim]="!rainActive()">
-                  <input type="checkbox" [checked]="showRain()" (change)="showRain.set($any($event.target).checked)" />
-                  <span class="toggle-glyph">
-                    <span class="glyph-rain"></span>
-                  </span>
-                  <span class="toggle-text">
-                    <span class="toggle-name">Radar pluie</span>
-                    <span class="toggle-count">{{ rainStatus() }}</span>
-                  </span>
-                </label>
-                @if (showRain()) {
-                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
-                         [value]="getOpacity('rain')"
-                         (input)="setOpacity('rain', +$any($event.target).value)" />
-                }
-              </div>
+              <!-- 2026-05-20 — Radar pluie RainViewer déplacé dans la nouvelle
+                   section 📡 Radar (avec DWD + KNMI). -->
               <div class="layer-row">
                 <label class="layer-toggle" [class.dim]="!showMetar()">
                   <input type="checkbox" [checked]="showMetar()" (change)="showMetar.set($any($event.target).checked)" />
@@ -719,6 +704,116 @@ function toIsoTimestamp(d: Date): string {
                   <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
                          [value]="getOpacity('satRainviewer')"
                          (input)="setOpacity('satRainviewer', +$any($event.target).value)" />
+                }
+              </div>
+              <!-- 2026-05-20 — 3 sat EUMETSAT cascade WMS (MSG RSS 5min, MTG 10min, MSG HRV 15min) -->
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showSatEuIrRss()">
+                  <input type="checkbox" [checked]="showSatEuIrRss()" (change)="showSatEuIrRss.set($any($event.target).checked); persistLayerPrefs()" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🌡</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">IR Europe (5 min)</span>
+                    <span class="toggle-count">{{ satEuIrRssStatus() }}</span>
+                  </span>
+                </label>
+                @if (showSatEuIrRss()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getOpacity('satEuIrRss')"
+                         (input)="setOpacity('satEuIrRss', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showSatGlobalIrMtg()">
+                  <input type="checkbox" [checked]="showSatGlobalIrMtg()" (change)="showSatGlobalIrMtg.set($any($event.target).checked); persistLayerPrefs()" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🌐</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">IR global (10 min)</span>
+                    <span class="toggle-count">{{ satGlobalIrMtgStatus() }}</span>
+                  </span>
+                </label>
+                @if (showSatGlobalIrMtg()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getOpacity('satGlobalIrMtg')"
+                         (input)="setOpacity('satGlobalIrMtg', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showSatEuHrvRgb()">
+                  <input type="checkbox" [checked]="showSatEuHrvRgb()" (change)="showSatEuHrvRgb.set($any($event.target).checked); persistLayerPrefs()" />
+                  <span class="toggle-glyph"><span class="glyph-icon">☀</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Visible HRV RGB Europe (15 min)</span>
+                    <span class="toggle-count">{{ satEuHrvRgbStatus() }}</span>
+                  </span>
+                </label>
+                @if (showSatEuHrvRgb()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getOpacity('satEuHrvRgb')"
+                         (input)="setOpacity('satEuHrvRgb', +$any($event.target).value)" />
+                }
+              </div>
+            </div>
+            }
+          </div>
+
+          <!-- ═══ Section RADAR ═══════════════════════════════════════ -->
+          <!-- 2026-05-20 (Sylvain) — catégorie 📡 Radar séparée. RainViewer
+               radar global déplacé depuis Observation, complété par DWD
+               (Allemagne 5min) + KNMI (Pays-Bas 5min) en cascade WMS. -->
+          <div class="catalog-section" [class.is-open]="catalogSections().radar">
+            <button type="button" class="catalog-section-head section-radar"
+                    (click)="toggleCatalogSection('radar')"
+                    [attr.aria-expanded]="catalogSections().radar">
+              <span class="head-chevron">{{ catalogSections().radar ? '▼' : '▶' }}</span>
+              <span class="head-icon">📡</span>
+              <span class="head-name">Radar</span>
+              <span class="head-count">{{ catalogSectionCount('radar').active }}/{{ catalogSectionCount('radar').total }}</span>
+            </button>
+            @if (catalogSections().radar) {
+            <div class="catalog-section-body">
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showRain()">
+                  <input type="checkbox" [checked]="showRain()" (change)="showRain.set($any($event.target).checked); persistLayerPrefs()" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🌧</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Précipitations RainViewer</span>
+                    <span class="toggle-count">{{ rainStatus() }}</span>
+                  </span>
+                </label>
+                @if (showRain()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getOpacity('rain')"
+                         (input)="setOpacity('rain', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showRadarDwd()">
+                  <input type="checkbox" [checked]="showRadarDwd()" (change)="showRadarDwd.set($any($event.target).checked); persistLayerPrefs()" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🇩🇪</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Radar Allemagne (5 min)</span>
+                    <span class="toggle-count">{{ radarDwdStatus() }}</span>
+                  </span>
+                </label>
+                @if (showRadarDwd()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getOpacity('radarDwd')"
+                         (input)="setOpacity('radarDwd', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showRadarKnmi()">
+                  <input type="checkbox" [checked]="showRadarKnmi()" (change)="showRadarKnmi.set($any($event.target).checked); persistLayerPrefs()" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🇳🇱</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Radar Pays-Bas (5 min)</span>
+                    <span class="toggle-count">{{ radarKnmiStatus() }}</span>
+                  </span>
+                </label>
+                @if (showRadarKnmi()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getOpacity('radarKnmi')"
+                         (input)="setOpacity('radarKnmi', +$any($event.target).value)" />
                 }
               </div>
             </div>
@@ -1647,6 +1742,8 @@ function toIsoTimestamp(d: Date): string {
     .catalog-section-head.section-forecast    { color: #fb923c; }
     .catalog-section-head.section-hydrology   { color: #22d3ee; }
     .catalog-section-head.section-sources     { color: #94a3b8; }
+    /* 2026-05-20 — nouvelle catégorie Radar (RainViewer + DWD + KNMI) */
+    .catalog-section-head.section-radar       { color: #3b82f6; }
     /* APEX Satellites — date label en tête de section */
     .sat-date-label {
       font-family: var(--font-mono);
@@ -2521,7 +2618,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // Persistance localStorage indépendante des layer prefs. Défaut :
   // Maritime ouvert, Observation/Forecast/Sources fermés (économie scroll
   // au boot, tout reste accessible en 1 click).
-  readonly catalogSections = signal<Record<'maritime' | 'observation' | 'satellites' | 'forecast' | 'hydrology' | 'sources', boolean>>(this.loadCatalogSections());
+  readonly catalogSections = signal<Record<'maritime' | 'observation' | 'satellites' | 'forecast' | 'hydrology' | 'sources' | 'radar', boolean>>(this.loadCatalogSections());
   readonly hasPopup = computed(() =>
     this.selectedVessel() !== null
     || this.selectedLightning() !== null
@@ -2601,6 +2698,15 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // via snapshot RainViewer, pas via GS GetCapabilities) ; visible dans
     // sliderLayerCoverage avec refreshIntervalMin=10.
     { key: 'satRainviewer',     label: 'Satellite IR (RainViewer)', type: 'vector', active: () => this.showSatRainviewer() },
+    // 2026-05-20 cascade EUMETSAT — type 'wms' avec cascade GS workspace
+    // maritime. Master-éligibles (WMS time-enabled même si GS GetCapabilities
+    // ne les expose pas — validityListPerLayer génère client-side).
+    { key: 'satEuIrRss',        label: 'Sat IR Europe RSS (5min)',  type: 'wms', gsLayerName: 'maritime:sat-eu-ir-rss',     active: () => this.showSatEuIrRss() },
+    { key: 'satGlobalIrMtg',    label: 'Sat IR global MTG (10min)', type: 'wms', gsLayerName: 'maritime:sat-global-ir-mtg', active: () => this.showSatGlobalIrMtg() },
+    { key: 'satEuHrvRgb',       label: 'Sat HRV RGB Europe (15min)',type: 'wms', gsLayerName: 'maritime:sat-eu-hrv-rgb',    active: () => this.showSatEuHrvRgb() },
+    // 2026-05-20 cascade radar (DWD + KNMI)
+    { key: 'radarDwd',          label: 'Radar Allemagne (DWD)',     type: 'wms', gsLayerName: 'maritime:radar-dwd-de',      active: () => this.showRadarDwd() },
+    { key: 'radarKnmi',         label: 'Radar Pays-Bas (KNMI)',     type: 'wms', gsLayerName: 'maritime:radar-knmi-nl',     active: () => this.showRadarKnmi() },
     { key: 'vessels',        label: 'Navires AIS',    type: 'vector',                                          active: () => this.showVessels() },
     { key: 'lightning',      label: 'Foudre',         type: 'vector',                                          active: () => this.showLightning() },
     { key: 'metar',          label: 'METAR',          type: 'vector',                                          active: () => this.showMetar() },
@@ -2867,6 +2973,21 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // global IR clouds). Source XYZ tiles via api.rainviewer.com, pas GS.
   readonly showSatRainviewer     = signal(false);
   readonly satRainviewerStatus   = signal('IR clouds (10 min)');
+  // 2026-05-20 — 3 sat EUMETSAT cascade (MSG SEVIRI Rapid Scan 5min, MTG FCI
+  // 10min global, MSG FES HRV RGB 15min visible day). Source = GS workspace
+  // maritime via cascade WMS vers view.eumetsat.int (cf wms-cascade-bootstrap Job).
+  readonly showSatEuIrRss        = signal(false);
+  readonly satEuIrRssStatus      = signal('IR Europe 5 min (MSG RSS)');
+  readonly showSatGlobalIrMtg    = signal(false);
+  readonly satGlobalIrMtgStatus  = signal('IR global 10 min (MTG FCI)');
+  readonly showSatEuHrvRgb       = signal(false);
+  readonly satEuHrvRgbStatus     = signal('Visible HRV RGB Europe 15 min (jour)');
+  // 2026-05-20 — 2 radar cascade (DWD Allemagne 5min + KNMI Pays-Bas 5min).
+  // Catégorie 📡 Radar à part (cf Sylvain "catégorie radar séparée").
+  readonly showRadarDwd          = signal(false);
+  readonly radarDwdStatus        = signal('Radar Allemagne 5 min (DWD)');
+  readonly showRadarKnmi         = signal(false);
+  readonly radarKnmiStatus       = signal('Radar Pays-Bas 5 min (KNMI)');
 
   /** Date du jour à utiliser pour le TIME des layers GIBS — dérivée du
    *  cursor time-slider (computed). Format YYYY-MM-DD. Snap UTC day floor :
@@ -2997,6 +3118,16 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     satDayNight:       { kind: 'obs', stepH: 24, pastH: 168, futureH: 0 },
     // RainViewer satellite IR — 10 min, archive ~3h côté API.
     satRainviewer:     { kind: 'live', stepH: 0, pastH: 3, futureH: 0 },
+    // 2026-05-20 — cascade WMS EUMETSAT/DWD/KNMI. stepH fractionné car
+    // cadences sub-horaires (5/10/15 min). validityListPerLayer cascade
+    // génère les validités client-side (GS GetCapabilities ne les expose
+    // pas malgré advertised=true — bug GS 2.28.3 cascade WMS).
+    // pastH 168 = 7 jours politique data layer maritime.
+    satEuIrRss:        { kind: 'obs', stepH: 5/60,  pastH: 168, futureH: 0 },
+    satGlobalIrMtg:    { kind: 'obs', stepH: 10/60, pastH: 168, futureH: 0 },
+    satEuHrvRgb:       { kind: 'obs', stepH: 15/60, pastH: 168, futureH: 0 },
+    radarDwd:          { kind: 'obs', stepH: 5/60,  pastH: 168, futureH: 0 },
+    radarKnmi:         { kind: 'obs', stepH: 5/60,  pastH: 168, futureH: 0 },
   };
 
   /** Computed : drive l'input du time-slider selon le MASTER du temps (= la
@@ -3096,6 +3227,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     if (this.showSatAerosol())        n++;
     if (this.showSatDayNight())       n++;
     if (this.showSatRainviewer())     n++;
+    // 2026-05-20 cascade EUMETSAT + radar
+    if (this.showSatEuIrRss())        n++;
+    if (this.showSatGlobalIrMtg())    n++;
+    if (this.showSatEuHrvRgb())       n++;
+    if (this.showRadarDwd())          n++;
+    if (this.showRadarKnmi())         n++;
     return n;
   });
 
@@ -3147,6 +3284,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     satAerosol:        '#d97706',
     satDayNight:       '#9333ea',
     satRainviewer:     '#a8a29e',
+    // 2026-05-20 cascade EUMETSAT — palette cohérente jaunes/cyans sat
+    satEuIrRss:        '#fcd34d',  // jaune chaud (IR thermique)
+    satGlobalIrMtg:    '#fb7185',  // rose vif (IR global)
+    satEuHrvRgb:       '#7dd3fc',  // bleu ciel (visible jour)
+    // Radar bleus saturés (cohérent avec rain RainViewer)
+    radarDwd:          '#3b82f6',  // bleu (Allemagne)
+    radarKnmi:         '#0ea5e9',  // bleu clair (Pays-Bas)
   };
 
   /** 2026-05-18 APEX 12 — refresh interval (minutes) pour les vector layers
@@ -3172,6 +3316,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     satAerosol: 1440,
     satDayNight: 1440,
     satRainviewer: 10,
+    // 2026-05-20 cascade EUMETSAT/DWD/KNMI (WMS, mais aussi listés pour
+    // l'éventuelle row sub-bar)
+    satEuIrRss: 5,
+    satGlobalIrMtg: 10,
+    satEuHrvRgb: 15,
+    radarDwd: 5,
+    radarKnmi: 5,
   };
 
   readonly sliderLayerCoverage = computed((): TimeSliderLayerCoverage[] => {
@@ -3234,6 +3385,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     push(this.showSatAerosol(),        'satAerosol',        'sat-aerosol');
     push(this.showSatDayNight(),       'satDayNight',       'sat-day-night');
     push(this.showSatRainviewer(),     'satRainviewer',     'sat-rainviewer-ir');
+    // 2026-05-20 cascade EUMETSAT (3) + radar (2)
+    push(this.showSatEuIrRss(),        'satEuIrRss',        'sat-eu-ir-rss');
+    push(this.showSatGlobalIrMtg(),    'satGlobalIrMtg',    'sat-global-ir-mtg');
+    push(this.showSatEuHrvRgb(),       'satEuHrvRgb',       'sat-eu-hrv-rgb');
+    push(this.showRadarDwd(),          'radarDwd',          'radar-dwd-de');
+    push(this.showRadarKnmi(),         'radarKnmi',         'radar-knmi-nl');
     // 2026-05-18 APEX 11 — réordonne selon le z-index user (persisté). Les
     // layers non listées dans layerZIndexOrder gardent leur ordre relatif
     // d'origine (= ordre déclaratif ci-dessus).
@@ -3269,6 +3426,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     satTrueColor: 0.75, satTrueColorVIIRS: 0.75, satIR: 0.75,
     satWaterVapor: 0.75, satCloudTop: 0.75, satAerosol: 0.75, satDayNight: 0.75,
     satRainviewer: 0.7,
+    // 2026-05-20 cascade EUMETSAT/radar — 0.75 default (cohérent avec sat NASA)
+    satEuIrRss: 0.75, satGlobalIrMtg: 0.75, satEuHrvRgb: 0.75,
+    radarDwd: 0.75, radarKnmi: 0.75,
   });
 
   /** Defaults visibility — utilisés par resetLayerPrefs() pour restaurer. */
@@ -3283,6 +3443,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     satTrueColor: false, satTrueColorVIIRS: false, satIR: false,
     satWaterVapor: false, satCloudTop: false, satAerosol: false, satDayNight: false,
     satRainviewer: false,
+    // 2026-05-20 cascade EUMETSAT + radar
+    satEuIrRss: false, satGlobalIrMtg: false, satEuHrvRgb: false,
+    radarDwd: false, radarKnmi: false,
   };
   private readonly DEFAULT_OPACITIES = { ...this.layerOpacities() };
 
@@ -3335,6 +3498,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       satAerosol:        this.satLayers['satAerosol'],
       satDayNight:       this.satLayers['satDayNight'],
       satRainviewer:     this.satRainviewerLayer,
+      // 2026-05-20 cascade EUMETSAT + radar
+      satEuIrRss:        this.cascadeLayers['satEuIrRss'],
+      satGlobalIrMtg:    this.cascadeLayers['satGlobalIrMtg'],
+      satEuHrvRgb:       this.cascadeLayers['satEuHrvRgb'],
+      radarDwd:          this.cascadeLayers['radarDwd'],
+      radarKnmi:         this.cascadeLayers['radarKnmi'],
     } as Record<string, { setOpacity: (n: number) => void } | undefined>)[key];
     layer?.setOpacity(value);
     // Wind particles = canvas overlay, opacity réglée via CSS sur le
@@ -3354,19 +3523,17 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // ─── V2 Phase 1 (2026-05-12) — Data catalog accordion helpers ─────
   /** Restore l'état pli/déplié des sections du data catalog. Stocké
    *  séparément des layer prefs pour pouvoir resetter l'un sans l'autre. */
-  private loadCatalogSections(): Record<'maritime' | 'observation' | 'satellites' | 'forecast' | 'hydrology' | 'sources', boolean> {
-    const defaults = { maritime: true, observation: false, satellites: false, forecast: false, hydrology: false, sources: false };
+  private loadCatalogSections(): Record<'maritime' | 'observation' | 'satellites' | 'forecast' | 'hydrology' | 'sources' | 'radar', boolean> {
+    const defaults = { maritime: true, observation: false, satellites: false, forecast: false, hydrology: false, sources: false, radar: false };
     try {
       const raw = localStorage.getItem('maritime.catalog-sections-v1');
       if (!raw) return defaults;
       const parsed = JSON.parse(raw) as Partial<typeof defaults>;
       // V2 (2026-05-12) strict accordion : force 1 tiroir max ouvert.
-      // Si le localStorage a plusieurs `true` (legacy state), on garde le
-      // 1er trouvé selon l'ordre canonique et on ferme tous les autres.
-      const order: Array<keyof typeof defaults> = ['maritime', 'observation', 'satellites', 'forecast', 'hydrology', 'sources'];
+      const order: Array<keyof typeof defaults> = ['maritime', 'observation', 'satellites', 'radar', 'forecast', 'hydrology', 'sources'];
       const merged = { ...defaults, ...parsed };
       const firstOpen = order.find((k) => merged[k]);
-      const next = { maritime: false, observation: false, satellites: false, forecast: false, hydrology: false, sources: false };
+      const next = { maritime: false, observation: false, satellites: false, forecast: false, hydrology: false, sources: false, radar: false };
       if (firstOpen) next[firstOpen] = true;
       else next.maritime = true;
       return next;
@@ -3378,10 +3545,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   /** V2 (2026-05-12) : accordion strict — un seul tiroir ouvert à la fois.
    *  Si on clique sur une section déjà ouverte → on la ferme. Si on clique
    *  une fermée → on l'ouvre et on ferme toutes les autres. */
-  toggleCatalogSection(key: 'maritime' | 'observation' | 'satellites' | 'forecast' | 'hydrology' | 'sources'): void {
+  toggleCatalogSection(key: 'maritime' | 'observation' | 'satellites' | 'forecast' | 'hydrology' | 'sources' | 'radar'): void {
     this.catalogSections.update((m) => {
       const wasOpen = m[key];
-      const next: typeof m = { maritime: false, observation: false, satellites: false, forecast: false, hydrology: false, sources: false };
+      const next: typeof m = { maritime: false, observation: false, satellites: false, forecast: false, hydrology: false, sources: false, radar: false };
       next[key] = !wasOpen;
       try { localStorage.setItem('maritime.catalog-sections-v1', JSON.stringify(next)); } catch {}
       return next;
@@ -3389,14 +3556,15 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Compte les layers actifs par section. Affiché en badge dans le head. */
-  catalogSectionCount(key: 'maritime' | 'observation' | 'satellites' | 'forecast' | 'hydrology' | 'sources'): { active: number; total: number } {
+  catalogSectionCount(key: 'maritime' | 'observation' | 'satellites' | 'forecast' | 'hydrology' | 'sources' | 'radar'): { active: number; total: number } {
     if (key === 'maritime') {
       const flags = [this.showVessels(), this.showTracks(), this.showAlerts(), this.showBuoys(),
                      this.showSST(), this.showWaves(), this.showWaveArrows()];
       return { active: flags.filter(Boolean).length, total: flags.length };
     }
     if (key === 'observation') {
-      const flags = [this.showLightning(), this.showRain(), this.showMetar(), this.showQuakes(), this.showFirms()];
+      // 2026-05-20 — `rain` (RainViewer radar) déplacé dans la nouvelle section 📡 Radar.
+      const flags = [this.showLightning(), this.showMetar(), this.showQuakes(), this.showFirms()];
       return { active: flags.filter(Boolean).length, total: flags.length };
     }
     if (key === 'satellites') {
@@ -3404,7 +3572,14 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         this.showSatTrueColor(), this.showSatTrueColorVIIRS(), this.showSatIR(),
         this.showSatWaterVapor(), this.showSatCloudTop(), this.showSatAerosol(),
         this.showSatDayNight(),
+        // 2026-05-19 RainViewer + 2026-05-20 cascade EUMETSAT (3)
+        this.showSatRainviewer(), this.showSatEuIrRss(), this.showSatGlobalIrMtg(), this.showSatEuHrvRgb(),
       ];
+      return { active: flags.filter(Boolean).length, total: flags.length };
+    }
+    if (key === 'radar') {
+      // 2026-05-20 nouvelle catégorie : RainViewer (global) + DWD (Allemagne) + KNMI (Pays-Bas)
+      const flags = [this.showRain(), this.showRadarDwd(), this.showRadarKnmi()];
       return { active: flags.filter(Boolean).length, total: flags.length };
     }
     if (key === 'forecast') {
@@ -3538,6 +3713,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       satAerosol: this.showSatAerosol(),
       satDayNight: this.showSatDayNight(),
       satRainviewer: this.showSatRainviewer(),
+      // 2026-05-20 cascade EUMETSAT + radar (5)
+      satEuIrRss: this.showSatEuIrRss(),
+      satGlobalIrMtg: this.showSatGlobalIrMtg(),
+      satEuHrvRgb: this.showSatEuHrvRgb(),
+      radarDwd: this.showRadarDwd(),
+      radarKnmi: this.showRadarKnmi(),
     };
     const opacity = this.layerOpacities();
     // 2026-05-18 APEX 11+12 — persiste aussi l'ordre user des layers (zIndex)
@@ -3650,6 +3831,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       satAerosol:        (v) => this.showSatAerosol.set(v),
       satDayNight:       (v) => this.showSatDayNight.set(v),
       satRainviewer:     (v) => this.showSatRainviewer.set(v),
+      // 2026-05-20 cascade EUMETSAT + radar
+      satEuIrRss:        (v) => this.showSatEuIrRss.set(v),
+      satGlobalIrMtg:    (v) => this.showSatGlobalIrMtg.set(v),
+      satEuHrvRgb:       (v) => this.showSatEuHrvRgb.set(v),
+      radarDwd:          (v) => this.showRadarDwd.set(v),
+      radarKnmi:         (v) => this.showRadarKnmi.set(v),
     };
     return map[key] ?? null;
   }
@@ -3690,6 +3877,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       if (typeof vis.satAerosol === 'boolean')        this.showSatAerosol.set(vis.satAerosol);
       if (typeof vis.satDayNight === 'boolean')       this.showSatDayNight.set(vis.satDayNight);
       if (typeof vis.satRainviewer === 'boolean')     this.showSatRainviewer.set(vis.satRainviewer);
+      // 2026-05-20 cascade EUMETSAT + radar
+      if (typeof vis.satEuIrRss === 'boolean')        this.showSatEuIrRss.set(vis.satEuIrRss);
+      if (typeof vis.satGlobalIrMtg === 'boolean')    this.showSatGlobalIrMtg.set(vis.satGlobalIrMtg);
+      if (typeof vis.satEuHrvRgb === 'boolean')       this.showSatEuHrvRgb.set(vis.satEuHrvRgb);
+      if (typeof vis.radarDwd === 'boolean')          this.showRadarDwd.set(vis.radarDwd);
+      if (typeof vis.radarKnmi === 'boolean')         this.showRadarKnmi.set(vis.radarKnmi);
       const op = data?.opacity ?? {};
       this.layerOpacities.update((m) => ({ ...m, ...op }));
       // 2026-05-18 APEX 11+12 — restore ordre user des layers (zIndex). Compat
@@ -3802,6 +3995,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
    *  TIME dim géré nativement par GeoServer, cf sliderConfig + masterLayer. */
   private satLayers: Record<string, TileLayer<TileWMS>> = {};
   private satSources: Record<string, TileWMS> = {};
+  // 2026-05-20 — cascade WMS (EUMETSAT + DWD + KNMI). Indexé par key
+  // (satEuIrRss / satGlobalIrMtg / satEuHrvRgb / radarDwd / radarKnmi).
+  private cascadeLayers: Record<string, TileLayer<TileWMS>> = {};
+  private cascadeSources: Record<string, TileWMS> = {};
   private rainSnapshot?: RainViewerSnapshot;
   private rainSnapshotTimer?: ReturnType<typeof setInterval>;
   /** 2026-05-18 APEX 10 — polling 60s pour détecter nouvelles validités master
@@ -4059,6 +4256,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.showSatWaterVapor(); this.showSatCloudTop(); this.showSatAerosol();
       this.showSatDayNight();
       this.showSatRainviewer();
+      // 2026-05-20 cascade EUMETSAT + radar — sans ces reads, toggler une
+      // cascade ne déclenche pas applyLayerVisibility → setVisible(false) bug.
+      this.showSatEuIrRss(); this.showSatGlobalIrMtg(); this.showSatEuHrvRgb();
+      this.showRadarDwd(); this.showRadarKnmi();
       // Defer pour s'exécuter après ngAfterViewInit (this.*Layer dispo)
       queueMicrotask(() => {
         this.applyLayerVisibility();
@@ -4179,6 +4380,17 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         satDayNight:       this.showSatDayNight(),
       };
       const anySat = Object.values(wantSats).some(Boolean);
+      // 2026-05-20 cascade EUMETSAT/DWD/KNMI : GS GetCapabilities ne les expose
+      // pas (bug GS 2.28.3 advertised=true). On génère les validités côté
+      // client depuis le profile LAYER_PROFILES (stepH fractionné → stepMs).
+      const wantCascades: Record<string, boolean> = {
+        satEuIrRss:     this.showSatEuIrRss(),
+        satGlobalIrMtg: this.showSatGlobalIrMtg(),
+        satEuHrvRgb:    this.showSatEuHrvRgb(),
+        radarDwd:       this.showRadarDwd(),
+        radarKnmi:      this.showRadarKnmi(),
+      };
+      const anyCascade = Object.values(wantCascades).some(Boolean);
 
       const now = Date.now();
       // 2026-05-19 (rev 7j past) — politique : obs 7j past / forecast 7j+7j.
@@ -4198,11 +4410,32 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       queueMicrotask(async () => {
         // Si aucune layer time-enabled active → clear le map et stop.
         const anyActive = wantSst || wantWind || wantWaves || wantWindArrows
-                       || wantWaveArrows || wantWindParticles || anySat;
+                       || wantWaveArrows || wantWindParticles || anySat || anyCascade;
         if (!anyActive) {
           this.validityListPerLayer.set({});
           this.masterValidityList.set([]);
           return;
+        }
+
+        // 2026-05-20 — Pré-calcul des validités cascade côté client AVANT le
+        // fetch GS (les cascade ne sont PAS dans GS GetCapabilities). On
+        // génère stepMs régulier sur [now-pastH, now+futureH], cappé à 500
+        // timesteps pour éviter de saturer la time-bar.
+        const cascadeMap: Record<string, Date[]> = {};
+        for (const key of Object.keys(wantCascades)) {
+          if (!wantCascades[key]) continue;
+          const p = this.LAYER_PROFILES[key as keyof typeof this.LAYER_PROFILES];
+          if (!p) continue;
+          const stepMs = Math.max(60_000, p.stepH * 3_600_000);  // au moins 1 min
+          const start = now - p.pastH * 3_600_000;
+          const end = now + p.futureH * 3_600_000;
+          const span = end - start;
+          // Cap à 500 timesteps : si stepMs trop petit, sous-échantillonne
+          const effStep = Math.max(stepMs, span / 500);
+          const firstSnap = Math.ceil(start / stepMs) * stepMs;
+          const dates: Date[] = [];
+          for (let t = firstSnap; t <= end; t += effStep) dates.push(new Date(t));
+          if (dates.length > 0) cascadeMap[key] = dates;
         }
 
         // 2026-05-19 APEX 15 — retry avec exponential backoff. GS peut renvoyer
@@ -4269,6 +4502,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
             const d = filterRange(this.parseTimeDimension(xml, p.gsName));
             if (d.length > 0) newMap[p.key] = d;
           }
+          // 2026-05-20 — merge les validités cascade client-side calculées
+          // au-dessus (GS GetCapabilities ne les expose pas).
+          Object.assign(newMap, cascadeMap);
 
           this.validityListPerLayer.set(newMap);
 
@@ -4348,6 +4584,20 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         const src = this.satSources[p.key];
         if (!src) continue;
         src.updateParams({ TIME: date });
+      }
+    });
+
+    // 2026-05-20 cascade EUMETSAT + radar — TIME drive sur ISO complet du
+    // cursor (snap au stepMs du profile par le time-slider). Différent du
+    // currentSatDate (NASA jour entier YYYY-MM-DD) car cadence sub-horaire
+    // 5/10/15 min nécessite l'instant complet.
+    effect(() => {
+      const t = this.currentTimeSig();
+      const iso = t.toISOString();
+      for (const key of Object.keys(this.cascadeSources)) {
+        const src = this.cascadeSources[key];
+        if (!src) continue;
+        src.updateParams({ TIME: iso });
       }
     });
   }
@@ -4740,6 +4990,20 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         satDayNight:       () => this.showSatDayNight(),
       } as const)[p.key];
       layer.setVisible(flagGetter());
+    }
+    // 2026-05-20 — Cascade WMS EUMETSAT + radar (5 layers). TIME drive par
+    // l'effect plus bas (updateParams sur currentCascadeTime).
+    const cascadeFlags: Record<string, boolean> = {
+      satEuIrRss:     this.showSatEuIrRss(),
+      satGlobalIrMtg: this.showSatGlobalIrMtg(),
+      satEuHrvRgb:    this.showSatEuHrvRgb(),
+      radarDwd:       this.showRadarDwd(),
+      radarKnmi:      this.showRadarKnmi(),
+    };
+    for (const key of Object.keys(cascadeFlags)) {
+      const layer = this.cascadeLayers[key];
+      if (!layer) continue;
+      layer.setVisible(cascadeFlags[key]);
     }
     // Lightning : visible si toggle ON ET mode live (les strikes sont temps réel,
     // pas archivés au-delà de 30 min — replay/forecast pas pertinent).
@@ -6552,7 +6816,44 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.satSources[p.key] = src;
       this.satLayers[p.key] = layer;
     });
-    // Layers attachés au Map plus bas via `layers: [...]` (cf. constructeur).
+
+    // 2026-05-20 — Cascade WMS EUMETSAT (3 sat) + DWD/KNMI (2 radar). Même
+    // pattern que SAT_PRODUCTS NASA ci-dessus : TileWMS pointant vers GS
+    // maritime:* (où GS cascade vers les WMS upstream view.eumetsat.int /
+    // maps.dwd.de / geoservices.knmi.nl).
+    //
+    // TIME : drive par effect currentCascadeTime (cf plus bas). Validités
+    // calculées client-side (cascade pas exposé GS GetCapabilities, bug GS 2.28.3).
+    const initialTime = new Date(Date.now() - 5 * 60_000).toISOString();
+    const CASCADE_PRODUCTS: ReadonlyArray<{ key: string; gsName: string; attrib: string }> = [
+      { key: 'satEuIrRss',     gsName: 'sat-eu-ir-rss',     attrib: 'EUMETSAT MSG SEVIRI Rapid Scan' },
+      { key: 'satGlobalIrMtg', gsName: 'sat-global-ir-mtg', attrib: 'EUMETSAT MTG FCI Full Disk' },
+      { key: 'satEuHrvRgb',    gsName: 'sat-eu-hrv-rgb',    attrib: 'EUMETSAT MSG SEVIRI HRV RGB' },
+      { key: 'radarDwd',       gsName: 'radar-dwd-de',      attrib: 'DWD Open Data Radar Allemagne' },
+      { key: 'radarKnmi',      gsName: 'radar-knmi-nl',     attrib: 'KNMI Open Geo Radar Pays-Bas' },
+    ];
+    CASCADE_PRODUCTS.forEach((p, idx) => {
+      const src = new TileWMS({
+        url: '/geoserver/maritime/wms',
+        params: {
+          LAYERS: `maritime:${p.gsName}`,
+          TIME: initialTime,
+          FORMAT: 'image/png',
+          TRANSPARENT: true,
+          TILED: true,
+        },
+        crossOrigin: 'anonymous',
+        attributions: `Cascade © <a href="https://www.eumetsat.int" target="_blank">${p.attrib}</a> via GeoServer cascade`,
+      });
+      const layer = new TileLayer({
+        source: src,
+        opacity: 0.75,
+        zIndex: 46 + idx,   // au-dessus des 7 NASA (38..44) + RainViewer (45)
+        visible: false,
+      });
+      this.cascadeSources[p.key] = src;
+      this.cascadeLayers[p.key] = layer;
+    });
 
     // Sprint Europe Chantier #4 : clustering vessels.
     // Bbox Europe étroite → 10k-30k vessels live en pic, le rendu OL freeze
@@ -6684,6 +6985,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         // par produit. Insérés ici (zIndex 38) pour rester sous radar pluie (40)
         // mais au-dessus des layers oceano (30-35).
         ...Object.values(this.satLayers),
+        // 2026-05-20 cascade EUMETSAT + radar (zIndex 46-50, juste après NASA + RainViewer)
+        ...Object.values(this.cascadeLayers),
         this.efasLayer,
         labelsTile,
         this.waveArrowsLayer,
