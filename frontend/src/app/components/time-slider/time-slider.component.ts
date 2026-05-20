@@ -358,6 +358,26 @@ export interface TimeSliderLayerCoverage {
         flex-wrap: wrap;
         justify-content: center;
       }
+      /* 2026-05-20 (Sylvain) — sur mobile, on cache TOUT le track-wrap
+         (cursor draggable + ticks + sous-barres coverage + bouton ▼).
+         Garde uniquement les controls play/now/prev/next + label compact.
+         Override depuis map.component.ts marchait pas à cause de la
+         ViewEncapsulation Angular qui isole les CSS par composant. */
+      .ts-track-wrap {
+        display: none !important;
+      }
+      .ts-expand-btn {
+        display: none !important;
+      }
+      .ts-controls {
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 0.3em;
+      }
+      .ts-btn {
+        min-width: 36px;
+        min-height: 36px;
+      }
     }
     .ts-live-dot {
       width: 8px; height: 8px;
