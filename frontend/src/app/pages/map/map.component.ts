@@ -282,6 +282,12 @@ function toIsoTimestamp(d: Date): string {
                 aria-label="AetherWX — see the atmosphere (cliquer pour réduire le panneau)"
                 title="Réduire le panneau"
                 (click)="toggleLegend()"></button>
+        <!-- 2026-05-20 — Bouton ✕ close mobile : logo header caché donc plus
+             de surface pour fermer le panneau. Visible uniquement ≤ 760px. -->
+        <button type="button" class="legend-close-mobile"
+                title="Fermer le panneau"
+                aria-label="Fermer le panneau"
+                (click)="toggleLegend()">✕</button>
 
 
         <!-- 2026-05-20 — Mode simple/avancé mobile (Sylvain). Toggle visible
@@ -2681,6 +2687,10 @@ function toIsoTimestamp(d: Date): string {
        2026-05-18 APEX 11 : sur desktop, le panneau peut être collapse via click
        sur le logo AetherWX. Le bouton hamburger devient alors visible pour
        re-déployer. */
+    /* Bouton ✕ close mobile : invisible par défaut desktop. */
+    .legend-close-mobile {
+      display: none;
+    }
     .legend-toggle {
       display: none;
       /* 2026-05-18 APEX 11 — variante is-collapsed = visible en desktop quand
@@ -2882,6 +2892,44 @@ function toIsoTimestamp(d: Date): string {
       .data-catalog .catalog-header,
       .catalog-header {
         display: none;
+      }
+      /* Bouton ✕ close mobile (remplace le click sur le logo caché). */
+      .legend-close-mobile {
+        display: block;
+        position: absolute;
+        top: 0.5em;
+        right: 0.5em;
+        z-index: 12;
+        width: 32px;
+        height: 32px;
+        border: 1px solid hsl(224 30% 30%);
+        background: hsl(224 30% 12%);
+        color: hsl(224 95% 75%);
+        border-radius: 50%;
+        font-size: 0.9rem;
+        cursor: pointer;
+        padding: 0;
+        line-height: 30px;
+      }
+      .legend-close-mobile:hover {
+        background: hsl(224 85% 55% / 0.25);
+      }
+      /* Panneau legend : limite à 320px max pour pas chevaucher les
+         contrôles top-right (zoom + auth-corner). */
+      .legend {
+        max-width: 320px;
+        right: auto;
+        width: calc(100vw - 1.4em);
+      }
+      /* Time-bar : cache TOUT le track-wrap (cursor draggable + ticks +
+         coverage). Garde uniquement les controls (play/now/prev/next) +
+         label. C'est le pattern mobile final (Sylvain : la barre avec
+         curseur et bouton dépliage à cacher). */
+      app-time-slider .ts-track-wrap {
+        display: none;
+      }
+      app-time-slider {
+        padding-bottom: 0.5em;
       }
       .legend {
         padding-top: 0.7em;     /* clear le hamburger sans dévorer trop */
