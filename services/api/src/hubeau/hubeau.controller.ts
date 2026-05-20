@@ -1,6 +1,7 @@
-import { Controller, Get, Inject } from '@nestjs/common';
+import { Controller, Get, Inject, Query } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DB_TOKEN, type Db } from '../db/db.module';
+import { parseAtWindow } from '../common/at-window.helper';
 
 /**
  * V2 Hydrologie #1 (2026-05-12) — endpoint public débits rivières
@@ -23,20 +24,35 @@ export class HubeauController {
   constructor(@Inject(DB_TOKEN) private readonly db: Db) {}
 
   @Get('piezo/recent')
-  async piezoRecent() {
-    const rows = await this.db.execute(sql`
-      SELECT
-        code_bss,
-        ts::text AS ts,
-        age_seconds,
-        niveau_eau_ngf,
-        profondeur_nappe,
-        altitude_station,
-        ST_X(geom) AS lon,
-        ST_Y(geom) AS lat
-      FROM v_hubeau_piezo_recent
-      ORDER BY code_bss
-    `);
+  async piezoRecent(@Query('at') atIso?: string, @Query('windowSecs') windowStr?: string) {
+    // 2026-05-20 cursor-aware (default 7d window). Piezo refresh lentement
+    // (parfois 1/jour) → window large par défaut.
+    const aw = parseAtWindow(atIso, windowStr, 7 * 86400);
+    const rows = aw.at && aw.from
+      ? await this.db.execute(sql`
+          SELECT DISTINCT ON (code_bss)
+            code_bss,
+            ts::text AS ts,
+            EXTRACT(EPOCH FROM (${aw.at} - ts))::INTEGER AS age_seconds,
+            niveau_eau_ngf, profondeur_nappe, altitude_station,
+            ST_X(geom) AS lon, ST_Y(geom) AS lat
+          FROM (
+            SELECT *, ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom
+            FROM hubeau_piezo
+            WHERE ts BETWEEN ${aw.from} AND ${aw.at}
+          ) sub
+          ORDER BY code_bss, ts DESC
+        `)
+      : await this.db.execute(sql`
+          SELECT
+            code_bss,
+            ts::text AS ts,
+            age_seconds,
+            niveau_eau_ngf, profondeur_nappe, altitude_station,
+            ST_X(geom) AS lon, ST_Y(geom) AS lat
+          FROM v_hubeau_piezo_recent
+          ORDER BY code_bss
+        `);
     const features = (rows as unknown as Array<{
       code_bss: string; ts: string; age_seconds: number;
       niveau_eau_ngf: number | null; profondeur_nappe: number | null;
@@ -58,20 +74,36 @@ export class HubeauController {
   }
 
   @Get('recent')
-  async recent() {
-    const rows = await this.db.execute(sql`
-      SELECT
-        code_station,
-        ts::text AS ts,
-        age_seconds,
-        debit_l_s,
-        debit_m3_s,
-        qualif,
-        ST_X(geom) AS lon,
-        ST_Y(geom) AS lat
-      FROM v_hubeau_recent
-      ORDER BY debit_m3_s DESC NULLS LAST
-    `);
+  async recent(@Query('at') atIso?: string, @Query('windowSecs') windowStr?: string) {
+    // 2026-05-20 cursor-aware (default 2h). Hub'eau Q refresh ~15min.
+    const aw = parseAtWindow(atIso, windowStr, 7200);
+    const rows = aw.at && aw.from
+      ? await this.db.execute(sql`
+          SELECT DISTINCT ON (code_station)
+            code_station,
+            ts::text AS ts,
+            EXTRACT(EPOCH FROM (${aw.at} - ts))::INTEGER AS age_seconds,
+            debit_l_s,
+            debit_l_s / 1000.0 AS debit_m3_s,
+            qualif,
+            ST_X(geom) AS lon, ST_Y(geom) AS lat
+          FROM (
+            SELECT *, ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom
+            FROM hubeau_observations
+            WHERE ts BETWEEN ${aw.from} AND ${aw.at}
+          ) sub
+          ORDER BY code_station, ts DESC
+        `)
+      : await this.db.execute(sql`
+          SELECT
+            code_station,
+            ts::text AS ts,
+            age_seconds,
+            debit_l_s, debit_m3_s, qualif,
+            ST_X(geom) AS lon, ST_Y(geom) AS lat
+          FROM v_hubeau_recent
+          ORDER BY debit_m3_s DESC NULLS LAST
+        `);
 
     const features = (rows as unknown as Array<{
       code_station: string; ts: string; age_seconds: number;

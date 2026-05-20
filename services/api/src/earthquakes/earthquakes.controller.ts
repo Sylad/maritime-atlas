@@ -1,6 +1,7 @@
-import { Controller, Get, Inject } from '@nestjs/common';
+import { Controller, Get, Inject, Query } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DB_TOKEN, type Db } from '../db/db.module';
+import { parseAtWindow } from '../common/at-window.helper';
 
 /**
  * V2 Observation #2 (2026-05-12) — Séismes USGS Earthquakes (DB-backed).
@@ -19,18 +20,35 @@ export class EarthquakesController {
   constructor(@Inject(DB_TOKEN) private readonly db: Db) {}
 
   @Get('recent')
-  async recent() {
-    const rows = await this.db.execute(sql`
-      SELECT
-        id,
-        ts::text AS ts,
-        age_seconds,
-        mag, place, depth_km, alert, tsunami, sig, url, detail_url, type,
-        ST_X(geom) AS lon,
-        ST_Y(geom) AS lat
-      FROM v_earthquakes_recent
-      ORDER BY mag DESC NULLS LAST
-    `);
+  async recent(@Query('at') atIso?: string, @Query('windowSecs') windowStr?: string) {
+    // 2026-05-20 cursor-aware (default 24h). Pas de DISTINCT ON, chaque
+    // séisme est unique par id.
+    const aw = parseAtWindow(atIso, windowStr, 86400);
+    const rows = aw.at && aw.from
+      ? await this.db.execute(sql`
+          SELECT
+            id,
+            ts::text AS ts,
+            EXTRACT(EPOCH FROM (${aw.at} - ts))::INTEGER AS age_seconds,
+            mag, place, depth_km, alert, tsunami, sig, url, detail_url, type,
+            ST_X(geom) AS lon, ST_Y(geom) AS lat
+          FROM (
+            SELECT *, ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom
+            FROM earthquakes
+            WHERE ts BETWEEN ${aw.from} AND ${aw.at}
+          ) sub
+          ORDER BY mag DESC NULLS LAST
+        `)
+      : await this.db.execute(sql`
+          SELECT
+            id,
+            ts::text AS ts,
+            age_seconds,
+            mag, place, depth_km, alert, tsunami, sig, url, detail_url, type,
+            ST_X(geom) AS lon, ST_Y(geom) AS lat
+          FROM v_earthquakes_recent
+          ORDER BY mag DESC NULLS LAST
+        `);
 
     const features = (rows as unknown as Array<{
       id: string; ts: string; age_seconds: number;

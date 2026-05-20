@@ -5207,19 +5207,16 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     });
 
     // 2026-05-20 — vector layers réactifs au cursor : sans cet effect, les
-    // layers vector (alerts/lightning/buoys) n'updatent qu'à la prochaine
-    // tick de leur setInterval (30s à 5min). Pendant un scrub time-bar ou
-    // un play, lag visible. Cet effect déclenche refreshXxxNow() immédiat
-    // à chaque change de currentTimeSig pour les layers ACTIVES, debouncé
-    // 150ms pour éviter de spammer GS pendant le drag.
+    // layers vector n'updatent qu'à la prochaine tick de leur setInterval
+    // (30s à 5min). Pendant un scrub time-bar ou un play, lag visible.
+    // Cet effect déclenche refreshXxxNow() immédiat à chaque change de
+    // currentTimeSig pour les layers ACTIVES, debouncé 150ms pour éviter
+    // de spammer GS/API pendant le drag.
     //
-    // TODO backend : les 5 autres vector layers (metar/hubeau/quakes/piezo/
-    // firms) ignorent encore le cursor parce que leurs endpoints backend
-    // (/api/metar/recent etc.) retournent "current data" sans paramètre `at`.
-    // Pour les rendre cursor-aware il faut ajouter `?at=ISO` aux endpoints
-    // + persister l'historique en DB (METAR a une fenêtre archive courte
-    // côté NOAA-AWC ; les autres ont l'historique mais le backend ne le
-    // surface pas encore).
+    // Tous les 8 endpoints supportent désormais `?at=ISO&windowSecs=N` :
+    //   - WFS GS (alerts/lightning/buoys) via CQL_FILTER ts BETWEEN
+    //   - REST NestJS (metar/hubeau/piezo/quakes/firms) via DISTINCT ON
+    //     subquery sur la table source au lieu de la view "_recent".
     let cursorRefreshTimer: ReturnType<typeof setTimeout> | undefined;
     effect(() => {
       const t = this.currentTimeSig();
@@ -5229,6 +5226,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         if (this.showAlerts())    this.refreshAlertsNow();
         if (this.showLightning()) this.refreshLightningNow();
         if (this.showBuoys())     this.refreshBuoysObsNow();
+        if (this.showMetar())     this.refreshMetarNow();
+        if (this.showHubeau())    this.refreshHubeauNow();
+        if (this.showPiezo())     this.refreshPiezoNow();
+        if (this.showQuakes())    this.refreshQuakesNow();
+        if (this.showFirms())     this.refreshFirmsNow();
       }, 150);
     });
   }
@@ -6072,30 +6074,34 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Fetch /api/metar/recent → GeoJSON → features OL. Refresh 60s. */
+  /** 2026-05-20 — cursor-aware refresh extrait pour cursor-change effect. */
+  private async refreshMetarNow(): Promise<void> {
+    if (!this.metarSource) return;
+    try {
+      const at = this.currentTimeSig().toISOString();
+      const resp = await fetch(`/api/metar/recent?at=${encodeURIComponent(at)}`);
+      if (!resp.ok) return;
+      const fc = await resp.json();
+      if (!this.metarSource) return;
+      this.metarSource.clear();
+      const features = this.geoJsonFmt.readFeatures(fc, {
+        dataProjection: 'EPSG:4326',
+        featureProjection: this.map?.getView().getProjection() ?? 'EPSG:3857',
+      });
+      this.metarSource.addFeatures(features);
+      const count = fc.features?.length ?? 0;
+      const stale = (fc.features as Array<{ properties: MetarProperties }>)
+        .filter((f) => f.properties.age_seconds > 3600).length;
+      this.metarStatus.set(stale > 0 ? `${count} METAR (${stale} >1h)` : `${count} METAR`);
+    } catch {
+      this.metarStatus.set('erreur fetch METAR');
+    }
+  }
+
   private startMetarLoop(): void {
     if (this.metarTimer) return;
-    const fetchMetar = async () => {
-      try {
-        const resp = await fetch('/api/metar/recent');
-        if (!resp.ok) return;
-        const fc = await resp.json();
-        if (!this.metarSource) return;
-        this.metarSource.clear();
-        const features = this.geoJsonFmt.readFeatures(fc, {
-          dataProjection: 'EPSG:4326',
-          featureProjection: this.map?.getView().getProjection() ?? 'EPSG:3857',
-        });
-        this.metarSource.addFeatures(features);
-        const count = fc.features?.length ?? 0;
-        const stale = (fc.features as Array<{ properties: MetarProperties }>)
-          .filter((f) => f.properties.age_seconds > 3600).length;
-        this.metarStatus.set(stale > 0 ? `${count} METAR (${stale} >1h)` : `${count} METAR`);
-      } catch {
-        this.metarStatus.set('erreur fetch METAR');
-      }
-    };
-    fetchMetar();
-    this.metarTimer = setInterval(fetchMetar, 60_000);
+    this.refreshMetarNow();
+    this.metarTimer = setInterval(() => this.refreshMetarNow(), 60_000);
   }
 
   private stopMetarLoop(): void {
@@ -6127,29 +6133,33 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     });
   }
 
+  /** 2026-05-20 — cursor-aware refresh Hub'eau débits. */
+  private async refreshHubeauNow(): Promise<void> {
+    if (!this.hubeauSource) return;
+    try {
+      const at = this.currentTimeSig().toISOString();
+      const resp = await fetch(`/api/hubeau/recent?at=${encodeURIComponent(at)}`);
+      if (!resp.ok) return;
+      const fc = await resp.json();
+      if (!this.hubeauSource) return;
+      this.hubeauSource.clear();
+      const features = this.geoJsonFmt.readFeatures(fc, {
+        dataProjection: 'EPSG:4326',
+        featureProjection: this.map?.getView().getProjection() ?? 'EPSG:3857',
+      });
+      this.hubeauSource.addFeatures(features);
+      const count = fc.features?.length ?? 0;
+      this.hubeauStatus.set(`${count} stations FR`);
+    } catch {
+      this.hubeauStatus.set('erreur fetch Hub\'eau');
+    }
+  }
+
   /** Fetch /api/hubeau/recent → GeoJSON → features OL. Refresh 60s. */
   private startHubeauLoop(): void {
     if (this.hubeauTimer) return;
-    const fetchHubeau = async () => {
-      try {
-        const resp = await fetch('/api/hubeau/recent');
-        if (!resp.ok) return;
-        const fc = await resp.json();
-        if (!this.hubeauSource) return;
-        this.hubeauSource.clear();
-        const features = this.geoJsonFmt.readFeatures(fc, {
-          dataProjection: 'EPSG:4326',
-          featureProjection: this.map?.getView().getProjection() ?? 'EPSG:3857',
-        });
-        this.hubeauSource.addFeatures(features);
-        const count = fc.features?.length ?? 0;
-        this.hubeauStatus.set(`${count} stations FR`);
-      } catch {
-        this.hubeauStatus.set('erreur fetch Hub\'eau');
-      }
-    };
-    fetchHubeau();
-    this.hubeauTimer = setInterval(fetchHubeau, 60_000);
+    this.refreshHubeauNow();
+    this.hubeauTimer = setInterval(() => this.refreshHubeauNow(), 60_000);
   }
 
   private stopHubeauLoop(): void {
@@ -6187,32 +6197,35 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     });
   }
 
-  /** Fetch /api/earthquakes/recent → GeoJSON. Refresh 5min côté UI
-   *  (le proxy NestJS cache 5min lui aussi, donc on s'aligne). */
+  /** 2026-05-20 — cursor-aware refresh quakes. */
+  private async refreshQuakesNow(): Promise<void> {
+    if (!this.quakesSource) return;
+    try {
+      const at = this.currentTimeSig().toISOString();
+      const resp = await fetch(`/api/earthquakes/recent?at=${encodeURIComponent(at)}`);
+      if (!resp.ok) return;
+      const fc = await resp.json();
+      if (!this.quakesSource) return;
+      this.quakesSource.clear();
+      const features = this.geoJsonFmt.readFeatures(fc, {
+        dataProjection: 'EPSG:4326',
+        featureProjection: this.map?.getView().getProjection() ?? 'EPSG:3857',
+      });
+      this.quakesSource.addFeatures(features);
+      const count = fc.features?.length ?? 0;
+      const sig = (fc.features as Array<{ properties: QuakeProperties }>)
+        .filter((f) => (f.properties.mag ?? 0) >= 4.5).length;
+      this.quakesStatus.set(sig > 0 ? `${count} séismes 24h (${sig} ≥4.5)` : `${count} séismes 24h`);
+    } catch {
+      this.quakesStatus.set('erreur fetch USGS');
+    }
+  }
+
+  /** Fetch /api/earthquakes/recent → GeoJSON. Refresh 5min côté UI. */
   private startQuakesLoop(): void {
     if (this.quakesTimer) return;
-    const fetchQuakes = async () => {
-      try {
-        const resp = await fetch('/api/earthquakes/recent');
-        if (!resp.ok) return;
-        const fc = await resp.json();
-        if (!this.quakesSource) return;
-        this.quakesSource.clear();
-        const features = this.geoJsonFmt.readFeatures(fc, {
-          dataProjection: 'EPSG:4326',
-          featureProjection: this.map?.getView().getProjection() ?? 'EPSG:3857',
-        });
-        this.quakesSource.addFeatures(features);
-        const count = fc.features?.length ?? 0;
-        const sig = (fc.features as Array<{ properties: QuakeProperties }>)
-          .filter((f) => (f.properties.mag ?? 0) >= 4.5).length;
-        this.quakesStatus.set(sig > 0 ? `${count} séismes 24h (${sig} ≥4.5)` : `${count} séismes 24h`);
-      } catch {
-        this.quakesStatus.set('erreur fetch USGS');
-      }
-    };
-    fetchQuakes();
-    this.quakesTimer = setInterval(fetchQuakes, 5 * 60_000);
+    this.refreshQuakesNow();
+    this.quakesTimer = setInterval(() => this.refreshQuakesNow(), 5 * 60_000);
   }
 
   private stopQuakesLoop(): void {
@@ -6247,28 +6260,32 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     });
   }
 
+  /** 2026-05-20 — cursor-aware refresh piezo. */
+  private async refreshPiezoNow(): Promise<void> {
+    if (!this.piezoSource) return;
+    try {
+      const at = this.currentTimeSig().toISOString();
+      const resp = await fetch(`/api/hubeau/piezo/recent?at=${encodeURIComponent(at)}`);
+      if (!resp.ok) return;
+      const fc = await resp.json();
+      if (!this.piezoSource) return;
+      this.piezoSource.clear();
+      const features = this.geoJsonFmt.readFeatures(fc, {
+        dataProjection: 'EPSG:4326',
+        featureProjection: this.map?.getView().getProjection() ?? 'EPSG:3857',
+      });
+      this.piezoSource.addFeatures(features);
+      const count = fc.features?.length ?? 0;
+      this.piezoStatus.set(`${count} piézomètres FR`);
+    } catch {
+      this.piezoStatus.set('erreur fetch Piezo');
+    }
+  }
+
   private startPiezoLoop(): void {
     if (this.piezoTimer) return;
-    const fetchPiezo = async () => {
-      try {
-        const resp = await fetch('/api/hubeau/piezo/recent');
-        if (!resp.ok) return;
-        const fc = await resp.json();
-        if (!this.piezoSource) return;
-        this.piezoSource.clear();
-        const features = this.geoJsonFmt.readFeatures(fc, {
-          dataProjection: 'EPSG:4326',
-          featureProjection: this.map?.getView().getProjection() ?? 'EPSG:3857',
-        });
-        this.piezoSource.addFeatures(features);
-        const count = fc.features?.length ?? 0;
-        this.piezoStatus.set(`${count} piézomètres FR`);
-      } catch {
-        this.piezoStatus.set('erreur fetch Piezo');
-      }
-    };
-    fetchPiezo();
-    this.piezoTimer = setInterval(fetchPiezo, 5 * 60_000);
+    this.refreshPiezoNow();
+    this.piezoTimer = setInterval(() => this.refreshPiezoNow(), 5 * 60_000);
   }
 
   private stopPiezoLoop(): void {
@@ -6306,30 +6323,34 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     });
   }
 
+  /** 2026-05-20 — cursor-aware refresh FIRMS hotspots. */
+  private async refreshFirmsNow(): Promise<void> {
+    if (!this.firmsSource) return;
+    try {
+      const at = this.currentTimeSig().toISOString();
+      const resp = await fetch(`/api/firms/recent?at=${encodeURIComponent(at)}`);
+      if (!resp.ok) return;
+      const fc = await resp.json();
+      if (!this.firmsSource) return;
+      this.firmsSource.clear();
+      const features = this.geoJsonFmt.readFeatures(fc, {
+        dataProjection: 'EPSG:4326',
+        featureProjection: this.map?.getView().getProjection() ?? 'EPSG:3857',
+      });
+      this.firmsSource.addFeatures(features);
+      const count = fc.features?.length ?? 0;
+      const high = (fc.features as Array<{ properties: FirmsProperties }>)
+        .filter((f) => (f.properties.frp ?? 0) >= 50).length;
+      this.firmsStatus.set(high > 0 ? `${count} hotspots (${high} >50MW)` : `${count} hotspots 24h`);
+    } catch {
+      this.firmsStatus.set('erreur fetch FIRMS');
+    }
+  }
+
   private startFirmsLoop(): void {
     if (this.firmsTimer) return;
-    const fetchFirms = async () => {
-      try {
-        const resp = await fetch('/api/firms/recent');
-        if (!resp.ok) return;
-        const fc = await resp.json();
-        if (!this.firmsSource) return;
-        this.firmsSource.clear();
-        const features = this.geoJsonFmt.readFeatures(fc, {
-          dataProjection: 'EPSG:4326',
-          featureProjection: this.map?.getView().getProjection() ?? 'EPSG:3857',
-        });
-        this.firmsSource.addFeatures(features);
-        const count = fc.features?.length ?? 0;
-        const high = (fc.features as Array<{ properties: FirmsProperties }>)
-          .filter((f) => (f.properties.frp ?? 0) >= 50).length;
-        this.firmsStatus.set(high > 0 ? `${count} hotspots (${high} >50MW)` : `${count} hotspots 24h`);
-      } catch {
-        this.firmsStatus.set('erreur fetch FIRMS');
-      }
-    };
-    fetchFirms();
-    this.firmsTimer = setInterval(fetchFirms, 5 * 60_000);
+    this.refreshFirmsNow();
+    this.firmsTimer = setInterval(() => this.refreshFirmsNow(), 5 * 60_000);
   }
 
   private stopFirmsLoop(): void {

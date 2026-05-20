@@ -1,6 +1,7 @@
-import { Controller, Get, Inject } from '@nestjs/common';
+import { Controller, Get, Inject, Query } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DB_TOKEN, type Db } from '../db/db.module';
+import { parseAtWindow } from '../common/at-window.helper';
 
 /**
  * V2 Observation #3 (2026-05-12) — Hotspots feux NASA FIRMS MODIS.
@@ -21,17 +22,32 @@ export class FirmsController {
   constructor(@Inject(DB_TOKEN) private readonly db: Db) {}
 
   @Get('recent')
-  async recent() {
-    const rows = await this.db.execute(sql`
-      SELECT
-        ts::text AS ts,
-        age_seconds,
-        brightness, bright_t31, frp, confidence, satellite, daynight,
-        ST_X(geom) AS lon,
-        ST_Y(geom) AS lat
-      FROM v_firms_recent
-      ORDER BY frp DESC NULLS LAST
-    `);
+  async recent(@Query('at') atIso?: string, @Query('windowSecs') windowStr?: string) {
+    // 2026-05-20 cursor-aware (default 24h).
+    const aw = parseAtWindow(atIso, windowStr, 86400);
+    const rows = aw.at && aw.from
+      ? await this.db.execute(sql`
+          SELECT
+            ts::text AS ts,
+            EXTRACT(EPOCH FROM (${aw.at} - ts))::INTEGER AS age_seconds,
+            brightness, bright_t31, frp, confidence, satellite, daynight,
+            ST_X(geom) AS lon, ST_Y(geom) AS lat
+          FROM (
+            SELECT *, ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom
+            FROM firms_observations
+            WHERE ts BETWEEN ${aw.from} AND ${aw.at}
+          ) sub
+          ORDER BY frp DESC NULLS LAST
+        `)
+      : await this.db.execute(sql`
+          SELECT
+            ts::text AS ts,
+            age_seconds,
+            brightness, bright_t31, frp, confidence, satellite, daynight,
+            ST_X(geom) AS lon, ST_Y(geom) AS lat
+          FROM v_firms_recent
+          ORDER BY frp DESC NULLS LAST
+        `);
 
     const features = (rows as unknown as Array<{
       ts: string; age_seconds: number;
