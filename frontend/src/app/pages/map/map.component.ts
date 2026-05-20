@@ -5205,6 +5205,32 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         src.updateParams({ TIME: iso });
       }
     });
+
+    // 2026-05-20 — vector layers réactifs au cursor : sans cet effect, les
+    // layers vector (alerts/lightning/buoys) n'updatent qu'à la prochaine
+    // tick de leur setInterval (30s à 5min). Pendant un scrub time-bar ou
+    // un play, lag visible. Cet effect déclenche refreshXxxNow() immédiat
+    // à chaque change de currentTimeSig pour les layers ACTIVES, debouncé
+    // 150ms pour éviter de spammer GS pendant le drag.
+    //
+    // TODO backend : les 5 autres vector layers (metar/hubeau/quakes/piezo/
+    // firms) ignorent encore le cursor parce que leurs endpoints backend
+    // (/api/metar/recent etc.) retournent "current data" sans paramètre `at`.
+    // Pour les rendre cursor-aware il faut ajouter `?at=ISO` aux endpoints
+    // + persister l'historique en DB (METAR a une fenêtre archive courte
+    // côté NOAA-AWC ; les autres ont l'historique mais le backend ne le
+    // surface pas encore).
+    let cursorRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+    effect(() => {
+      const t = this.currentTimeSig();
+      void t; // déclencheur réactif
+      if (cursorRefreshTimer) clearTimeout(cursorRefreshTimer);
+      cursorRefreshTimer = setTimeout(() => {
+        if (this.showAlerts())    this.refreshAlertsNow();
+        if (this.showLightning()) this.refreshLightningNow();
+        if (this.showBuoys())     this.refreshBuoysObsNow();
+      }, 150);
+    });
   }
 
   /** Mémoize la liste des palettes par layer kind. */
@@ -5885,27 +5911,31 @@ export class MapComponent implements AfterViewInit, OnDestroy {
    * Refresh des strikes via WFS toutes les 30s. La vue v_lightning_recent
    * filtre déjà à -30min, donc on récupère un FeatureCollection compact.
    */
+  /** 2026-05-20 — extrait du fetchAndPaint pour permettre un refresh immédiat
+   *  depuis l'effect cursor-change (cf currentTimeSig effect plus haut). */
+  private refreshLightningNow(): void {
+    if (!this.lightningSource) return;
+    this.lightningSub?.unsubscribe();
+    this.lightningSub = this.lightning.fetchRecent(this.currentTimeSig())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (fc) => {
+          if (!this.lightningSource) return;
+          this.lightningSource.clear();
+          const features = this.geoJsonFmt.readFeatures(fc);
+          this.lightningSource.addFeatures(features);
+          this.lightningStatus.set(`${fc.features.length} strikes (30min)`);
+        },
+        error: (err) => {
+          this.lightningStatus.set(`erreur : ${err?.message ?? err}`);
+        },
+      });
+  }
+
   private startLightningLoop(): void {
     if (this.lightningTimer || this.lightningSub) return;
-    const fetchAndPaint = () => {
-      this.lightningSub?.unsubscribe();
-      this.lightningSub = this.lightning.fetchRecent(this.currentTimeSig())
-        .pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe({
-          next: (fc) => {
-            if (!this.lightningSource) return;
-            this.lightningSource.clear();
-            const features = this.geoJsonFmt.readFeatures(fc);
-            this.lightningSource.addFeatures(features);
-            this.lightningStatus.set(`${fc.features.length} strikes (30min)`);
-          },
-          error: (err) => {
-            this.lightningStatus.set(`erreur : ${err?.message ?? err}`);
-          },
-        });
-    };
-    fetchAndPaint();
-    this.lightningTimer = setInterval(fetchAndPaint, 30_000);
+    this.refreshLightningNow();
+    this.lightningTimer = setInterval(() => this.refreshLightningNow(), 30_000);
   }
 
   private stopLightningLoop(): void {
@@ -5942,6 +5972,30 @@ export class MapComponent implements AfterViewInit, OnDestroy {
    * toutes les 5min. Si le backend n'a pas de clé CANDHIS, les obs
    * reviendront vides et c'est OK — la couche référentiel reste affichée.
    */
+  /** 2026-05-20 — extrait du fetchObs pour cursor-change refresh immédiat. */
+  private refreshBuoysObsNow(): void {
+    if (!this.buoysSource) return;
+    this.buoysObsSub?.unsubscribe();
+    this.buoysObsSub = this.buoys.fetchRecentObservations(this.currentTimeSig())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (fc) => {
+          this.buoyObsByCandhisId.clear();
+          for (const f of fc.features) {
+            if (f.properties?.candhis_id) {
+              this.buoyObsByCandhisId.set(f.properties.candhis_id, f.properties);
+            }
+          }
+          this.buoysLayer?.changed();
+          const refCount = this.buoysSource?.getFeatures().length ?? 0;
+          if (this.buoyObsByCandhisId.size > 0) {
+            this.buoysStatus.set(`${refCount} bouées (${this.buoyObsByCandhisId.size} TR)`);
+          }
+        },
+        error: () => { /* silent — vue obs peut être absente */ },
+      });
+  }
+
   private startBuoysLoop(): void {
     if (this.buoysRefTimer || this.buoysObsTimer) return;
     const fetchRef = () => {
@@ -5964,35 +6018,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
           error: (err) => this.buoysStatus.set(`erreur : ${err?.message ?? err}`),
         });
     };
-    const fetchObs = () => {
-      this.buoysObsSub?.unsubscribe();
-      this.buoysObsSub = this.buoys.fetchRecentObservations(this.currentTimeSig())
-        .pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe({
-          next: (fc) => {
-            this.buoyObsByCandhisId.clear();
-            for (const f of fc.features) {
-              if (f.properties?.candhis_id) {
-                this.buoyObsByCandhisId.set(f.properties.candhis_id, f.properties);
-              }
-            }
-            // Repaint pour styler en plus gros les bouées qui ont une obs
-            this.buoysLayer?.changed();
-            const refCount = this.buoysSource?.getFeatures().length ?? 0;
-            if (this.buoyObsByCandhisId.size > 0) {
-              this.buoysStatus.set(`${refCount} bouées (${this.buoyObsByCandhisId.size} TR)`);
-            }
-          },
-          error: () => {
-            // 404/500 silencieux — la couche obs peut être absente
-            // (CANDHIS_API_KEY pas configurée → vue retourne 0 features).
-          },
-        });
-    };
     fetchRef();
-    fetchObs();
+    this.refreshBuoysObsNow();
     this.buoysRefTimer = setInterval(fetchRef, 6 * 3600_000);
-    this.buoysObsTimer = setInterval(fetchObs, 5 * 60_000);
+    this.buoysObsTimer = setInterval(() => this.refreshBuoysObsNow(), 5 * 60_000);
   }
 
   private stopBuoysLoop(): void {
@@ -6338,24 +6367,27 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     return `${Math.round(seconds / 3600)}h`;
   }
 
+  /** 2026-05-20 — extrait pour cursor-change refresh immédiat. */
+  private async refreshAlertsNow(): Promise<void> {
+    if (!this.alertsSource) return;
+    try {
+      // Fenêtre 1h ancrée sur la time-bar : permet replay temporel
+      // sans changer la sémantique "alertes récentes".
+      const fc = await this.alertsSvc.refresh(this.currentTimeSig());
+      if (!this.alertsSource) return;
+      this.alertsSource.clear();
+      const features = this.geoJsonFmt.readFeatures(fc);
+      this.alertsSource.addFeatures(features);
+      this.alertsStatus.set(`${fc.features.length} alertes 1h`);
+    } catch (err: any) {
+      this.alertsStatus.set(`erreur : ${err?.message ?? err}`);
+    }
+  }
+
   private startAlertsLoop(): void {
     if (this.alertsTimer) return;
-    const fetchAndPaint = async () => {
-      try {
-        // Fenêtre 1h ancrée sur la time-bar : permet replay temporel
-        // sans changer la sémantique "alertes récentes".
-        const fc = await this.alertsSvc.refresh(this.currentTimeSig());
-        if (!this.alertsSource) return;
-        this.alertsSource.clear();
-        const features = this.geoJsonFmt.readFeatures(fc);
-        this.alertsSource.addFeatures(features);
-        this.alertsStatus.set(`${fc.features.length} alertes 1h`);
-      } catch (err: any) {
-        this.alertsStatus.set(`erreur : ${err?.message ?? err}`);
-      }
-    };
-    fetchAndPaint();
-    this.alertsTimer = setInterval(fetchAndPaint, 30_000);
+    this.refreshAlertsNow();
+    this.alertsTimer = setInterval(() => this.refreshAlertsNow(), 30_000);
   }
 
   private stopAlertsLoop(): void {
