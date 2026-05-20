@@ -2708,30 +2708,36 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     { key: 'radarDwd',          label: 'Radar Allemagne (DWD)',     type: 'wms', gsLayerName: 'maritime:radar-dwd-de',      active: () => this.showRadarDwd() },
     { key: 'radarKnmi',         label: 'Radar Pays-Bas (KNMI)',     type: 'wms', gsLayerName: 'maritime:radar-knmi-nl',     active: () => this.showRadarKnmi() },
     { key: 'vessels',        label: 'Navires AIS',    type: 'vector',                                          active: () => this.showVessels() },
+    { key: 'tracks',         label: 'Trajets AIS',    type: 'vector',                                          active: () => this.showTracks() },
+    { key: 'alerts',         label: 'Alertes',        type: 'vector',                                          active: () => this.showAlerts() },
+    { key: 'buoys',          label: 'Bouées',         type: 'vector',                                          active: () => this.showBuoys() },
     { key: 'lightning',      label: 'Foudre',         type: 'vector',                                          active: () => this.showLightning() },
     { key: 'metar',          label: 'METAR',          type: 'vector',                                          active: () => this.showMetar() },
+    { key: 'hubeau',         label: 'Hub\'eau débits', type: 'vector',                                         active: () => this.showHubeau() },
+    { key: 'piezo',          label: 'Hub\'eau piézo',  type: 'vector',                                         active: () => this.showPiezo() },
     { key: 'firms',          label: 'FIRMS',          type: 'vector',                                          active: () => this.showFirms() },
     { key: 'quakes',         label: 'Séismes',        type: 'vector',                                          active: () => this.showQuakes() },
+    // 2026-05-20 — rain RainViewer = radar pluie XYZ tiles. type 'vector'
+    // car validités gérées via snapshot RainViewer (pas GS GetCapabilities).
+    { key: 'rain',           label: 'Précipitations RainViewer', type: 'vector',                              active: () => this.showRain() },
   ];
 
   /** Stack ordonné des layers allumés (ordre d'activation user). Maintenu
-   *  par effect() depuis les show* signals. La tête = candidate master.
+   *  par effect() depuis les show* signals. La tête = master du temps.
    *
-   *  2026-05-18 APEX 10 : le MASTER DU TEMPS est strictement une layer
-   *  time-enabled WMS (sst/wind/waves). Les vector layers (vessels, lightning,
-   *  metar, firms, quakes) ne pilotent pas la time-bar — ce sont des
-   *  observations live continues, pas des données discrètes avec validités GS.
+   *  2026-05-20 (Sylvain) : règle simple — la time-bar affiche les validités
+   *  du maître du temps. TOUT data layer activé peut être master (WMS time-
+   *  enabled ET vector live). Pour les vector live, les validités sont
+   *  synthétisées côté client à pas régulier (LAYER_REFRESH_MIN) sur la
+   *  fenêtre pastH du profile. Le mode (LIVE/PAST/FORECAST) est dérivé du
+   *  cursor courant vs maintenant.
    *
-   *  → masterLayerKey filtre `activationOrder` pour ne garder que la 1ère
-   *  layer WMS. Si user a activé QUE des vector layers, masterLayerKey=null
-   *  et sliderConfig retourne null → time-bar entièrement masquée. */
+   *  → masterLayerKey = 1ère layer activée par l'user (peu importe son type).
+   *  Si aucun data layer actif → null → time-bar masquée. */
   readonly activationOrder = signal<string[]>([]);
   readonly masterLayerKey = computed<string | null>(() => {
     const order = this.activationOrder();
-    const wmsKeys = new Set(
-      this.animatableLayers.filter((l) => l.type === 'wms').map((l) => l.key),
-    );
-    return order.find((k) => wmsKeys.has(k)) ?? null;
+    return order[0] ?? null;
   });
   readonly masterLayerLabel = computed<string | null>(() => {
     const key = this.masterLayerKey();
@@ -3181,11 +3187,15 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
     // AC2 + AC3 — bornes = first/last validity. stepMs = 0 car la navigation
     // se fait par tick discret (validityList), pas par scrub continu.
+    // 2026-05-20 — kind 'live' ajouté (vector vessels/alerts/buoys/.../rain)
+    const kindLabel = profile.kind === 'obs' ? 'obs'
+                    : profile.kind === 'forecast' ? 'forecast'
+                    : 'live';
     return {
       minTime: validities[0],
       maxTime: validities[validities.length - 1],
       stepMs: 0,
-      label: `${validities.length} validités · ${profile.kind === 'obs' ? 'obs' : 'forecast'}`,
+      label: `${validities.length} validités · ${kindLabel}`,
       validities,
     };
   });
@@ -4391,6 +4401,26 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         radarKnmi:      this.showRadarKnmi(),
       };
       const anyCascade = Object.values(wantCascades).some(Boolean);
+      // 2026-05-20 (Sylvain) — tout data layer activé doit avoir une time-bar
+      // pilotée par ses validités. Pour les vector (vessels, alerts, etc.)
+      // + RainViewer, on synthétise les validités client-side depuis le pas
+      // LAYER_REFRESH_MIN (1min pour live, 5-60min selon source) sur la
+      // fenêtre pastH du profile. Ainsi master = vector marche identique à WMS.
+      const wantVectors: Record<string, boolean> = {
+        vessels:   this.showVessels(),
+        tracks:    this.showTracks(),
+        alerts:    this.showAlerts(),
+        buoys:     this.showBuoys(),
+        lightning: this.showLightning(),
+        metar:     this.showMetar(),
+        hubeau:    this.showHubeau(),
+        piezo:     this.showPiezo(),
+        quakes:    this.showQuakes(),
+        firms:     this.showFirms(),
+        rain:      this.showRain(),
+        satRainviewer: this.showSatRainviewer(),
+      };
+      const anyVector = Object.values(wantVectors).some(Boolean);
 
       const now = Date.now();
       // 2026-05-19 (rev 7j past) — politique : obs 7j past / forecast 7j+7j.
@@ -4410,32 +4440,49 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       queueMicrotask(async () => {
         // Si aucune layer time-enabled active → clear le map et stop.
         const anyActive = wantSst || wantWind || wantWaves || wantWindArrows
-                       || wantWaveArrows || wantWindParticles || anySat || anyCascade;
+                       || wantWaveArrows || wantWindParticles || anySat || anyCascade || anyVector;
         if (!anyActive) {
           this.validityListPerLayer.set({});
           this.masterValidityList.set([]);
           return;
         }
 
-        // 2026-05-20 — Pré-calcul des validités cascade côté client AVANT le
-        // fetch GS (les cascade ne sont PAS dans GS GetCapabilities). On
-        // génère stepMs régulier sur [now-pastH, now+futureH], cappé à 500
-        // timesteps pour éviter de saturer la time-bar.
-        const cascadeMap: Record<string, Date[]> = {};
-        for (const key of Object.keys(wantCascades)) {
-          if (!wantCascades[key]) continue;
-          const p = this.LAYER_PROFILES[key as keyof typeof this.LAYER_PROFILES];
-          if (!p) continue;
-          const stepMs = Math.max(60_000, p.stepH * 3_600_000);  // au moins 1 min
-          const start = now - p.pastH * 3_600_000;
-          const end = now + p.futureH * 3_600_000;
-          const span = end - start;
-          // Cap à 500 timesteps : si stepMs trop petit, sous-échantillonne
+        // 2026-05-20 — Pré-calcul des validités côté client AVANT le fetch GS
+        // pour les layers qui ne sont PAS dans GS GetCapabilities :
+        //  - Cascade WMS (sat EUMETSAT + radar DWD/KNMI) — bug GS advertised=true
+        //  - Vector live (vessels, alerts, buoys, lightning, metar, hubeau,
+        //    piezo, quakes, firms, rain RainViewer, satRainviewer)
+        // On génère un timestep régulier sur la fenêtre pastH du profile,
+        // step = LAYER_REFRESH_MIN (vector) ou stepH (cascade WMS),
+        // cappé à 500 timesteps pour pas saturer la time-bar.
+        const clientSideMap: Record<string, Date[]> = {};
+        const generateValidities = (key: string, stepMs: number, pastH: number, futureH: number) => {
+          const start = now - pastH * 3_600_000;
+          const end = now + futureH * 3_600_000;
+          const span = Math.max(1, end - start);
           const effStep = Math.max(stepMs, span / 500);
           const firstSnap = Math.ceil(start / stepMs) * stepMs;
           const dates: Date[] = [];
           for (let t = firstSnap; t <= end; t += effStep) dates.push(new Date(t));
-          if (dates.length > 0) cascadeMap[key] = dates;
+          if (dates.length > 0) clientSideMap[key] = dates;
+        };
+        // Cascade WMS : stepH fractionné (5min/10min/15min selon source)
+        for (const key of Object.keys(wantCascades)) {
+          if (!wantCascades[key]) continue;
+          const p = this.LAYER_PROFILES[key as keyof typeof this.LAYER_PROFILES];
+          if (!p) continue;
+          const stepMs = Math.max(60_000, p.stepH * 3_600_000);
+          generateValidities(key, stepMs, p.pastH, p.futureH);
+        }
+        // Vector live + RainViewer : step = LAYER_REFRESH_MIN (1min vessels,
+        // 10min rain, 60min metar/hubeau, etc.). Fenêtre = pastH du profile.
+        for (const key of Object.keys(wantVectors)) {
+          if (!wantVectors[key]) continue;
+          const p = this.LAYER_PROFILES[key as keyof typeof this.LAYER_PROFILES];
+          const refreshMin = this.LAYER_REFRESH_MIN[key];
+          if (!p || !refreshMin || refreshMin <= 0) continue;
+          const stepMs = refreshMin * 60_000;
+          generateValidities(key, stepMs, p.pastH, p.futureH);
         }
 
         // 2026-05-19 APEX 15 — retry avec exponential backoff. GS peut renvoyer
@@ -4455,16 +4502,24 @@ export class MapComponent implements AfterViewInit, OnDestroy {
               await new Promise((r) => setTimeout(r, attempt * 1000));
               continue;
             }
-            return;  // 4xx ou tentatives épuisées → abort silencieux
+            // 4xx ou tentatives épuisées → fallback : on set quand même les
+            // validités client-side (cascade + vector). Pas de validités WMS.
+            this.validityListPerLayer.set({ ...clientSideMap });
+            return;
           } catch {
             if (attempt < 4) {
               await new Promise((r) => setTimeout(r, attempt * 1000));
               continue;
             }
+            // Idem : GS down → on garde les validités client-side
+            this.validityListPerLayer.set({ ...clientSideMap });
             return;
           }
         }
-        if (!xml) return;
+        if (!xml) {
+          this.validityListPerLayer.set({ ...clientSideMap });
+          return;
+        }
         try {
 
           const filterRange = (dates: Date[]): Date[] =>
@@ -4502,9 +4557,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
             const d = filterRange(this.parseTimeDimension(xml, p.gsName));
             if (d.length > 0) newMap[p.key] = d;
           }
-          // 2026-05-20 — merge les validités cascade client-side calculées
-          // au-dessus (GS GetCapabilities ne les expose pas).
-          Object.assign(newMap, cascadeMap);
+          // 2026-05-20 — merge les validités cascade + vector client-side
+          // calculées au-dessus (GS GetCapabilities ne les expose pas pour
+          // cascade ; pour vector elles n'existent pas du tout côté GS).
+          Object.assign(newMap, clientSideMap);
 
           this.validityListPerLayer.set(newMap);
 
