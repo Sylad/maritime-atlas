@@ -3306,16 +3306,22 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   /** 2026-05-18 APEX 12 — refresh interval (minutes) pour les vector layers
    *  live. Pilote le rendu des segments de présence data dans la sous-barre
    *  étendue. NaN/undefined pour les WMS layers (qui utilisent validityListPerLayer). */
+  // 2026-05-20 (Sylvain) — pour les vector haute-fréquence (vessels AIS 1/s,
+  // lightning push 1/s, alerts push), les validités time-bar sont snappées
+  // sur la demi-heure (multiples de 30 min depuis epoch UTC). Le fetch backend
+  // utilise une fenêtre asymétrique [-10min, +20min] autour de chaque validité
+  // (cf. fetchVesselsAt avec shift at+5min + window 1800s). Évite le scrub à
+  // la minute (peu d'intérêt UX) et garde des sous-barres lisibles.
   private readonly LAYER_REFRESH_MIN: Partial<Record<string, number>> = {
-    lightning: 1,    // stream WebSocket lightningmaps.org → granule visible chaque ~1min
-    metar: 60,       // METAR aéroports refresh horaire
+    lightning: 30,   // push WebSocket ~1/s mais time-bar snap 30min
+    metar: 60,       // METAR aéroports refresh horaire (déjà ≥30min)
     buoys: 30,       // EMODnet bouées scan ~30min
     hubeau: 60,      // Hub'eau débits horaire
     piezo: 60,       // Hub'eau piézo horaire
-    quakes: 5,       // USGS séismes ~5min
+    quakes: 30,      // USGS séismes ~5min natif mais snap 30min
     firms: 60,       // NASA FIRMS hourly
-    alerts: 1,       // RMQ push direct
-    vessels: 1,      // AIS stream live (vector point)
+    alerts: 30,      // RMQ push direct ~1/s mais snap 30min
+    vessels: 30,     // AIS stream ~1/s mais snap 30min (cf SQL view window)
     tracks: 1440,    // tracks daily — 1 segment / jour
     // 2026-05-20 — RainViewer rain XYZ tiles ~10min cadence, archive ~2h.
     rain: 10,
@@ -6028,8 +6034,14 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
   private fetchVesselsAt(t: Date): void {
     this.pastVesselsSub?.unsubscribe();
+    // 2026-05-20 (Sylvain) — fenêtre asymétrique [-10min, +20min] autour de
+    // la validité t. La SQL view vessels_at_time centre sur `at` avec
+    // [at - window/2, at + window/2]. On shift donc at de +5min + window=1800s
+    // (15min de chaque côté) → effectif [t-10min, t+20min] sans toucher au
+    // backend GS SQL view. Cohérent avec snap 30min des validités time-bar.
+    const atShifted = new Date(t.getTime() + 5 * 60_000);
     this.pastVesselsSub = this.vessels
-      .fetchVesselsAtTime(t, 300)
+      .fetchVesselsAtTime(atShifted, 1800)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (fc) => {
