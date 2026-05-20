@@ -353,9 +353,9 @@ export interface TimeSliderLayerCoverage {
     }
     @media (max-width: 760px) {
       /* 2026-05-20 — override :host pour mobile. Default desktop a
-         `left: 50%; transform: translateX(-50%); width: calc(100% - 260px)`
-         qui sur écran < 260px produit width négatif + translate à gauche
-         hors viewport. Mobile = position fixed bottom, 100vw - 0.6em. */
+         left 50%, transform translateX(-50%), width calc(100% - 260px)
+         qui sur écran etroit produit width négatif + translate hors viewport.
+         Mobile = position fixed bottom, 100vw - 0.6em. */
       :host {
         left: 0.3em !important;
         right: 0.3em !important;
