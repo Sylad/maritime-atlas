@@ -1,0 +1,93 @@
+# .claudeignore — maritime-atlas (Angular 19 + NestJS 11 + Python sidecars)
+# Pattern emprunté à nadimtuhin/claude-code-ignore.
+# Réduit le contexte Claude en excluant les artefacts générés / dépendances.
+
+# --- Node / Angular / NestJS ---
+node_modules/
+**/node_modules/
+.angular/
+**/.angular/
+frontend/.angular/
+frontend/.angular/cache/
+dist/
+**/dist/
+build/
+**/build/
+.next/
+.nuxt/
+coverage/
+**/coverage/
+.nyc_output/
+
+# --- Python sidecars ---
+.venv/
+**/.venv/
+venv/
+**/venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+*.egg-info/
+
+# --- Sous-services ---
+services/*/dist/
+services/*/.venv/
+services/*/__pycache__/
+services/*/node_modules/
+
+# --- Git / VCS ---
+.git/
+.svn/
+
+# --- Logs / temp ---
+*.log
+*.tmp
+*.swp
+*.bak
+*.orig
+logs/
+
+# --- IDE ---
+.idea/
+.vscode/
+*.code-workspace
+.DS_Store
+Thumbs.db
+
+# --- Data binaire SIG (GRIB / NetCDF / GeoTIFF intermédiaires) ---
+*.grib
+*.grib2
+*.grb
+*.grb2
+*.nc
+*.nc4
+*.tif
+*.tiff
+*.geotiff
+*.gpkg
+
+# Mais on garde les exemples / fixtures < 10 KB si présents dans docs/
+!docs/**/*.gpkg
+
+# --- Builds Docker / cache ---
+*.tar
+*.tar.gz
+*.tar.zst
+docker-build-context.tar
+
+# --- Big media / screenshots (souvent dans developpeur/ root, mais sécurité) ---
+*.mp4
+*.mov
+*.avi
+*.webm
+# Garde les diagrammes / icônes PNG/SVG (< 500 KB)
+
+# --- Claude / agent state (jamais à lire) ---
+~/.claude/
+.claude/cache/
+.claude-cache/

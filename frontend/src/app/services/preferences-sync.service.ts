@@ -55,6 +55,31 @@ export class PreferencesSyncService {
     }
   }
 
+  /** 2026-05-20 — GET /api/me → préférences contours isolignes pour sync
+   *  multi-device. Structure : {sst, wind, wave} × {show, interval, color}.
+   *  NULL = jamais set côté DB → fallback localStorage. */
+  async fetchMyContourPrefs(): Promise<Record<string, { show?: boolean; interval?: number; color?: string }> | null> {
+    try {
+      const res = await firstValueFrom(this.http.get<MeResponse>('/api/me'));
+      return (res.user as { contourPrefs?: Record<string, { show?: boolean; interval?: number; color?: string }> })?.contourPrefs ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 2026-05-20 — push debounced (500ms) des prefs contours isolignes.
+   *  PUT /api/me/contour-prefs — partial merge côté backend. */
+  private contourPushTimer?: ReturnType<typeof setTimeout>;
+  scheduleContourPrefsPush(prefs: Record<string, { show?: boolean; interval?: number; color?: string }>): void {
+    if (this.contourPushTimer) clearTimeout(this.contourPushTimer);
+    this.contourPushTimer = setTimeout(() => {
+      this.contourPushTimer = undefined;
+      this.http.put('/api/me/contour-prefs', prefs).subscribe({
+        error: () => { /* silent — localStorage source */ },
+      });
+    }, this.DEBOUNCE_MS);
+  }
+
   /** APEX 18 — push debounced (700ms, plus long que le batch state pour
    *  ne pas spammer pendant un DnD multi-rangées). Idempotent côté backend. */
   private orderPushTimer?: ReturnType<typeof setTimeout>;

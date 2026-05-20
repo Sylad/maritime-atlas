@@ -298,7 +298,9 @@ function toIsoTimestamp(d: Date): string {
             @if (catalogSections().maritime) {
             <div class="catalog-section-body">
               <div class="layer-row">
-                <label class="layer-toggle" [class.dim]="!vesselsActive()">
+                <label class="layer-toggle" [class.dim]="!vesselsActive()"
+                       [class.mode-incompatible]="!!layerModeWarning('vessels')"
+                       [title]="layerModeWarning('vessels')">
                   <input type="checkbox" [checked]="showVessels()" (change)="showVessels.set($any($event.target).checked)" />
                   <span class="toggle-glyph">
                     <span class="glyph-dot" style="background:#34d399;border-color:#6ee7b7"></span>
@@ -317,7 +319,9 @@ function toIsoTimestamp(d: Date): string {
                 }
               </div>
               <div class="layer-row">
-                <label class="layer-toggle" [class.dim]="!tracksActive()">
+                <label class="layer-toggle" [class.dim]="!tracksActive()"
+                       [class.mode-incompatible]="!!layerModeWarning('tracks')"
+                       [title]="layerModeWarning('tracks')">
                   <input type="checkbox" [checked]="showTracks()" (change)="showTracks.set($any($event.target).checked)" />
                   <span class="toggle-glyph">
                     <svg viewBox="0 0 24 12" width="24" height="12" aria-hidden="true">
@@ -336,7 +340,9 @@ function toIsoTimestamp(d: Date): string {
                 }
               </div>
               <div class="layer-row">
-                <label class="layer-toggle" [class.dim]="!showAlerts()">
+                <label class="layer-toggle" [class.dim]="!showAlerts()"
+                       [class.mode-incompatible]="!!layerModeWarning('alerts')"
+                       [title]="layerModeWarning('alerts')">
                   <input type="checkbox" [checked]="showAlerts()" (change)="showAlerts.set($any($event.target).checked)" />
                   <span class="toggle-glyph">
                     <span class="glyph-alert">⚠</span>
@@ -353,7 +359,9 @@ function toIsoTimestamp(d: Date): string {
                 }
               </div>
               <div class="layer-row">
-                <label class="layer-toggle" [class.dim]="!showBuoys()">
+                <label class="layer-toggle" [class.dim]="!showBuoys()"
+                       [class.mode-incompatible]="!!layerModeWarning('buoys')"
+                       [title]="layerModeWarning('buoys')">
                   <input type="checkbox" [checked]="showBuoys()" (change)="showBuoys.set($any($event.target).checked)" />
                   <span class="toggle-glyph">
                     <span class="glyph-buoy">⚓</span>
@@ -489,7 +497,9 @@ function toIsoTimestamp(d: Date): string {
             @if (catalogSections().observation) {
             <div class="catalog-section-body">
               <div class="layer-row">
-                <label class="layer-toggle" [class.dim]="!showLightning()">
+                <label class="layer-toggle" [class.dim]="!showLightning()"
+                       [class.mode-incompatible]="!!layerModeWarning('lightning')"
+                       [title]="layerModeWarning('lightning')">
                   <input type="checkbox" [checked]="showLightning()" (change)="showLightning.set($any($event.target).checked)" />
                   <span class="toggle-glyph">
                     <span class="glyph-zap">⚡</span>
@@ -508,7 +518,9 @@ function toIsoTimestamp(d: Date): string {
               <!-- 2026-05-20 — Radar pluie RainViewer déplacé dans la nouvelle
                    section 📡 Radar (avec DWD + KNMI). -->
               <div class="layer-row">
-                <label class="layer-toggle" [class.dim]="!showMetar()">
+                <label class="layer-toggle" [class.dim]="!showMetar()"
+                       [class.mode-incompatible]="!!layerModeWarning('metar')"
+                       [title]="layerModeWarning('metar')">
                   <input type="checkbox" [checked]="showMetar()" (change)="showMetar.set($any($event.target).checked)" />
                   <span class="toggle-glyph"><span class="glyph-icon">🛬</span></span>
                   <span class="toggle-text">
@@ -523,7 +535,9 @@ function toIsoTimestamp(d: Date): string {
                 }
               </div>
               <div class="layer-row">
-                <label class="layer-toggle" [class.dim]="!showQuakes()">
+                <label class="layer-toggle" [class.dim]="!showQuakes()"
+                       [class.mode-incompatible]="!!layerModeWarning('quakes')"
+                       [title]="layerModeWarning('quakes')">
                   <input type="checkbox" [checked]="showQuakes()" (change)="showQuakes.set($any($event.target).checked)" />
                   <span class="toggle-glyph"><span class="glyph-icon">🌋</span></span>
                   <span class="toggle-text">
@@ -550,7 +564,9 @@ function toIsoTimestamp(d: Date): string {
               <!-- 2026-05-19 APEX Satellites — "Satellite nuages" déplacé
                    dans la nouvelle section Satellites (NASA GIBS, 7 produits). -->
               <div class="layer-row">
-                <label class="layer-toggle" [class.dim]="!showFirms()">
+                <label class="layer-toggle" [class.dim]="!showFirms()"
+                       [class.mode-incompatible]="!!layerModeWarning('firms')"
+                       [title]="layerModeWarning('firms')">
                   <input type="checkbox" [checked]="showFirms()" (change)="showFirms.set($any($event.target).checked)" />
                   <span class="toggle-glyph"><span class="glyph-icon">🔥</span></span>
                   <span class="toggle-text">
@@ -996,7 +1012,9 @@ function toIsoTimestamp(d: Date): string {
             @if (catalogSections().hydrology) {
             <div class="catalog-section-body">
               <div class="layer-row">
-                <label class="layer-toggle" [class.dim]="!showHubeau()">
+                <label class="layer-toggle" [class.dim]="!showHubeau()"
+                       [class.mode-incompatible]="!!layerModeWarning('hubeau')"
+                       [title]="layerModeWarning('hubeau')">
                   <input type="checkbox" [checked]="showHubeau()" (change)="showHubeau.set($any($event.target).checked)" />
                   <span class="toggle-glyph"><span class="glyph-icon">≈</span></span>
                   <span class="toggle-text">
@@ -1011,7 +1029,9 @@ function toIsoTimestamp(d: Date): string {
                 }
               </div>
               <div class="layer-row">
-                <label class="layer-toggle" [class.dim]="!showPiezo()">
+                <label class="layer-toggle" [class.dim]="!showPiezo()"
+                       [class.mode-incompatible]="!!layerModeWarning('piezo')"
+                       [title]="layerModeWarning('piezo')">
                   <input type="checkbox" [checked]="showPiezo()" (change)="showPiezo.set($any($event.target).checked)" />
                   <span class="toggle-glyph"><span class="glyph-icon">🪣</span></span>
                   <span class="toggle-text">
@@ -1483,6 +1503,33 @@ function toIsoTimestamp(d: Date): string {
       </div>
 
       <!-- Attribution panel relocated into controls-dock-bottom-right -->
+
+      <!-- 2026-05-20 — Légende globale flottante sur la map (Sylvain demande
+           explicite). Affiche pour chaque layer actif : color marker (vector)
+           ou échelle palette via GetLegendGraphic (raster WMS). Position
+           bottom-right au-dessus de la time-bar, repliable. -->
+      @if (sliderLayerCoverage().length > 0) {
+        <div class="map-legend-overlay" [class.collapsed]="!showMapLegend()">
+          <button type="button" class="map-legend-toggle"
+                  (click)="showMapLegend.set(!showMapLegend())"
+                  [attr.aria-expanded]="showMapLegend()"
+                  [title]="showMapLegend() ? 'Masquer la légende' : 'Afficher la légende'">
+            {{ showMapLegend() ? '×' : '🗺' }}
+          </button>
+          @if (showMapLegend()) {
+            <div class="map-legend-title">Légende</div>
+            @for (cov of sliderLayerCoverage(); track cov.key) {
+              <div class="map-legend-row">
+                <span class="map-legend-color" [style.background]="cov.color"></span>
+                <span class="map-legend-label">{{ cov.name }}</span>
+                @if (legendGraphicUrl(cov.key); as url) {
+                  <img class="map-legend-graphic" [src]="url" loading="lazy" alt="palette" />
+                }
+              </div>
+            }
+          }
+        </div>
+      }
 
       <!-- 2026-05-18 APEX 10 : non-null assertion sur sliderConfig() car
            Angular 19 strict-template ne narrow pas le @if (cfg !== null).
@@ -1984,6 +2031,25 @@ function toIsoTimestamp(d: Date): string {
       &.dim {
         .toggle-glyph, .toggle-text { opacity: 0.4; transition: opacity 200ms; }
       }
+      /* 2026-05-20 — Mode-aware UX : grise le toggle + ajoute un badge
+         d'avertissement quand le layer est incompatible avec le mode
+         courant (live/past/future). Tooltip détaillé via [title].
+         Le toggle reste cliquable mais l'user sait que setVisible sera
+         silently false tant qu'il ne déplace pas le cursor. */
+      &.mode-incompatible {
+        .toggle-glyph, .toggle-text { opacity: 0.45; }
+        position: relative;
+      }
+      &.mode-incompatible::after {
+        content: '⏱';
+        position: absolute;
+        right: 0;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 0.65rem;
+        color: hsl(45 95% 60%);
+        opacity: 0.85;
+      }
     }
     .toggle-glyph {
       display: inline-flex;
@@ -2386,6 +2452,90 @@ function toIsoTimestamp(d: Date): string {
     .controls-dock-bottom-right {
       bottom: 6em;             /* au-dessus de la time-slider (~5em haut) */
       align-items: flex-end;
+    }
+    /* 2026-05-20 — Légende globale flottante sur la map (Sylvain demande
+       explicite). Position right + au-dessus de la time-bar. Repliable
+       sur une pastille 32px quand collapsed. */
+    .map-legend-overlay {
+      position: absolute;
+      bottom: 6em;
+      right: 1em;
+      z-index: 9;
+      background: hsl(224 30% 8% / 0.92);
+      border: 1px solid hsl(224 85% 55% / 0.4);
+      border-radius: 8px;
+      padding: 0.6em 0.7em;
+      font-family: var(--font, Inter, sans-serif);
+      color: var(--fg);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4), 0 0 0 1px hsl(224 95% 60% / 0.15);
+      max-width: 280px;
+      backdrop-filter: blur(6px);
+      transition: padding 200ms;
+    }
+    .map-legend-overlay.collapsed {
+      padding: 0;
+      background: transparent;
+      border: 0;
+      box-shadow: none;
+    }
+    .map-legend-toggle {
+      background: hsl(224 30% 8% / 0.92);
+      border: 1px solid hsl(224 85% 55% / 0.5);
+      color: var(--fg);
+      border-radius: 50%;
+      width: 32px;
+      height: 32px;
+      cursor: pointer;
+      font-size: 1rem;
+      line-height: 30px;
+      padding: 0;
+      transition: background 150ms, transform 100ms;
+      position: absolute;
+      top: 6px;
+      right: 6px;
+    }
+    .map-legend-overlay.collapsed .map-legend-toggle {
+      position: static;
+    }
+    .map-legend-toggle:hover {
+      background: hsl(224 85% 55% / 0.25);
+      transform: scale(1.05);
+    }
+    .map-legend-title {
+      font-size: 0.62rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: hsl(224 25% 65%);
+      margin-bottom: 0.5em;
+      padding-right: 28px;
+    }
+    .map-legend-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5em;
+      font-size: 0.72rem;
+      margin: 0.3em 0;
+    }
+    .map-legend-color {
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+      flex-shrink: 0;
+      box-shadow: 0 0 0 1px hsl(224 35% 30%);
+    }
+    .map-legend-label {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .map-legend-graphic {
+      height: 60px;
+      width: auto;
+      max-width: 80px;
+      object-fit: contain;
+      background: hsl(224 30% 5%);
+      border-radius: 4px;
     }
     .controls-dock-info {
       display: flex;
@@ -3744,18 +3894,19 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // 2026-05-19 APEX 18 — l'ordre est aussi push en DB (PUT /api/me/layer-order)
     // pour sync cross-device. Cf scheduleLayerOrderPush plus bas.
     const zIndexOrder = this.layerZIndexOrder();
+    // 2026-05-19 APEX 13 — toggles + colors isolines (les intervales sont
+    // déjà reflétés via env contourInterval mais pas persistés ici).
+    // 2026-05-20 — sorti hors du try pour être visible côté push DB plus bas.
+    const contours = {
+      sst:  { show: this.showSstContours(),  interval: this.sstContourInterval(),  color: this.sstContourColor() },
+      wind: { show: this.showWindContours(), interval: this.windContourInterval(), color: this.windContourColor() },
+      wave: { show: this.showWaveContours(), interval: this.waveContourInterval(), color: this.waveContourColor() },
+    };
     try {
       // 2026-05-19 APEX 16 — persiste aussi l'ordre d'activation user (master
       // du temps = activationOrder[0] filtré WMS). Permet de retrouver son
       // setup après reload.
       const activationOrder = this.activationOrder();
-      // 2026-05-19 APEX 13 — toggles + colors isolines (les intervales sont
-      // déjà reflétés via env contourInterval mais pas persistés ici).
-      const contours = {
-        sst:  { show: this.showSstContours(),  interval: this.sstContourInterval(),  color: this.sstContourColor() },
-        wind: { show: this.showWindContours(), interval: this.windContourInterval(), color: this.windContourColor() },
-        wave: { show: this.showWaveContours(), interval: this.waveContourInterval(), color: this.waveContourColor() },
-      };
       localStorage.setItem(LAYER_PREFS_KEY, JSON.stringify({ visibility, opacity, zIndexOrder, activationOrder, contours }));
     } catch {
       // localStorage full / disabled — ignore, user reverra son default au reload
@@ -3772,6 +3923,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       if (zIndexOrder.length > 0) {
         this.prefsSync.scheduleLayerOrderPush(zIndexOrder);
       }
+      // 2026-05-20 — push contour prefs (interval + color hex) pour sync
+      // multi-device. Debounced 500ms côté service.
+      this.prefsSync.scheduleContourPrefsPush(contours);
     }
   }
 
@@ -3786,6 +3940,29 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.layerZIndexOrder.set(dbLayerOrder);
       // Re-applique tout de suite si le map est déjà initialisé.
       queueMicrotask(() => this.applyLayerZIndices());
+    }
+    // 2026-05-20 — fetch préférences contours isolignes (interval + color hex
+    // par source sst/wind/wave) pour sync multi-device. DB wins sur localStorage.
+    const dbContourPrefs = await this.prefsSync.fetchMyContourPrefs();
+    if (dbContourPrefs) {
+      if (dbContourPrefs['sst']) {
+        const c = dbContourPrefs['sst'];
+        if (typeof c.show === 'boolean') this.showSstContours.set(c.show);
+        if (typeof c.interval === 'number') this.sstContourInterval.set(c.interval);
+        if (typeof c.color === 'string') this.sstContourColor.set(c.color);
+      }
+      if (dbContourPrefs['wind']) {
+        const c = dbContourPrefs['wind'];
+        if (typeof c.show === 'boolean') this.showWindContours.set(c.show);
+        if (typeof c.interval === 'number') this.windContourInterval.set(c.interval);
+        if (typeof c.color === 'string') this.windContourColor.set(c.color);
+      }
+      if (dbContourPrefs['wave']) {
+        const c = dbContourPrefs['wave'];
+        if (typeof c.show === 'boolean') this.showWaveContours.set(c.show);
+        if (typeof c.interval === 'number') this.waveContourInterval.set(c.interval);
+        if (typeof c.color === 'string') this.waveContourColor.set(c.color);
+      }
     }
     if (dbPrefs.length === 0) {
       // User connecté mais aucune pref DB → upload localStorage maintenant
@@ -3946,6 +4123,64 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly currentTimeSig = signal<Date>(new Date());
   readonly modeIsLive = computed(() => Math.abs(Date.now() - this.currentTimeSig().getTime()) < LIVE_THRESHOLD_MS);
   readonly modeIsFuture = computed(() => this.currentTimeSig().getTime() > Date.now() + LIVE_THRESHOLD_MS);
+
+  /** 2026-05-20 — Légende globale flottante sur la map. Toggle (persisté
+   *  localStorage `aetherwx.show-map-legend`). Open par défaut au boot. */
+  readonly showMapLegend = signal<boolean>(this.loadShowMapLegend());
+
+  private loadShowMapLegend(): boolean {
+    try {
+      const v = localStorage.getItem('aetherwx.show-map-legend');
+      return v === null ? true : v === '1';
+    } catch { return true; }
+  }
+
+  /** Persist au signal change. */
+  private persistMapLegendOnChange = effect(() => {
+    const v = this.showMapLegend();
+    try { localStorage.setItem('aetherwx.show-map-legend', v ? '1' : '0'); } catch {}
+  });
+
+  /** Retourne l'URL du LegendGraphic WMS pour les layers WMS time-enabled
+   *  master-éligibles (sst, wind, waves, satellites cascade). Pour les
+   *  vector et XYZ, retourne null → la pastille color marker suffit. */
+  legendGraphicUrl(key: string): string | null {
+    const layer = this.animatableLayers.find((l) => l.key === key);
+    if (!layer || layer.type !== 'wms' || !layer.gsLayerName) return null;
+    return `/geoserver/maritime/wms?REQUEST=GetLegendGraphic&VERSION=1.0.0&FORMAT=image/png&WIDTH=20&HEIGHT=120&LEGEND_OPTIONS=fontColor:0xffffff;fontAntiAliasing:true;bgColor:0x0f172a;dpi:96&LAYER=${encodeURIComponent(layer.gsLayerName)}`;
+  }
+
+  /** 2026-05-20 — UX mode-aware (toggles grayés + tooltip selon mode cursor).
+   *
+   *  Mapping layer → restrictions :
+   *  - 'live-only' : visible UNIQUEMENT en live (alerts, buoys, lightning,
+   *    metar, hubeau, piezo, quakes, firms — data temps réel, pas archivée
+   *    au-delà d'1j)
+   *  - 'past-only' : visible UNIQUEMENT en past replay (tracks daily —
+   *    granularité 1j, pas pertinent en live ou future)
+   *  - 'no-future' : visible en live + past, pas en future (vessels —
+   *    pas de forecast trajectoire)
+   *
+   *  Renvoie le tooltip à afficher SI incompatible avec mode courant,
+   *  string vide sinon. */
+  layerModeWarning(key: string): string {
+    const isLive = this.modeIsLive();
+    const isFuture = this.modeIsFuture();
+    const isPast = !isLive && !isFuture;
+    const LIVE_ONLY = new Set(['alerts', 'buoys', 'lightning', 'metar', 'hubeau', 'piezo', 'quakes', 'firms']);
+    const PAST_ONLY = new Set(['tracks']);
+    const NO_FUTURE = new Set(['vessels']);
+    if (LIVE_ONLY.has(key) && !isLive) {
+      return 'Layer live-only — affichée seulement quand le cursor est sur maintenant. Clique NOW.';
+    }
+    if (PAST_ONLY.has(key) && !isPast) {
+      return 'Layer past-only — affichée seulement en mode replay. Recule la time-bar.';
+    }
+    if (NO_FUTURE.has(key) && isFuture) {
+      return 'Pas de forecast pour cette layer — recule la time-bar.';
+    }
+    return '';
+  }
   // "Active" = la couche a effectivement de quoi s'afficher dans le mode courant.
   readonly vesselsActive = computed(() => this.showVessels() && !this.modeIsFuture());
   readonly tracksActive  = computed(() => this.showTracks() && !this.modeIsLive() && !this.modeIsFuture());

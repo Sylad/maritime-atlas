@@ -74,6 +74,37 @@ class SetLayerOrderDto {
   order!: string[];
 }
 
+/** 2026-05-20 : préférences contours isolignes par source. Structure libre
+ *  validée : {sst, wind, wave} × {show?: bool, interval?: float, color?: hex}.
+ *  Color obligatoirement matche /^#[0-9a-fA-F]{6}$/ ; interval 0.5..50 ; rest tolerated. */
+class ContourPerSourceDto {
+  @IsOptional()
+  @IsBoolean()
+  show?: boolean;
+  @IsOptional()
+  @IsNumber()
+  @Min(0.1)
+  @Max(100)
+  interval?: number;
+  @IsOptional()
+  @IsString()
+  color?: string;
+}
+class SetContourPrefsDto {
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ContourPerSourceDto)
+  sst?: ContourPerSourceDto;
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ContourPerSourceDto)
+  wind?: ContourPerSourceDto;
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ContourPerSourceDto)
+  wave?: ContourPerSourceDto;
+}
+
 @Controller('me')
 @UseGuards(JwtAuthGuard)
 export class PreferencesController {
@@ -91,6 +122,7 @@ export class PreferencesController {
       defaultZone: users.defaultZone,
       preferredProjection: users.preferredProjection,
       layerOrder: users.layerOrder,
+      contourPrefs: users.contourPrefs,
     }).from(users).where(eq(users.id, user.sub)).limit(1);
     return {
       user: {
@@ -99,9 +131,39 @@ export class PreferencesController {
         defaultZone: rows[0]?.defaultZone ?? null,
         preferredProjection: rows[0]?.preferredProjection ?? null,
         layerOrder: rows[0]?.layerOrder ?? null,
+        contourPrefs: rows[0]?.contourPrefs ?? null,
       },
       ...ctx,
     };
+  }
+
+  /** 2026-05-20 : set préférences contours isolignes (interval + color hex
+   *  par source sst/wind/wave). Sync multi-device. PUT partiel : merge
+   *  avec l'existant, n'écrase pas les sources non spécifiées. */
+  @Put('contour-prefs')
+  async setContourPrefs(@CurrentUser('sub') userId: number, @Body() body: SetContourPrefsDto) {
+    // Validation color hex côté serveur (DTO n'a pas regex auto)
+    const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+    for (const src of ['sst', 'wind', 'wave'] as const) {
+      const c = body[src]?.color;
+      if (c && !HEX_RE.test(c)) {
+        throw new BadRequestException(`Invalid color hex for ${src}: ${c}`);
+      }
+    }
+    // Lire l'existant pour merge (PUT partiel)
+    const rows = await this.db.select({ contourPrefs: users.contourPrefs })
+      .from(users).where(eq(users.id, userId)).limit(1);
+    const existing = (rows[0]?.contourPrefs ?? {}) as Record<string, unknown>;
+    const merged = { ...existing };
+    for (const src of ['sst', 'wind', 'wave'] as const) {
+      if (body[src]) {
+        merged[src] = { ...(existing[src] as object ?? {}), ...body[src] };
+      }
+    }
+    await this.db.update(users)
+      .set({ contourPrefs: merged })
+      .where(eq(users.id, userId));
+    return { ok: true, contourPrefs: merged };
   }
 
   /** APEX 18 (2026-05-19) : set ordre user des layers (z-index). Pousse

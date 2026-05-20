@@ -42,6 +42,16 @@ export const users = pgTable('users', {
    *  pour sync multi-device. JSONB array de strings layerKind. NULL = fallback
    *  localStorage (`maritime.layer-prefs-v1`.zIndexOrder) ou ordre déclaratif. */
   layerOrder: jsonb('layer_order').$type<string[] | null>(),
+  /** 2026-05-20 : préférences contours isolignes par layer (sst/wind/wave)
+   *  pour sync multi-device. Structure : { sst: {show, interval, color}, ... }.
+   *  Persiste interval (number) + color (hex `#RRGGBB`) en plus du show déjà
+   *  dans layer_states. Règle "user qui revient retrouve sa config sur tout
+   *  device". */
+  contourPrefs: jsonb('contour_prefs').$type<{
+    sst?:  { show?: boolean; interval?: number; color?: string };
+    wind?: { show?: boolean; interval?: number; color?: string };
+    wave?: { show?: boolean; interval?: number; color?: string };
+  } | null>(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({
   emailIdx: uniqueIndex('users_email_idx').on(t.email),

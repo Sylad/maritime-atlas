@@ -72,6 +72,13 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_projection TEXT;
 -- NULL = pas encore set → fallback localStorage / ordre déclaratif.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS layer_order JSONB;
 
+-- 2026-05-20 : préférences contours isolignes (interval + color hex) sync
+-- multi-device. Structure : { sst: {show, interval, color}, wind: {...}, wave: {...} }.
+-- Règle "user qui revient retrouve sa config sur tout device" — le show
+-- est aussi dans layer_states mais on garde tout dans contour_prefs pour
+-- cohérence (1 set complet en DB).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS contour_prefs JSONB;
+
 -- Backfill username + email_verified_at pour les users existants
 -- (créés avant la refonte). username dérivé du local-part email avec
 -- suffixe _N en cas de collision. email_verified_at = now() pour ne
