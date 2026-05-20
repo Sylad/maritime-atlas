@@ -37,3 +37,4 @@ __pycache__/
 Thumbs.db
 @eaDir/
 frontend/package-lock.json
+.token-savior-cache.json

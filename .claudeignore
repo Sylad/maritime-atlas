@@ -91,3 +91,4 @@ docker-build-context.tar
 ~/.claude/
 .claude/cache/
 .claude-cache/
+.token-savior-cache.json
