@@ -379,7 +379,7 @@ function gibsDailyDate(): string {
       padding: 12px 28px 12px 14px !important;  /* right extra pour close button */
       font: 12px system-ui, -apple-system, sans-serif;
       max-width: 280px;
-      position: relative;
+      /* PAS de position: relative — cassait le transform du parent .maplibregl-popup. */
     }
     ::ng-deep .maplibregl-popup-tip {
       border-top-color: rgba(20, 24, 38, 0.95) !important;
@@ -455,7 +455,6 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
 
   ngOnDestroy(): void {
     if (this.rafHandle !== undefined) cancelAnimationFrame(this.rafHandle);
-    this._closeCurrentPopup();
     this.windEngine = undefined;
     this.windLayer = undefined;
     this.map?.remove();
@@ -778,78 +777,6 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     return grid;
   }
 
-  /** Custom HTML overlay popup positionnée au pixel cliqué.
-   *  Évite les bugs de positioning maplibregl.Popup sur projection globe.
-   *  Référence dans this._currentPopup pour pouvoir fermer la précédente. */
-  private _currentPopup?: HTMLDivElement;
-  private _showCustomPopup(map: MapLibreMap, x: number, y: number, html: string): void {
-    this._closeCurrentPopup();
-    const container = map.getContainer();
-    const div = document.createElement('div');
-    div.className = 'globe-custom-popup';
-    div.style.cssText = `
-      position: absolute;
-      left: ${x}px;
-      top: ${y}px;
-      transform: translate(-50%, calc(-100% - 14px));
-      z-index: 100;
-      pointer-events: auto;
-      background: rgba(20, 24, 38, 0.95);
-      color: #e6ecf3;
-      border: 1px solid #2a3245;
-      border-radius: 8px;
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-      padding: 10px 14px;
-      font: 12px system-ui, -apple-system, sans-serif;
-      max-width: 280px;
-      min-width: 200px;
-    `;
-    // Bouton close en absolute top-right
-    const closeBtn = document.createElement('button');
-    closeBtn.innerHTML = '×';
-    closeBtn.style.cssText = `
-      position: absolute;
-      top: 2px;
-      right: 4px;
-      width: 22px;
-      height: 22px;
-      padding: 0;
-      background: transparent;
-      border: 0;
-      color: #8a96a8;
-      font-size: 20px;
-      line-height: 1;
-      cursor: pointer;
-    `;
-    closeBtn.onmouseenter = () => (closeBtn.style.color = '#e6ecf3');
-    closeBtn.onmouseleave = () => (closeBtn.style.color = '#8a96a8');
-    closeBtn.onclick = () => this._closeCurrentPopup();
-    div.innerHTML = html;
-    div.appendChild(closeBtn);
-    // Petit triangle (tip) qui pointe vers le clic, sous la popup
-    const tip = document.createElement('div');
-    tip.style.cssText = `
-      position: absolute;
-      bottom: -7px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 0;
-      height: 0;
-      border-left: 7px solid transparent;
-      border-right: 7px solid transparent;
-      border-top: 7px solid rgba(20, 24, 38, 0.95);
-    `;
-    div.appendChild(tip);
-    container.appendChild(div);
-    this._currentPopup = div;
-  }
-  private _closeCurrentPopup(): void {
-    if (this._currentPopup) {
-      this._currentPopup.remove();
-      this._currentPopup = undefined;
-    }
-  }
-
   private _initMap(): void {
     const container = this.mapContainer().nativeElement;
     const map = new maplibregl.Map({
@@ -909,17 +836,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     map.on('click', (e) => {
       const allLayers = ['vec-vessels-clusters', 'vec-vessels-points', 'vec-lightning', 'vec-alerts'];
       const existing = allLayers.filter((id) => map.getLayer(id));
-      if (existing.length === 0) {
-        this._closeCurrentPopup();
-        return;
-      }
+      if (existing.length === 0) return;
 
       const features = map.queryRenderedFeatures(e.point, { layers: existing });
-      if (features.length === 0) {
-        // Click dans le vide → ferme la popup si ouverte
-        this._closeCurrentPopup();
-        return;
-      }
+      if (features.length === 0) return;  // closeOnClick MapLibre default = ferme
       const f = features[0];
       const layerId = f.layer.id;
       const p = (f.properties ?? {}) as Record<string, unknown>;
@@ -1006,11 +926,15 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       }
 
       if (html) {
-        // 2026-05-21 — Popup HTML custom overlay positionnée au pixel exact
-        // du clic, en remplacement de maplibregl.Popup qui se positionnait
-        // bizarrement sur projection globe (en bas du canvas hors zone visible).
-        // L'overlay est ajouté au map._container avec position absolute + transform.
-        this._showCustomPopup(map, e.point.x, e.point.y, html);
+        // Retour à maplibregl.Popup natif (Sylvain : 'MapLibre gère ça').
+        // L'ancien bug 'popup en bas hors map' venait de mon CSS override
+        // qui mettait position: relative sur .maplibregl-popup-content,
+        // ce qui cassait le transform du wrapper .maplibregl-popup parent.
+        const coords = (f.geometry as GeoJSON.Point).coordinates as [number, number];
+        new maplibregl.Popup({ closeButton: true, maxWidth: '280px', offset: 12 })
+          .setLngLat(coords)
+          .setHTML(html)
+          .addTo(map);
       }
     });
 
