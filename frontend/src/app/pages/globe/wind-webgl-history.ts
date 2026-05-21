@@ -274,7 +274,10 @@ void main() {
   vec2 px_a = (ndc_a * 0.5 + 0.5) * u_canvas_size;
   vec2 px_b = (ndc_b * 0.5 + 0.5) * u_canvas_size;
 
-  vec2 seg_dir = normalize(px_b - px_a + vec2(1e-6, 0.0));
+  vec2 px_delta = px_b - px_a;
+  float px_dist_sq = dot(px_delta, px_delta);
+
+  vec2 seg_dir = normalize(px_delta + vec2(1e-6, 0.0));
   vec2 seg_normal = vec2(-seg_dir.y, seg_dir.x);
 
   vec4 clip_pos = mix(clip_a, clip_b, a_t);
@@ -285,9 +288,17 @@ void main() {
 
   v_side = a_side;
   // Alpha gradient : tail (slot K-2 → K-1) = 0, head (slot 0 → 1) = 1.
-  // Pour 1 segment donné de slot_b à slot_a, alpha augmente le long de a_t
-  // (de slot_a vers slot_b = du vieux vers le neuf).
-  v_alpha = 1.0 - (sub_idx + (1.0 - a_t)) / segments_per_particle;
+  float base_alpha = 1.0 - (sub_idx + (1.0 - a_t)) / segments_per_particle;
+
+  // 2026-05-21 rev6 — Wrap detection EN PIXEL SPACE en plus du normalized.
+  // Le check normalized (collapse via pos_a = pos_b) catch ~98% des respawns.
+  // Mais sur la projection sphère, certains segments restent visibles en
+  // diagonale (~500-1000 px) malgré dist normalized OK. Ces "tirs lasers"
+  // disparaissent en testant la distance pixel projetée :
+  // tout segment > 100 px screen est forcément un wrap (advection normale
+  // par frame = 5-20 px). On set v_alpha=0 → quad transparent → invisible.
+  float pixel_wrap = step(px_dist_sq, 10000.0);  // 100² = 10000
+  v_alpha = base_alpha * pixel_wrap;
 }
 `;
 
