@@ -57,6 +57,11 @@ export const routes: Routes = [
     title: 'À propos · AetherWX',
   },
   {
+    path: 'globe',
+    loadComponent: () => import('./pages/globe/globe.component').then((m) => m.GlobeComponent),
+    title: 'Globe · AetherWX',
+  },
+  {
     path: '',
     loadComponent: () => import('./pages/map/map.component').then((m) => m.MapComponent),
     title: 'AetherWX',

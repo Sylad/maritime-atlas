@@ -1,0 +1,17 @@
+{
+  "/api": {
+    "target": "https://aetherwx.sladoire.dev",
+    "secure": false,
+    "changeOrigin": true
+  },
+  "/geoserver": {
+    "target": "https://aetherwx.sladoire.dev",
+    "secure": false,
+    "changeOrigin": true
+  },
+  "/wind-arrows": {
+    "target": "https://aetherwx.sladoire.dev",
+    "secure": false,
+    "changeOrigin": true
+  }
+}

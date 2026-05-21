@@ -172,6 +172,8 @@ function toIsoTimestamp(d: Date): string {
       <canvas #particlesEl class="wind-particles-canvas" [class.active]="showWindParticles()"></canvas>
 
       <div class="auth-corner">
+        <a routerLink="/globe" class="auth-link auth-globe-pill" title="Vue 3D — spike">🌍 Globe 3D</a>
+        <span class="auth-sep">·</span>
         <a routerLink="/about" class="auth-link" title="À propos du projet">À propos</a>
         <span class="auth-sep">·</span>
         @if (currentUser(); as u) {
@@ -1669,6 +1671,14 @@ function toIsoTimestamp(d: Date): string {
       font-family: var(--font-mono);
       font-size: 0.6rem;
       letter-spacing: 0.15em;
+    }
+    .auth-globe-pill {
+      display: inline-block;
+      padding: 1px 8px;
+      border: 1px solid hsl(190 80% 55% / 0.6);
+      border-radius: 4px;
+      background: hsl(190 80% 55% / 0.08);
+      font-size: 0.72rem;
     }
     .auth-sep { color: var(--fg-dim); }
     .auth-btn {
