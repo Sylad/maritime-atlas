@@ -451,9 +451,12 @@ export class WindWebGL {
     // extrusion : chaque segment = trait continu vrai, plus de problème de
     // pointillé. Réduit le draw count (2× moins de quads à dessiner).
     this.kSteps = opts.kSteps ?? 5;
-    // Épaisseur du trait en pixels. 2.0 = trait fin lisible. À monter à 2.5-3
-    // si on veut un rendu plus marqué.
-    this.lineWidth = opts.lineWidth ?? 2.0;
+    // Épaisseur du trait en pixels. Calibration visuelle Sylvain :
+    //   2.0 → "beaucoup trop fin" (rev3 initial, illisible à zoom large)
+    //   3.5 → bon compromis (rev4 retenu)
+    // Note : l'AA fade smoothstep 0.7→1.0 mange ~30% du width visible. Donc
+    // largeur opaque centrale ≈ lineWidth × 0.7.
+    this.lineWidth = opts.lineWidth ?? 3.5;
 
     this.screenProgram = createProgram(gl, quadVert, screenFrag);
     this.updateProgram = createProgram(gl, quadVert, updateFrag);
