@@ -794,6 +794,93 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
     map.on('resize', () => this.windEngine?.resize());
 
+    // 2026-05-21 — Popups click sur vessels / lightning / alerts.
+    // Pattern MapLibre standard : queryRenderedFeatures sur le pixel cliqué,
+    // détecte la layer source, build HTML avec props feature, ouvre Popup.
+    // Cluster vessels → zoom-in au lieu de popup (comme /map OL prod).
+    map.on('click', (e) => {
+      const allLayers = ['vec-vessels-clusters', 'vec-vessels-points', 'vec-lightning', 'vec-alerts'];
+      const existing = allLayers.filter((id) => map.getLayer(id));
+      if (existing.length === 0) return;
+
+      const features = map.queryRenderedFeatures(e.point, { layers: existing });
+      if (features.length === 0) return;
+      const f = features[0];
+      const layerId = f.layer.id;
+      const p = (f.properties ?? {}) as Record<string, unknown>;
+
+      // Cluster vessel → zoom-in (pas de popup)
+      if (layerId === 'vec-vessels-clusters') {
+        const clusterId = p['cluster_id'];
+        const src = map.getSource(f.source) as maplibregl.GeoJSONSource & {
+          getClusterExpansionZoom?: (id: number) => Promise<number>;
+        };
+        if (typeof clusterId === 'number' && src.getClusterExpansionZoom) {
+          src.getClusterExpansionZoom(clusterId).then((zoom: number) => {
+            const coords = (f.geometry as GeoJSON.Point).coordinates as [number, number];
+            map.easeTo({ center: coords, zoom });
+          });
+        }
+        return;
+      }
+
+      // Build popup HTML selon le type de layer
+      let html = '';
+      if (layerId === 'vec-vessels-points') {
+        const name = p['vessel_name'] || p['name'] || '';
+        const mmsi = p['mmsi'] ?? '?';
+        const sog = p['sog'] != null ? `${p['sog']} kn` : '—';
+        const cog = p['cog'] != null ? `${p['cog']}°` : (p['heading'] != null ? `${p['heading']}°` : '—');
+        const lastSeen = p['last_seen'] || p['ts'] || '';
+        html = `
+          <div style="font: 12px system-ui, sans-serif; color: #0f172a;">
+            <strong style="font-size:13px">${name || `MMSI ${mmsi}`}</strong><br/>
+            <span style="color:#64748b">MMSI :</span> ${mmsi}<br/>
+            <span style="color:#64748b">Vitesse :</span> ${sog}<br/>
+            <span style="color:#64748b">Cap :</span> ${cog}<br/>
+            <span style="color:#64748b">Dernier signal :</span> ${lastSeen}
+          </div>`;
+      } else if (layerId === 'vec-lightning') {
+        const ts = p['ts'] || '';
+        const strength = p['strength'] != null ? `${p['strength']}` : '—';
+        html = `
+          <div style="font: 12px system-ui, sans-serif; color: #0f172a;">
+            <strong>⚡ Foudre</strong><br/>
+            <span style="color:#64748b">Heure :</span> ${ts}<br/>
+            <span style="color:#64748b">Intensité :</span> ${strength}
+          </div>`;
+      } else if (layerId === 'vec-alerts') {
+        const kind = p['kind'] || '?';
+        const severity = p['severity'] || '?';
+        const target = p['vessel_name'] || (p['mmsi'] ? `MMSI ${p['mmsi']}` : '');
+        const ts = p['ts'] || '';
+        const colorMap: Record<string, string> = { danger: '#dc2626', warning: '#f97316', info: '#38bdf8' };
+        const color = colorMap[severity as string] ?? '#94a3b8';
+        html = `
+          <div style="font: 12px system-ui, sans-serif; color: #0f172a;">
+            <strong style="color:${color}">⚠ ${kind}</strong> <span style="text-transform:uppercase;font-size:10px;color:${color}">(${severity})</span><br/>
+            ${target ? `<span style="color:#64748b">Cible :</span> ${target}<br/>` : ''}
+            <span style="color:#64748b">Heure :</span> ${ts}
+          </div>`;
+      }
+
+      if (html) {
+        new maplibregl.Popup({ closeButton: true, maxWidth: '260px' })
+          .setLngLat(e.lngLat)
+          .setHTML(html)
+          .addTo(map);
+      }
+    });
+
+    // Cursor pointer sur hover (UX feedback que c'est cliquable)
+    const setCursor = (cursor: string) => () => {
+      map.getCanvas().style.cursor = cursor;
+    };
+    for (const layerId of ['vec-vessels-clusters', 'vec-vessels-points', 'vec-lightning', 'vec-alerts']) {
+      map.on('mouseenter', layerId, setCursor('pointer'));
+      map.on('mouseleave', layerId, setCursor(''));
+    }
+
     this.map = map;
   }
 
