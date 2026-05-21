@@ -157,13 +157,17 @@ void main() {
     float outOfBounds = step(pos.x, 0.0) + step(1.0, pos.x)
                       + step(pos.y, 0.0) + step(1.0, pos.y);
 
-    // TTL déterministe : drop quand age >= MAX_TTL. Donne à TOUTES les
-    // particules la même durée de vie (rev8 — Sylvain : "particules qui ont
-    // une durée de vie beaucoup plus courte que leur voisins à même vitesse").
-    // Le précédent drop random (rate ~0.005/frame) avait une distribution
-    // exponentielle → variance énorme (std deviation ~MAX_TTL).
-    float age_prev = texture(u_age_in, dst_pixel / history_size).r * 255.0;
-    float ttl_drop = step(u_max_ttl, age_prev);
+    // TTL par particule. Canal R = age (frames depuis respawn), Canal G =
+    // ttl_target (durée de vie de cette particule en frames). À chaque
+    // respawn, ttl_target = random ∈ [MAX_TTL - 50, MAX_TTL]. Désync
+    // s'accumule sur cycles sans toucher age_reset (qui reste 0 strict
+    // pour ne PAS dessiner les segments d'historique pré-respawn = lasers).
+    vec4 age_color = texture(u_age_in, dst_pixel / history_size);
+    float age_prev = age_color.r * 255.0;
+    float ttl_target_prev = age_color.g * 255.0;
+    // Si ttl_target_prev == 0 (init pas encore fait), use full MAX_TTL.
+    float ttl_target_safe = max(ttl_target_prev, 1.0);
+    float ttl_drop = step(ttl_target_safe, age_prev);
     float drop = clamp(outOfBounds + ttl_drop, 0.0, 1.0);
 
     vec2 random_pos = vec2(rand(seed + 1.3), rand(seed + 2.1));
@@ -171,14 +175,15 @@ void main() {
 
     fragPos = encode_pos(pos);
 
-    // Age tracking : reset à un random ∈ [0, 30] si drop, sinon increment.
-    // Random modéré pour désynchroniser les respawns entre particules
-    // (sinon effet "battement de coeur" — Sylvain rev8 : "toutes les
-    // particules s'éteignent en même temps"). 30/200 = 15% de variance
-    // sur durée de vie. Cumul sur plusieurs cycles → désynchro totale.
-    float reset_offset = rand(seed + 5.7) * 30.0;
-    float age_new = mix(min(age_prev + 1.0, 255.0), reset_offset, drop);
-    fragAge = vec4(age_new / 255.0, 0.0, 0.0, 1.0);
+    // Age = 0 strict au respawn (historique sera invalidé via age_valid
+    // dans draw shader pendant K_HISTORY frames → pas de laser pointant
+    // vers les vieilles positions).
+    float age_new = mix(min(age_prev + 1.0, 255.0), 0.0, drop);
+    // ttl_target = nouveau random ∈ [MAX_TTL - 50, MAX_TTL] au respawn,
+    // conservé sinon. Désync naturelle entre particules sur cycles successifs.
+    float new_ttl = u_max_ttl - rand(seed + 7.3) * 50.0;
+    float ttl_target_new = mix(ttl_target_prev, new_ttl, drop);
+    fragAge = vec4(age_new / 255.0, ttl_target_new / 255.0, 0.0, 1.0);
   } else {
     // Slot k > 0 : shift à droite (copie slot k-1 de history_in pour pos
     // ET pour age — peu importe car on lit age uniquement au slot 0 dans draw).
@@ -562,17 +567,18 @@ export class WindWebGL {
     this.historyA = createTexture(gl, gl.NEAREST, data, historyWidth, historyHeight);
     this.historyB = createTexture(gl, gl.NEAREST, data, historyWidth, historyHeight);
 
-    // Age textures : init à un random ∈ [K_HISTORY, MAX_TTL] par particule
-    // pour déphaser dès le démarrage (sinon toutes les particules respawn
-    // au même moment au premier cycle → "battement de coeur"). Min = K_HISTORY
-    // pour que toutes les particules soient immédiatement visibles (l'historique
-    // n'a pas encore K_HISTORY frames de positions vraies, mais les segments
-    // s'invalident un par un via age_valid step).
+    // Age textures :
+    //   Canal R = age (frames depuis respawn). Init = K_HISTORY pour que
+    //     toutes les particules soient immédiatement visibles au démarrage.
+    //   Canal G = ttl_target (durée de vie). Init = random ∈ [MAX_TTL-50, MAX_TTL]
+    //     pour déphaser les respawns dès le 1er cycle (sinon battement coeur).
     const ageData = new Uint8Array(historyWidth * historyHeight * 4);
-    const minAge = K_HISTORY;
-    const maxAgeInit = Math.min(this.maxTtl, 255);
+    const initAge = Math.min(K_HISTORY, 255);
+    const ttlMax = Math.min(this.maxTtl, 255);
+    const ttlMin = Math.max(ttlMax - 50, 1);
     for (let i = 0; i < ageData.length; i += 4) {
-      ageData[i] = minAge + Math.floor(Math.random() * (maxAgeInit - minAge));
+      ageData[i] = initAge;
+      ageData[i + 1] = ttlMin + Math.floor(Math.random() * (ttlMax - ttlMin));
     }
     if (this.ageA) gl.deleteTexture(this.ageA);
     if (this.ageB) gl.deleteTexture(this.ageB);
