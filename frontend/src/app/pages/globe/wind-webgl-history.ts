@@ -63,8 +63,9 @@ interface ProgramWrapper {
   [k: string]: WebGLProgram | WebGLUniformLocation | number | null | undefined;
 }
 
-// Nombre de slots historiques par particule. Match canvas 2D OL trailLength=28.
-const K_HISTORY = 28;
+// Nombre de slots historiques par particule. Canvas 2D OL = trailLength=28.
+// Sylvain a demandé trails plus longs sans toucher speedFactor → bump à 50.
+const K_HISTORY = 50;
 
 // ─── Update fragment shader ─────────────────────────────────────────────
 // Ring buffer shift : à chaque frame, pour chaque pixel (x, y) :
@@ -247,14 +248,14 @@ void main() {
   vec2 pos_b = decode_pos(texture(u_history, uv_b));
 
   // Wrap detection : si distance entre 2 slots historiques trop grande
-  // → particule a respawn entre ces 2 frames → collapse segment.
-  // Threshold 0.05 = dist 0.22 normalized = ~22% du bbox = environ 10° lon
-  // ou 7° lat sur bbox Europe. Une advection normale par frame fait
-  // ~1e-5 → bien en-dessous. Une respawn random fait ~0.3-0.7 → bien
-  // au-dessus → détectée. (Précédent 0.25 = 50% trop permissif, ratait
-  // les respawn vers positions modérément éloignées → trails géants.)
+  // → particule a respawn → collapse segment.
+  // Threshold 0.005 = dist 0.07 normalized = ~7% du bbox. Advection normale
+  // par frame ≈ 0.0007 (5e-7 squared) ≪ 0.005 → jamais collapse une advection
+  // valide. Respawns rate ~98.5% (manque les ~1.5% où respawn à <7% bbox de
+  // l'ancienne position). Précédent 0.05 = 22% trop permissif → encore des
+  // "tirs de laser" flagués par Sylvain.
   vec2 delta = pos_b - pos_a;
-  if (dot(delta, delta) > 0.05) {
+  if (dot(delta, delta) > 0.005) {
     pos_a = pos_b;
   }
 
