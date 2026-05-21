@@ -50,7 +50,7 @@ const DEFAULT_WIND_PARTICLES = 3000;
 
 /** Catalogue satellite — mirror partiel de map.component.SAT_PRODUCTS +
  *  CASCADE_PRODUCTS. Tous les layers sont sur GeoServer workspace `maritime`
- *  derrière /geoserver/maritime/wms.
+ *  derrière /geoserver/aetherwx/wms.
  *  - NASA GIBS : `time` = jour YYYY-MM-DD (J-1 capped, lag ~24h).
  *  - Cascade EUMETSAT/radar : `time` = ISO horodatée (snap quasi-NRT).
  *  - `none` = pas de sat (default).
@@ -443,7 +443,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         map.addSource(sourceId, {
           type: 'raster',
           tiles: [
-            '/geoserver/maritime/wms' +
+            '/geoserver/aetherwx/wms' +
               '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
               '&LAYERS=aetherwx:sst-daily&STYLES=&FORMAT=image/png&TRANSPARENT=true' +
               '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256',
@@ -629,7 +629,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         : new Date(Date.now() - 5 * 60_000).toISOString().split('.')[0] + 'Z';
 
     const url =
-      '/geoserver/maritime/wms' +
+      '/geoserver/aetherwx/wms' +
       '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
       `&LAYERS=aetherwx:${product.gsName}` +
       `&TIME=${encodeURIComponent(timeParam)}` +

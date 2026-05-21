@@ -63,7 +63,7 @@ export interface TracksFeatureCollection {
 @Injectable({ providedIn: 'root' })
 export class VesselsService {
   private readonly http = inject(HttpClient);
-  private readonly wfsUrl = '/geoserver/maritime/ows';
+  private readonly wfsUrl = '/geoserver/aetherwx/ows';
 
   /**
    * Positions live filtrées sur les `windowSecs` dernières secondes avant `at`

@@ -39,7 +39,7 @@ export interface AlertsFeatureCollection {
 @Injectable({ providedIn: 'root' })
 export class AlertsService {
   private readonly http = inject(HttpClient);
-  private readonly wfsUrl = '/geoserver/maritime/ows';
+  private readonly wfsUrl = '/geoserver/aetherwx/ows';
 
   readonly latestAlerts = signal<AlertProperties[]>([]);
 

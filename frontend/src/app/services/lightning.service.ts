@@ -35,7 +35,7 @@ export interface LightningFeatureCollection {
 @Injectable({ providedIn: 'root' })
 export class LightningService {
   private readonly http = inject(HttpClient);
-  private readonly wfsUrl = '/geoserver/maritime/ows';
+  private readonly wfsUrl = '/geoserver/aetherwx/ows';
 
   /**
    * Récupère les strikes dans la fenêtre `[at - windowSecs, at]`.

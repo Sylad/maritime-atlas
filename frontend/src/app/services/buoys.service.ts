@@ -77,7 +77,7 @@ export interface BuoyObservationFeatureCollection {
 @Injectable({ providedIn: 'root' })
 export class BuoysService {
   private readonly http = inject(HttpClient);
-  private readonly wfsUrl = '/geoserver/maritime/ows';
+  private readonly wfsUrl = '/geoserver/aetherwx/ows';
 
   fetchReferential(): Observable<BuoyFeatureCollection> {
     return this.http.get<BuoyFeatureCollection>(this.wfsUrl, {

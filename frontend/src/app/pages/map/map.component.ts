@@ -4455,7 +4455,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   legendGraphicUrl(key: string): string | null {
     const layer = this.animatableLayers.find((l) => l.key === key);
     if (!layer || layer.type !== 'wms' || !layer.gsLayerName) return null;
-    return `/geoserver/maritime/wms?REQUEST=GetLegendGraphic&VERSION=1.0.0&FORMAT=image/png&WIDTH=20&HEIGHT=120&LEGEND_OPTIONS=fontColor:0xffffff;fontAntiAliasing:true;bgColor:0x0f172a;dpi:96&LAYER=${encodeURIComponent(layer.gsLayerName)}`;
+    return `/geoserver/aetherwx/wms?REQUEST=GetLegendGraphic&VERSION=1.0.0&FORMAT=image/png&WIDTH=20&HEIGHT=120&LEGEND_OPTIONS=fontColor:0xffffff;fontAntiAliasing:true;bgColor:0x0f172a;dpi:96&LAYER=${encodeURIComponent(layer.gsLayerName)}`;
   }
 
   /** 2026-05-20 — UX mode-aware (toggles grayés + tooltip selon mode cursor).
@@ -5047,7 +5047,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         // 2026-05-19 APEX 15 — retry avec exponential backoff. GS peut renvoyer
         // 502 transient pendant son boot/GC, ce qui laissait validityListPerLayer
         // vide pour le master courant → loading state permanent + nav buttons KO.
-        const url = '/geoserver/maritime/wms?service=WMS&version=1.3.0&request=GetCapabilities';
+        const url = '/geoserver/aetherwx/wms?service=WMS&version=1.3.0&request=GetCapabilities';
         let xml: string | null = null;
         for (let attempt = 1; attempt <= 4; attempt++) {
           try {
@@ -6926,7 +6926,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     }
     if (!master.gsLayerName) return [];
     try {
-      const url = `/geoserver/maritime/wms?service=WMS&version=1.3.0&request=GetCapabilities`;
+      const url = `/geoserver/aetherwx/wms?service=WMS&version=1.3.0&request=GetCapabilities`;
       const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
       if (!resp.ok) throw new Error(`GetCapabilities HTTP ${resp.status}`);
       const xml = await resp.text();
@@ -6950,7 +6950,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
    *  veut afficher dans la time-bar (la time-bar pilote la validité). */
   private parseTimeDimension(xml: string, layerName: string): Date[] {
     // GS expose <Name>sst-daily</Name> sans préfixe quand on est sur
-    // le virtual host workspace /geoserver/maritime/. On strip le prefix.
+    // le virtual host workspace /geoserver/aetherwx/. On strip le prefix.
     const shortName = layerName.replace(/^aetherwx:/, '');
     const doc = new DOMParser().parseFromString(xml, 'application/xml');
     if (doc.querySelector('parsererror')) return [];
@@ -7202,7 +7202,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // à GeoServer un sur-échantillonnage ×40+ qui sature le pod et
     // produit des timeouts (Cloudflare tunnel 100s max). Bug 2026-05-14.
     this.sstSource = new ImageWMS({
-      url: '/geoserver/maritime/wms',
+      url: '/geoserver/aetherwx/wms',
       projection: 'EPSG:3857',
       ratio: 1.0,  // 1.2 → 1.0 (Sylvain 2026-05-14 soir) — évite OOM heap GS
       params: {
@@ -7238,7 +7238,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // "on utilise pas IDW sur les rasters, utilise bicubic comme le raster
     // pour les isolines").
     this.sstContoursSource = new ImageWMS({
-      url: '/geoserver/maritime/wms',
+      url: '/geoserver/aetherwx/wms',
       projection: 'EPSG:3857',
       ratio: 1.0,
       params: {
@@ -7277,7 +7277,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // excessif même sur AROME. Le LAYERS bascule dynamique (GFS/ARPEGE/
     // AROME), on prend la borne sécurisée pour la moins fine.
     this.windWmsSource = new ImageWMS({
-      url: '/geoserver/maritime/wms',
+      url: '/geoserver/aetherwx/wms',
       projection: 'EPSG:3857',
       ratio: 1.0,  // 1.2 → 1.0 (Sylvain 2026-05-14 soir) — évite OOM heap GS
       params: { LAYERS: initialWindLayer, TRANSPARENT: true, INTERPOLATIONS: 'bicubic' },
@@ -7299,7 +7299,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // standard, pas IDW). Pattern SST. INTERPOLATIONS=bicubic IDENTIQUE
     // au raster windWmsSource → contours alignés sur les couleurs.
     this.windContoursSource = new ImageWMS({
-      url: '/geoserver/maritime/wms',
+      url: '/geoserver/aetherwx/wms',
       projection: 'EPSG:3857',
       ratio: 1.0,
       params: {
@@ -7327,7 +7327,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // Cap zoom 7 : NOAA WaveWatch III a une résolution native 0.5°
     // (~55 km/pixel). zoom 7 = ~1.2 km/pixel, déjà ×45 sur-échantillonnage.
     this.wavesSource = new ImageWMS({
-      url: '/geoserver/maritime/wms',
+      url: '/geoserver/aetherwx/wms',
       projection: 'EPSG:3857',
       ratio: 1.0,  // 1.2 → 1.0 (Sylvain 2026-05-14 soir) — évite OOM heap GS
       params: { LAYERS: 'aetherwx:wave-hs', TRANSPARENT: true, INTERPOLATIONS: 'bicubic' },
@@ -7347,7 +7347,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
     // Waves contours dédiée (SLD wave-hs-contours-only) — pattern SST/wind.
     this.wavesContoursSource = new ImageWMS({
-      url: '/geoserver/maritime/wms',
+      url: '/geoserver/aetherwx/wms',
       projection: 'EPSG:3857',
       ratio: 1.0,
       params: {
@@ -7470,7 +7470,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     const initialDate = this.currentSatDate();
     this.SAT_PRODUCTS.forEach((p, idx) => {
       const src = new TileWMS({
-        url: '/geoserver/maritime/wms',
+        url: '/geoserver/aetherwx/wms',
         params: {
           LAYERS: `aetherwx:${p.gsName}`,
           TIME: initialDate,
@@ -7508,7 +7508,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     ];
     CASCADE_PRODUCTS.forEach((p, idx) => {
       const src = new TileWMS({
-        url: '/geoserver/maritime/wms',
+        url: '/geoserver/aetherwx/wms',
         params: {
           LAYERS: `aetherwx:${p.gsName}`,
           TIME: initialTime,
