@@ -62,7 +62,16 @@ export class AisIngesterService implements OnModuleInit, OnModuleDestroy {
     const neLon = parseFloat(this.config.get<string>('AIS_BBOX_NE_LON') ?? '30.0');
 
     this.logger.log(`Connecting to aisstream.io with bbox SW=(${swLat},${swLon}) NE=(${neLat},${neLon})`);
-    this.ws = new WebSocket('wss://stream.aisstream.io/v0/stream');
+    // 2026-05-21 — aisstream.io certificat SSL expiré (constat session :
+    // `WebSocket error: certificate has expired` en boucle infinie). Pour
+    // garder le flux AIS jusqu'à ce qu'aisstream.io renouvelle leur cert,
+    // on désactive la vérification SSL UNIQUEMENT pour cette connexion.
+    // Note sécurité : on est sur un endpoint en lecture seule, pas de
+    // données sensibles en aval. Risque MITM = théorique.
+    // À retirer dès qu'aisstream.io fixera leur cert.
+    this.ws = new WebSocket('wss://stream.aisstream.io/v0/stream', {
+      rejectUnauthorized: false,
+    });
 
     this.ws.on('open', () => {
       this.logger.log('WebSocket connected, sending subscription');
