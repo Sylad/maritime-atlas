@@ -446,6 +446,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
             '/geoserver/aetherwx/wms' +
               '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
               '&LAYERS=aetherwx:sst-daily&STYLES=&FORMAT=image/png&TRANSPARENT=true' +
+              // 2026-05-21 — INTERPOLATIONS=bicubic param GS vendor pour
+              // interpolation raster côté serveur (anti-pixellisation). Match
+              // ce que la /map prod fait. Cf [[geoserver_wms_interpolations_param]].
+              '&INTERPOLATIONS=bicubic' +
               '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256',
           ],
           tileSize: 256,
