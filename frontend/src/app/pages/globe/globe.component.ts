@@ -367,6 +367,32 @@ function gibsDailyDate(): string {
       font-family: ui-monospace, monospace;
       font-size: 12px;
     }
+
+    /* Override MapLibre popup pour matcher le thème dark du site.
+       Le default MapLibre est fond blanc + texte noir = invisible ici. */
+    ::ng-deep .maplibregl-popup-content {
+      background: rgba(20, 24, 38, 0.95) !important;
+      color: #e6ecf3 !important;
+      border: 1px solid #2a3245;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+      padding: 12px 14px !important;
+      font: 12px system-ui, -apple-system, sans-serif;
+      max-width: 280px;
+    }
+    ::ng-deep .maplibregl-popup-tip {
+      border-top-color: rgba(20, 24, 38, 0.95) !important;
+      border-bottom-color: rgba(20, 24, 38, 0.95) !important;
+    }
+    ::ng-deep .maplibregl-popup-close-button {
+      color: #8a96a8;
+      font-size: 16px;
+      padding: 0 8px;
+    }
+    ::ng-deep .maplibregl-popup-close-button:hover {
+      color: #e6ecf3;
+      background: transparent;
+    }
   `,
 })
 export class GlobeComponent implements AfterViewInit, OnDestroy {
@@ -833,7 +859,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         const cog = p['cog'] != null ? `${p['cog']}°` : (p['heading'] != null ? `${p['heading']}°` : '—');
         const lastSeen = p['last_seen'] || p['ts'] || '';
         html = `
-          <div style="font: 12px system-ui, sans-serif; color: #0f172a;">
+          <div style="font: 12px system-ui, sans-serif; color: #e6ecf3;">
             <strong style="font-size:13px">${name || `MMSI ${mmsi}`}</strong><br/>
             <span style="color:#64748b">MMSI :</span> ${mmsi}<br/>
             <span style="color:#64748b">Vitesse :</span> ${sog}<br/>
@@ -844,7 +870,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         const ts = p['ts'] || '';
         const strength = p['strength'] != null ? `${p['strength']}` : '—';
         html = `
-          <div style="font: 12px system-ui, sans-serif; color: #0f172a;">
+          <div style="font: 12px system-ui, sans-serif; color: #e6ecf3;">
             <strong>⚡ Foudre</strong><br/>
             <span style="color:#64748b">Heure :</span> ${ts}<br/>
             <span style="color:#64748b">Intensité :</span> ${strength}
@@ -857,7 +883,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         const colorMap: Record<string, string> = { danger: '#dc2626', warning: '#f97316', info: '#38bdf8' };
         const color = colorMap[severity as string] ?? '#94a3b8';
         html = `
-          <div style="font: 12px system-ui, sans-serif; color: #0f172a;">
+          <div style="font: 12px system-ui, sans-serif; color: #e6ecf3;">
             <strong style="color:${color}">⚠ ${kind}</strong> <span style="text-transform:uppercase;font-size:10px;color:${color}">(${severity})</span><br/>
             ${target ? `<span style="color:#64748b">Cible :</span> ${target}<br/>` : ''}
             <span style="color:#64748b">Heure :</span> ${ts}
