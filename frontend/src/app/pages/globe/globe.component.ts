@@ -370,6 +370,13 @@ function gibsDailyDate(): string {
 
     /* Override MapLibre popup pour matcher le thème dark du site.
        Le default MapLibre est fond blanc + texte noir = invisible ici. */
+    /* CRITIQUE : forcer position: absolute sur le wrapper. MapLibre default est
+       absolute mais semble override en static (probably Tailwind reset ou autre).
+       Sans absolute, le transform calculé par MapLibre est ignoré → la popup
+       tombe en flow naturel en bas du map-container (bug "popup hors map"). */
+    ::ng-deep .maplibregl-popup {
+      position: absolute !important;
+    }
     ::ng-deep .maplibregl-popup-content {
       background: rgba(20, 24, 38, 0.95) !important;
       color: #e6ecf3 !important;
