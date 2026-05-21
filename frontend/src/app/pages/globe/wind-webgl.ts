@@ -13,7 +13,7 @@
  *
  * Defaults retenus après tuning visuel Sylvain :
  *   fadeOpacity=0.99, speedFactor=0.06, dropRate=0.005, dropRateBump=0,
- *   kSteps=5, gl_PointSize=1.5
+ *   kSteps=10, gl_PointSize=3.5 (rev2 anti-rectangles : K densifié + overlap garanti)
  *
  * Le bbox est un [minLon, minLat, maxLon, maxLat] sur lequel les particules
  * sont confinées et au-delà duquel elles respawn aléatoirement.
@@ -114,11 +114,14 @@ void main() {
   float age_frames = texture(u_particles_age, uv).r * 255.0;
   v_age_fade = clamp(age_frames / 20.0, 0.0, 1.0);
 
-  // 2026-05-21 — point size 2.5 + AA smoothstep dans drawFrag = trails
-  // visuellement aussi lisses que canvas 2D (lineTo a un AA natif). 1.5
-  // était trop petit pour laisser room au gradient AA (smoothstep 0.4→0.5
+  // 2026-05-21 rev2 — point size 3.5 + K=10 sub-steps (cf this.kSteps).
+  // À 144 FPS avec vent rapide, distance par frame ≈ 8-12 px en zoom moyen.
+  // K=10 sub-steps × 3.5 px pointSize avec AA fade = overlap garanti entre
+  // sous-points consécutifs → trail visuellement continu, plus de "spermatozoïdes"
+  // (pointillé visible quand sub-points trop espacés vs pointSize).
+  // 1.5 était trop petit pour laisser room au gradient AA (smoothstep 0.4→0.5
   // sur 1.5 pixels ≈ 0.15 px de fade = invisible).
-  gl_PointSize = 2.5;
+  gl_PointSize = 3.5;
   gl_Position = projectTile(mercator);
 }
 `;
@@ -388,7 +391,7 @@ export class WindWebGL {
     this.speedFactor = opts.speedFactor ?? 0.06;
     this.dropRate = opts.dropRate ?? 0.005;
     this.dropRateBump = opts.dropRateBump ?? 0.0;
-    this.kSteps = opts.kSteps ?? 5;
+    this.kSteps = opts.kSteps ?? 10;
 
     this.screenProgram = createProgram(gl, quadVert, screenFrag);
     this.updateProgram = createProgram(gl, quadVert, updateFrag);
