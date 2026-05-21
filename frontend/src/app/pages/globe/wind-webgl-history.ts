@@ -330,15 +330,18 @@ void main() {
   // segment → invalide (v_alpha = 0). Donne l'effet "particule dead jusqu'à
   // respawn ailleurs". Robuste vs wrap_detection qui peut rater des cas.
   vec2 age_uv = vec2(local_x + 0.5, local_y + 0.5) / history_size;
-  float age = texture(u_age, age_uv).r * 255.0;
+  vec4 age_color = texture(u_age, age_uv);
+  float age = age_color.r * 255.0;
+  float ttl_target = age_color.g * 255.0;
   float age_valid = step(sub_idx + 1.0, age);
 
-  // Fade in/out 40 frames (rev12) — au lieu de 20. Transition plus douce
-  // aux extrémités du cycle de vie → réduit la perception "clignotement"
-  // flaggée par Sylvain. À 144 FPS, 40 frames = ~280 ms = transition
-  // douce mais imperceptible si fond avec autres particules.
+  // Fade in/out 40 frames. Le fade_out doit se caler sur ttl_target (le
+  // moment de respawn effectif de cette particule) et NON sur u_max_ttl.
+  // Sinon les particules avec ttl_target < u_max_ttl respawn AVANT que le
+  // fade_out ne commence → disparition brutale (Sylvain : "particules
+  // disparaissent direct, pas de fade-out").
   float fade_in = clamp(age / 40.0, 0.0, 1.0);
-  float fade_out = clamp((u_max_ttl - age) / 40.0, 0.0, 1.0);
+  float fade_out = clamp((ttl_target - age) / 40.0, 0.0, 1.0);
   float life_fade = min(fade_in, fade_out);
 
   v_alpha = base_alpha * pixel_wrap * age_valid * life_fade;
