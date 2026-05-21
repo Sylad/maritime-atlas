@@ -376,22 +376,31 @@ function gibsDailyDate(): string {
       border: 1px solid #2a3245;
       border-radius: 8px;
       box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-      padding: 12px 14px !important;
+      padding: 12px 28px 12px 14px !important;  /* right extra pour close button */
       font: 12px system-ui, -apple-system, sans-serif;
       max-width: 280px;
+      position: relative;
     }
     ::ng-deep .maplibregl-popup-tip {
       border-top-color: rgba(20, 24, 38, 0.95) !important;
       border-bottom-color: rgba(20, 24, 38, 0.95) !important;
+      border-left-color: rgba(20, 24, 38, 0.95) !important;
+      border-right-color: rgba(20, 24, 38, 0.95) !important;
     }
     ::ng-deep .maplibregl-popup-close-button {
-      color: #8a96a8;
-      font-size: 16px;
-      padding: 0 8px;
+      position: absolute !important;
+      top: 4px !important;
+      right: 6px !important;
+      color: #8a96a8 !important;
+      font-size: 18px !important;
+      line-height: 1;
+      padding: 2px 6px !important;
+      background: transparent !important;
+      border: 0 !important;
     }
     ::ng-deep .maplibregl-popup-close-button:hover {
-      color: #e6ecf3;
-      background: transparent;
+      color: #e6ecf3 !important;
+      background: transparent !important;
     }
   `,
 })
