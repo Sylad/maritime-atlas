@@ -114,7 +114,11 @@ void main() {
   float age_frames = texture(u_particles_age, uv).r * 255.0;
   v_age_fade = clamp(age_frames / 20.0, 0.0, 1.0);
 
-  gl_PointSize = 1.5;
+  // 2026-05-21 — point size 2.5 + AA smoothstep dans drawFrag = trails
+  // visuellement aussi lisses que canvas 2D (lineTo a un AA natif). 1.5
+  // était trop petit pour laisser room au gradient AA (smoothstep 0.4→0.5
+  // sur 1.5 pixels ≈ 0.15 px de fade = invisible).
+  gl_PointSize = 2.5;
   gl_Position = projectTile(mercator);
 }
 `;
@@ -146,7 +150,14 @@ void main() {
                         min(v_particle_pos.y, 1.0 - v_particle_pos.y));
   float edge_fade = smoothstep(0.0, 0.1, edge_dist);
 
-  fragColor = vec4(color.rgb, color.a * edge_fade * v_age_fade);
+  // 2026-05-21 — Anti-aliasing point : transforme le quad rasterisé hard-edge
+  // (carré 2.5x2.5 px) en disque AA. gl_PointCoord = uv du point [0,1]², on
+  // calcule la distance au centre (0.5,0.5) et on fade alpha de 0.40 → 0.50.
+  // Donne le même rendu lisse que canvas 2D ctx.lineTo (AA natif).
+  vec2 coord = gl_PointCoord - vec2(0.5);
+  float point_aa = 1.0 - smoothstep(0.40, 0.50, length(coord));
+
+  fragColor = vec4(color.rgb, color.a * edge_fade * v_age_fade * point_aa);
 }
 `;
 
