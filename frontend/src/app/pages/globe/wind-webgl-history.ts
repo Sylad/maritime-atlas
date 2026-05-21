@@ -82,6 +82,7 @@ const updateFrag = `#version 300 es
 precision highp float;
 
 uniform sampler2D u_history_in;
+uniform sampler2D u_age_in;
 uniform sampler2D u_wind;
 uniform vec2 u_wind_res;
 uniform vec2 u_wind_min;
@@ -95,7 +96,10 @@ uniform float u_particle_res;
 uniform float u_k_history;
 
 in vec2 v_tex_pos;
-out vec4 fragOut;
+// MRT : location=0 = position, location=1 = age (frames depuis dernière respawn).
+// Age stocké en R canal (uint8 → 0-255 frames).
+layout(location = 0) out vec4 fragPos;
+layout(location = 1) out vec4 fragAge;
 
 const vec3 rand_constants = vec3(12.9898, 78.233, 4375.85453);
 float rand(const vec2 co) {
@@ -158,12 +162,19 @@ void main() {
     vec2 random_pos = vec2(rand(seed + 1.3), rand(seed + 2.1));
     pos = mix(pos, random_pos, drop);
 
-    fragOut = encode_pos(pos);
+    fragPos = encode_pos(pos);
+
+    // Age tracking : reset à 0 si drop, sinon increment clamp 255.
+    float age_prev = texture(u_age_in, dst_pixel / history_size).r * 255.0;
+    float age_new = mix(min(age_prev + 1.0, 255.0), 0.0, drop);
+    fragAge = vec4(age_new / 255.0, 0.0, 0.0, 1.0);
   } else {
-    // Slot k > 0 : shift à droite (copie slot k-1 de history_in)
+    // Slot k > 0 : shift à droite (copie slot k-1 de history_in pour pos
+    // ET pour age — peu importe car on lit age uniquement au slot 0 dans draw).
     vec2 src_pixel = dst_pixel - vec2(u_particle_res, 0.0);
     vec2 src_uv = src_pixel / history_size;
-    fragOut = texture(u_history_in, src_uv);
+    fragPos = texture(u_history_in, src_uv);
+    fragAge = texture(u_age_in, src_uv);
   }
 }
 `;
@@ -206,6 +217,7 @@ in float a_side;
 in float a_t;
 
 uniform sampler2D u_history;
+uniform sampler2D u_age;
 uniform float u_particle_res;
 uniform float u_k_history;
 uniform vec4 u_bbox;
@@ -290,15 +302,21 @@ void main() {
   // Alpha gradient : tail (slot K-2 → K-1) = 0, head (slot 0 → 1) = 1.
   float base_alpha = 1.0 - (sub_idx + (1.0 - a_t)) / segments_per_particle;
 
-  // 2026-05-21 rev6 — Wrap detection EN PIXEL SPACE en plus du normalized.
-  // Le check normalized (collapse via pos_a = pos_b) catch ~98% des respawns.
-  // Mais sur la projection sphère, certains segments restent visibles en
-  // diagonale (~500-1000 px) malgré dist normalized OK. Ces "tirs lasers"
-  // disparaissent en testant la distance pixel projetée :
-  // tout segment > 100 px screen est forcément un wrap (advection normale
-  // par frame = 5-20 px). On set v_alpha=0 → quad transparent → invisible.
+  // 2026-05-21 rev6 — Wrap detection EN PIXEL SPACE.
+  // Tout segment > 100 px screen = forcément un wrap (advection normale
+  // par frame = 5-20 px). Catch les artefacts de projection sphère.
   float pixel_wrap = step(px_dist_sq, 10000.0);  // 100² = 10000
-  v_alpha = base_alpha * pixel_wrap;
+
+  // 2026-05-21 rev7 — Tracking âge (suggestion Sylvain). Lecture de l'âge
+  // de la particule (frames depuis dernière respawn) via u_age (slot 0).
+  // Si age < sub_idx + 1 → l'historique n'est pas encore rempli pour ce
+  // segment → invalide (v_alpha = 0). Donne l'effet "particule dead jusqu'à
+  // respawn ailleurs". Robuste vs wrap_detection qui peut rater des cas.
+  vec2 age_uv = vec2(local_x + 0.5, local_y + 0.5) / history_size;
+  float age = texture(u_age, age_uv).r * 255.0;
+  float age_valid = step(sub_idx + 1.0, age);
+
+  v_alpha = base_alpha * pixel_wrap * age_valid;
 }
 `;
 
@@ -435,6 +453,10 @@ export class WindWebGL {
   private particleStateResolution = 0;
   private historyA?: WebGLTexture;
   private historyB?: WebGLTexture;
+  /** Age tracking (frames depuis dernière respawn). Même taille que history
+   *  pour permettre MRT. Seul le slot 0 est lu côté draw. */
+  private ageA?: WebGLTexture;
+  private ageB?: WebGLTexture;
   private particleIndexBuffer?: WebGLBuffer;
   private _totalDrawIndices = 0;
 
@@ -467,7 +489,7 @@ export class WindWebGL {
       'u_projection_matrix', 'u_projection_fallback_matrix',
       'u_projection_tile_mercator_coords', 'u_projection_clipping_plane',
       'u_projection_transition',
-      'u_history', 'u_particle_res', 'u_k_history',
+      'u_history', 'u_age', 'u_particle_res', 'u_k_history',
       'u_canvas_size', 'u_line_width',
     ];
     for (const name of optionals) {
@@ -517,6 +539,18 @@ export class WindWebGL {
     if (this.historyB) gl.deleteTexture(this.historyB);
     this.historyA = createTexture(gl, gl.NEAREST, data, historyWidth, historyHeight);
     this.historyB = createTexture(gl, gl.NEAREST, data, historyWidth, historyHeight);
+
+    // Age textures : init à K_HISTORY (= déjà alive) pour ne pas attendre
+    // K frames de warmup au démarrage. Même taille que history pour MRT.
+    const ageData = new Uint8Array(historyWidth * historyHeight * 4);
+    const initAge = Math.min(K_HISTORY, 255);
+    for (let i = 0; i < ageData.length; i += 4) {
+      ageData[i] = initAge;
+    }
+    if (this.ageA) gl.deleteTexture(this.ageA);
+    if (this.ageB) gl.deleteTexture(this.ageB);
+    this.ageA = createTexture(gl, gl.NEAREST, ageData, historyWidth, historyHeight);
+    this.ageB = createTexture(gl, gl.NEAREST, ageData, historyWidth, historyHeight);
 
     // Draw attributes : N × (K-1) segments × 6 vertices × 3 floats.
     const segmentsPerParticle = K_HISTORY - 1;
@@ -573,9 +607,10 @@ export class WindWebGL {
     gl.disable(gl.STENCIL_TEST);
     gl.disable(gl.BLEND);
 
-    // Update pass (shift + advect)
+    // Update pass (shift + advect + age tracking via MRT)
     bindTexture(gl, this.windTexture!, 0);
     bindTexture(gl, this.historyA!, 1);
+    bindTexture(gl, this.ageA!, 6);
     this._updateHistory();
 
     // Restore viewport pour draw on canvas
@@ -588,10 +623,13 @@ export class WindWebGL {
     this._drawParticles(args);
     if (!prevBlend) gl.disable(gl.BLEND);
 
-    // Swap history A ↔ B
-    const tmp = this.historyA;
+    // Swap history A ↔ B + age A ↔ B
+    const tmpH = this.historyA;
     this.historyA = this.historyB;
-    this.historyB = tmp;
+    this.historyB = tmpH;
+    const tmpAge = this.ageA;
+    this.ageA = this.ageB;
+    this.ageB = tmpAge;
 
     if (prevDepth) gl.enable(gl.DEPTH_TEST);
     if (prevStencil) gl.enable(gl.STENCIL_TEST);
@@ -605,6 +643,8 @@ export class WindWebGL {
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.framebuffer);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.historyB!, 0);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, this.ageB!, 0);
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
     gl.viewport(0, 0, historyWidth, historyHeight);
 
     const program = this.updateProgram;
@@ -613,6 +653,7 @@ export class WindWebGL {
     bindAttribute(gl, this.quadBuffer, program['a_pos'] as number, 2);
 
     gl.uniform1i(program['u_history_in'] as WebGLUniformLocation, 1);
+    if (program['u_age_in']) gl.uniform1i(program['u_age_in'] as WebGLUniformLocation, 6);
     gl.uniform1i(program['u_wind'] as WebGLUniformLocation, 0);
     gl.uniform1f(program['u_rand_seed'] as WebGLUniformLocation, Math.random());
     gl.uniform2f(program['u_wind_res'] as WebGLUniformLocation, this.windData!.width, this.windData!.height);
@@ -626,6 +667,11 @@ export class WindWebGL {
     gl.uniform1f(program['u_k_history'] as WebGLUniformLocation, K_HISTORY);
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+    // Détach le 2ème attachment et reset drawBuffers pour les passes suivantes
+    // non-MRT (le _drawParticles dessine direct sur le canvas, pas sur ce FBO).
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, null, 0);
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
   }
 
   private _drawParticles(args: MapLibreCustomLayerRenderArgs) {
@@ -649,11 +695,13 @@ export class WindWebGL {
     // Donc le draw doit lire historyA (qui est l'ancienne B = newly written).
     // Mais on swap APRES le drawCall dans draw(). Donc au moment du draw, historyA
     // est encore l'ancienne (lue par update). Donc on doit lire historyB (qui vient
-    // d'être écrite par update).
+    // d'être écrite par update). Idem pour age (slot 5).
     bindTexture(gl, this.historyB!, 2);
+    bindTexture(gl, this.ageB!, 5);
 
     gl.uniform1i(program['u_wind'] as WebGLUniformLocation, 0);
     if (program['u_history']) gl.uniform1i(program['u_history'] as WebGLUniformLocation, 2);
+    if (program['u_age']) gl.uniform1i(program['u_age'] as WebGLUniformLocation, 5);
     if (program['u_particle_res']) gl.uniform1f(program['u_particle_res'] as WebGLUniformLocation, this.particleStateResolution);
     if (program['u_k_history']) gl.uniform1f(program['u_k_history'] as WebGLUniformLocation, K_HISTORY);
 
