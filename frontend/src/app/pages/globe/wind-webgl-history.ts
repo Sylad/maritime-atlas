@@ -568,17 +568,20 @@ export class WindWebGL {
     this.historyB = createTexture(gl, gl.NEAREST, data, historyWidth, historyHeight);
 
     // Age textures :
-    //   Canal R = age (frames depuis respawn). Init = K_HISTORY pour que
-    //     toutes les particules soient immédiatement visibles au démarrage.
-    //   Canal G = ttl_target (durée de vie). Init = random ∈ [MAX_TTL-50, MAX_TTL]
-    //     pour déphaser les respawns dès le 1er cycle (sinon battement coeur).
+    //   Canal R = age (frames depuis respawn). Init random ∈ [K_HISTORY, MAX_TTL]
+    //     par particule. K_HISTORY = visible immédiatement, MAX_TTL = sur le point
+    //     de respawn. Désync maximale dès le 1er load → pas de battement de coeur
+    //     initial même partiel.
+    //   Canal G = ttl_target (durée de vie). Init random ∈ [MAX_TTL-50, MAX_TTL].
+    //     Désync s'accumule sur respawns successifs.
     const ageData = new Uint8Array(historyWidth * historyHeight * 4);
-    const initAge = Math.min(K_HISTORY, 255);
+    const initAgeMin = Math.min(K_HISTORY, 255);
+    const initAgeMax = Math.min(this.maxTtl, 255);
     const ttlMax = Math.min(this.maxTtl, 255);
     const ttlMin = Math.max(ttlMax - 50, 1);
     for (let i = 0; i < ageData.length; i += 4) {
-      ageData[i] = initAge;
-      ageData[i + 1] = ttlMin + Math.floor(Math.random() * (ttlMax - ttlMin));
+      ageData[i] = initAgeMin + Math.floor(Math.random() * Math.max(initAgeMax - initAgeMin, 1));
+      ageData[i + 1] = ttlMin + Math.floor(Math.random() * Math.max(ttlMax - ttlMin, 1));
     }
     if (this.ageA) gl.deleteTexture(this.ageA);
     if (this.ageB) gl.deleteTexture(this.ageB);
