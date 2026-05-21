@@ -456,12 +456,13 @@ export class WindWebGL {
     // 1 segment de 8-12 px, jointures frame-à-frame à curr_N = prev_N+1
     // exactement → trail continu.
     this.kSteps = opts.kSteps ?? 1;
-    // Épaisseur du trait en pixels. Calibration visuelle Sylvain :
-    //   2.0 → "beaucoup trop fin" (rev3 initial, illisible à zoom large)
-    //   3.5 → bon compromis (rev4 retenu)
-    // Note : l'AA fade smoothstep 0.7→1.0 mange ~30% du width visible. Donc
-    // largeur opaque centrale ≈ lineWidth × 0.7.
-    this.lineWidth = opts.lineWidth ?? 3.5;
+    // Épaisseur du trait en CSS pixels. Calibration visuelle Sylvain :
+    //   2.0 → "beaucoup trop fin" (rev3, mais c'était avant fix HiDPI DPR)
+    //   3.5 → effet "spermatozoïdes" (fuseau gros tête, queue fine)
+    //   1.5 → match canvas 2D OL prod (lineWidth=1.5 + lineCap='round')
+    // Note : l'AA fade smoothstep 0.7→1.0 mange ~30% du width visible.
+    // Avec HiDPI fix actif : multiplié par devicePixelRatio dans le shader.
+    this.lineWidth = opts.lineWidth ?? 1.5;
 
     this.screenProgram = createProgram(gl, quadVert, screenFrag);
     this.updateProgram = createProgram(gl, quadVert, updateFrag);
