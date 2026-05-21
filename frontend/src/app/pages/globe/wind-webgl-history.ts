@@ -64,8 +64,8 @@ interface ProgramWrapper {
 }
 
 // Nombre de slots historiques par particule. Canvas 2D OL = trailLength=28.
-// Sylvain a demandé trails plus longs sans toucher speedFactor → bump à 50.
-const K_HISTORY = 50;
+// Bump successifs sur demande Sylvain : 28 → 50 → 80 (trails plus longs).
+const K_HISTORY = 80;
 
 // ─── Update fragment shader ─────────────────────────────────────────────
 // Ring buffer shift : à chaque frame, pour chaque pixel (x, y) :
@@ -94,6 +94,7 @@ uniform float u_drop_rate;
 uniform float u_drop_rate_bump;
 uniform float u_particle_res;
 uniform float u_k_history;
+uniform float u_max_ttl;
 
 in vec2 v_tex_pos;
 // MRT : location=0 = position, location=1 = age (frames depuis dernière respawn).
@@ -155,9 +156,15 @@ void main() {
     vec2 seed = (pos + dst_pixel) * u_rand_seed;
     float outOfBounds = step(pos.x, 0.0) + step(1.0, pos.x)
                       + step(pos.y, 0.0) + step(1.0, pos.y);
-    float drop_rate = u_drop_rate + speed_t * u_drop_rate_bump;
-    float drop = step(1.0 - drop_rate, rand(seed)) + outOfBounds;
-    drop = clamp(drop, 0.0, 1.0);
+
+    // TTL déterministe : drop quand age >= MAX_TTL. Donne à TOUTES les
+    // particules la même durée de vie (rev8 — Sylvain : "particules qui ont
+    // une durée de vie beaucoup plus courte que leur voisins à même vitesse").
+    // Le précédent drop random (rate ~0.005/frame) avait une distribution
+    // exponentielle → variance énorme (std deviation ~MAX_TTL).
+    float age_prev = texture(u_age_in, dst_pixel / history_size).r * 255.0;
+    float ttl_drop = step(u_max_ttl, age_prev);
+    float drop = clamp(outOfBounds + ttl_drop, 0.0, 1.0);
 
     vec2 random_pos = vec2(rand(seed + 1.3), rand(seed + 2.1));
     pos = mix(pos, random_pos, drop);
@@ -165,7 +172,6 @@ void main() {
     fragPos = encode_pos(pos);
 
     // Age tracking : reset à 0 si drop, sinon increment clamp 255.
-    float age_prev = texture(u_age_in, dst_pixel / history_size).r * 255.0;
     float age_new = mix(min(age_prev + 1.0, 255.0), 0.0, drop);
     fragAge = vec4(age_new / 255.0, 0.0, 0.0, 1.0);
   } else {
@@ -220,6 +226,7 @@ uniform sampler2D u_history;
 uniform sampler2D u_age;
 uniform float u_particle_res;
 uniform float u_k_history;
+uniform float u_max_ttl;
 uniform vec4 u_bbox;
 uniform vec2 u_canvas_size;
 uniform float u_line_width;
@@ -316,7 +323,13 @@ void main() {
   float age = texture(u_age, age_uv).r * 255.0;
   float age_valid = step(sub_idx + 1.0, age);
 
-  v_alpha = base_alpha * pixel_wrap * age_valid;
+  // Fade in/out doux sur 20 frames aux extrémités du cycle de vie.
+  // Match le pattern canvas 2D OL (FADE_FRAMES=20).
+  float fade_in = clamp(age / 20.0, 0.0, 1.0);
+  float fade_out = clamp((u_max_ttl - age) / 20.0, 0.0, 1.0);
+  float life_fade = min(fade_in, fade_out);
+
+  v_alpha = base_alpha * pixel_wrap * age_valid * life_fade;
 }
 `;
 
@@ -433,6 +446,7 @@ export interface WindWebGLOptions {
   dropRate?: number;
   dropRateBump?: number;
   lineWidth?: number;
+  maxTtl?: number;
 }
 
 // ─── WindWebGLHistory class ───────────────────────────────────────────
@@ -448,6 +462,8 @@ export class WindWebGL {
   readonly kSteps = K_HISTORY;
   /** Lecture seule placeholder (compat API, plus utilisé en rev5). */
   readonly fadeOpacity = 0;
+  /** Durée de vie déterministe par particule (en frames). Default 200 ≈ 1.4s @ 144 FPS. */
+  maxTtl: number;
 
   private _numParticles = 0;
   private particleStateResolution = 0;
@@ -473,7 +489,8 @@ export class WindWebGL {
     this.speedFactor = opts.speedFactor ?? 0.06;
     this.dropRate = opts.dropRate ?? 0.005;
     this.dropRateBump = opts.dropRateBump ?? 0.0;
-    this.lineWidth = opts.lineWidth ?? 1.5;
+    this.lineWidth = opts.lineWidth ?? 2.5;
+    this.maxTtl = opts.maxTtl ?? 200;
 
     this.updateProgram = createProgram(gl, quadVert, updateFrag);
     this.quadBuffer = createBuffer(gl, new Float32Array([0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1]));
@@ -489,7 +506,7 @@ export class WindWebGL {
       'u_projection_matrix', 'u_projection_fallback_matrix',
       'u_projection_tile_mercator_coords', 'u_projection_clipping_plane',
       'u_projection_transition',
-      'u_history', 'u_age', 'u_particle_res', 'u_k_history',
+      'u_history', 'u_age', 'u_particle_res', 'u_k_history', 'u_max_ttl',
       'u_canvas_size', 'u_line_width',
     ];
     for (const name of optionals) {
@@ -665,6 +682,7 @@ export class WindWebGL {
     gl.uniform1f(program['u_drop_rate_bump'] as WebGLUniformLocation, this.dropRateBump);
     gl.uniform1f(program['u_particle_res'] as WebGLUniformLocation, this.particleStateResolution);
     gl.uniform1f(program['u_k_history'] as WebGLUniformLocation, K_HISTORY);
+    if (program['u_max_ttl']) gl.uniform1f(program['u_max_ttl'] as WebGLUniformLocation, this.maxTtl);
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
 
@@ -704,6 +722,7 @@ export class WindWebGL {
     if (program['u_age']) gl.uniform1i(program['u_age'] as WebGLUniformLocation, 5);
     if (program['u_particle_res']) gl.uniform1f(program['u_particle_res'] as WebGLUniformLocation, this.particleStateResolution);
     if (program['u_k_history']) gl.uniform1f(program['u_k_history'] as WebGLUniformLocation, K_HISTORY);
+    if (program['u_max_ttl']) gl.uniform1f(program['u_max_ttl'] as WebGLUniformLocation, this.maxTtl);
 
     gl.uniform2f(program['u_wind_min'] as WebGLUniformLocation, this.windData!.uMin, this.windData!.vMin);
     gl.uniform2f(program['u_wind_max'] as WebGLUniformLocation, this.windData!.uMax, this.windData!.vMax);
