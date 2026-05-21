@@ -42,7 +42,7 @@ import {
   WindWebGL,
   type MapLibreCustomLayerRenderArgs,
   type WindGridPoint,
-} from './wind-webgl';
+} from './wind-webgl-history';
 
 // Bbox du wind grid GFS Europe étroite (match les arrows prod).
 const WIND_BBOX: [number, number, number, number] = [-15, 35, 30, 65];
