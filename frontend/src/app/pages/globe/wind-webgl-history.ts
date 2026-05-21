@@ -157,14 +157,14 @@ void main() {
     float outOfBounds = step(pos.x, 0.0) + step(1.0, pos.x)
                       + step(pos.y, 0.0) + step(1.0, pos.y);
 
-    // TTL par particule. Canal R = age (frames depuis respawn), Canal G =
-    // ttl_target (durée de vie de cette particule en frames). À chaque
-    // respawn, ttl_target = random ∈ [MAX_TTL - 50, MAX_TTL]. Désync
-    // s'accumule sur cycles sans toucher age_reset (qui reste 0 strict
-    // pour ne PAS dessiner les segments d'historique pré-respawn = lasers).
+    // 16-bit encoding (rev13) — pour matcher la durée temporelle canvas 2D
+    // OL (3.3 sec @ 60 FPS) à 144 FPS, MAX_TTL doit pouvoir atteindre
+    // ~480 frames, hors range uint8. Solution : encode sur 2 bytes par valeur.
+    //   Canal R = age MSB (256s), Canal G = age LSB (1s)
+    //   Canal B = ttl_target MSB, Canal A = ttl_target LSB
     vec4 age_color = texture(u_age_in, dst_pixel / history_size);
-    float age_prev = age_color.r * 255.0;
-    float ttl_target_prev = age_color.g * 255.0;
+    float age_prev = age_color.r * 255.0 * 256.0 + age_color.g * 255.0;
+    float ttl_target_prev = age_color.b * 255.0 * 256.0 + age_color.a * 255.0;
     // Si ttl_target_prev == 0 (init pas encore fait), use full MAX_TTL.
     float ttl_target_safe = max(ttl_target_prev, 1.0);
     float ttl_drop = step(ttl_target_safe, age_prev);
@@ -175,15 +175,19 @@ void main() {
 
     fragPos = encode_pos(pos);
 
-    // Age = 0 strict au respawn (historique sera invalidé via age_valid
-    // dans draw shader pendant K_HISTORY frames → pas de laser pointant
-    // vers les vieilles positions).
-    float age_new = mix(min(age_prev + 1.0, 255.0), 0.0, drop);
-    // ttl_target = nouveau random ∈ [MAX_TTL - 75, MAX_TTL] au respawn,
-    // conservé sinon. Désync naturelle entre particules sur cycles successifs.
-    float new_ttl = u_max_ttl - rand(seed + 7.3) * 75.0;
+    // Age = 0 strict au respawn. Increment normal sinon (clamp 65535).
+    float age_new = mix(min(age_prev + 1.0, 65535.0), 0.0, drop);
+    // ttl_target = nouveau random ∈ [MAX_TTL - 140, MAX_TTL] au respawn.
+    // Spread 140 frames = ~30% de MAX_TTL=480 → désync importante par cycle.
+    float new_ttl = u_max_ttl - rand(seed + 7.3) * 140.0;
     float ttl_target_new = mix(ttl_target_prev, new_ttl, drop);
-    fragAge = vec4(age_new / 255.0, ttl_target_new / 255.0, 0.0, 1.0);
+
+    // Encode age (16-bit) sur RG, ttl_target sur BA.
+    float age_msb = floor(age_new / 256.0);
+    float age_lsb = age_new - age_msb * 256.0;
+    float ttl_msb = floor(ttl_target_new / 256.0);
+    float ttl_lsb = ttl_target_new - ttl_msb * 256.0;
+    fragAge = vec4(age_msb / 255.0, age_lsb / 255.0, ttl_msb / 255.0, ttl_lsb / 255.0);
   } else {
     // Slot k > 0 : shift à droite (copie slot k-1 de history_in pour pos
     // ET pour age — peu importe car on lit age uniquement au slot 0 dans draw).
@@ -331,8 +335,9 @@ void main() {
   // respawn ailleurs". Robuste vs wrap_detection qui peut rater des cas.
   vec2 age_uv = vec2(local_x + 0.5, local_y + 0.5) / history_size;
   vec4 age_color = texture(u_age, age_uv);
-  float age = age_color.r * 255.0;
-  float ttl_target = age_color.g * 255.0;
+  // 16-bit decoding (rev13) — cf update shader pour l'encoding.
+  float age = age_color.r * 255.0 * 256.0 + age_color.g * 255.0;
+  float ttl_target = age_color.b * 255.0 * 256.0 + age_color.a * 255.0;
   float age_valid = step(sub_idx + 1.0, age);
 
   // Fade in/out 40 frames. Le fade_out doit se caler sur ttl_target (le
@@ -505,10 +510,11 @@ export class WindWebGL {
     this.dropRate = opts.dropRate ?? 0.005;
     this.dropRateBump = opts.dropRateBump ?? 0.0;
     this.lineWidth = opts.lineWidth ?? 2.5;
-    // 200 → 255 (rev12) : à 144 FPS, 200 frames = 1.4s seulement
-    // (canvas 2D OL fait 3.3s @ 60 FPS). 255 = max possible avec encoding
-    // 8-bit. Cycle de vie + long → effet clignotement réduit.
-    this.maxTtl = opts.maxTtl ?? 255;
+    // 480 frames (rev13) — match exact canvas 2D OL durée temporelle :
+    //   Canvas 2D : 200 frames @ 60 FPS = 3.3 sec.
+    //   WebGL : 480 frames @ 144 FPS = 3.3 sec.
+    // Possible grâce à l'encoding age en uint16 (canaux RG = 16 bits, max 65535).
+    this.maxTtl = opts.maxTtl ?? 480;
 
     this.updateProgram = createProgram(gl, quadVert, updateFrag);
     this.quadBuffer = createBuffer(gl, new Float32Array([0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1]));
@@ -575,22 +581,23 @@ export class WindWebGL {
     this.historyA = createTexture(gl, gl.NEAREST, data, historyWidth, historyHeight);
     this.historyB = createTexture(gl, gl.NEAREST, data, historyWidth, historyHeight);
 
-    // Age textures :
-    //   Canal R = age (frames depuis respawn). Init random ∈ [K_HISTORY, MAX_TTL]
-    //     par particule. K_HISTORY = visible immédiatement, MAX_TTL = sur le point
-    //     de respawn. Désync maximale dès le 1er load → pas de battement de coeur
-    //     initial même partiel.
-    //   Canal G = ttl_target (durée de vie). Init random ∈ [MAX_TTL-50, MAX_TTL].
-    //     Désync s'accumule sur respawns successifs.
+    // Age textures (rev13 — 16-bit encoding) :
+    //   Canaux RG = age (16-bit, 0-65535 frames depuis respawn). Init random
+    //     ∈ [K_HISTORY, MAX_TTL] par particule = désync maximale au démarrage.
+    //   Canaux BA = ttl_target (16-bit). Init random ∈ [MAX_TTL-140, MAX_TTL].
+    //     Spread 140 frames = ~30% MAX_TTL = désync renforcée à chaque cycle.
     const ageData = new Uint8Array(historyWidth * historyHeight * 4);
-    const initAgeMin = Math.min(K_HISTORY, 255);
-    const initAgeMax = Math.min(this.maxTtl, 255);
-    // Spread ttl_target élargi (75 frames vs 50) pour désync max au démarrage.
-    const ttlMax = Math.min(this.maxTtl, 255);
-    const ttlMin = Math.max(ttlMax - 75, 1);
+    const initAgeMin = K_HISTORY;
+    const initAgeMax = this.maxTtl;
+    const ttlMax = this.maxTtl;
+    const ttlMin = Math.max(ttlMax - 140, 1);
     for (let i = 0; i < ageData.length; i += 4) {
-      ageData[i] = initAgeMin + Math.floor(Math.random() * Math.max(initAgeMax - initAgeMin, 1));
-      ageData[i + 1] = ttlMin + Math.floor(Math.random() * Math.max(ttlMax - ttlMin, 1));
+      const age = initAgeMin + Math.floor(Math.random() * Math.max(initAgeMax - initAgeMin, 1));
+      const ttl = ttlMin + Math.floor(Math.random() * Math.max(ttlMax - ttlMin, 1));
+      ageData[i] = Math.floor(age / 256);          // age MSB
+      ageData[i + 1] = age & 0xff;                 // age LSB
+      ageData[i + 2] = Math.floor(ttl / 256);      // ttl MSB
+      ageData[i + 3] = ttl & 0xff;                 // ttl LSB
     }
     if (this.ageA) gl.deleteTexture(this.ageA);
     if (this.ageB) gl.deleteTexture(this.ageB);
