@@ -246,9 +246,15 @@ void main() {
   vec2 pos_a = decode_pos(texture(u_history, uv_a));
   vec2 pos_b = decode_pos(texture(u_history, uv_b));
 
-  // Wrap detection : si distance trop grande → collapse segment (particule respawn)
+  // Wrap detection : si distance entre 2 slots historiques trop grande
+  // → particule a respawn entre ces 2 frames → collapse segment.
+  // Threshold 0.05 = dist 0.22 normalized = ~22% du bbox = environ 10° lon
+  // ou 7° lat sur bbox Europe. Une advection normale par frame fait
+  // ~1e-5 → bien en-dessous. Une respawn random fait ~0.3-0.7 → bien
+  // au-dessus → détectée. (Précédent 0.25 = 50% trop permissif, ratait
+  // les respawn vers positions modérément éloignées → trails géants.)
   vec2 delta = pos_b - pos_a;
-  if (dot(delta, delta) > 0.25) {
+  if (dot(delta, delta) > 0.05) {
     pos_a = pos_b;
   }
 
