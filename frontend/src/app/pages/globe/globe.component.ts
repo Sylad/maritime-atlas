@@ -859,43 +859,69 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         return;
       }
 
+      // Helpers
+      const fmtRelTime = (isoOrTs: unknown): string => {
+        if (!isoOrTs) return '';
+        const d = new Date(String(isoOrTs));
+        if (isNaN(d.getTime())) return String(isoOrTs);
+        const diffSec = Math.round((Date.now() - d.getTime()) / 1000);
+        if (diffSec < 60) return `il y a ${diffSec}s`;
+        const diffMin = Math.round(diffSec / 60);
+        if (diffMin < 60) return `il y a ${diffMin} min`;
+        const diffH = Math.round(diffMin / 60);
+        if (diffH < 24) return `il y a ${diffH}h`;
+        return `il y a ${Math.round(diffH / 24)}j`;
+      };
+      const row = (label: string, value: string | number | undefined | null, unit = ''): string => {
+        if (value === null || value === undefined || value === '') return '';
+        return `<div style="display:flex;justify-content:space-between;gap:12px;margin-top:3px"><span style="color:#8a96a8;font-size:11px">${label}</span><span style="font-weight:500">${value}${unit}</span></div>`;
+      };
+
       // Build popup HTML selon le type de layer
       let html = '';
       if (layerId === 'vec-vessels-points') {
-        const name = p['vessel_name'] || p['name'] || '';
-        const mmsi = p['mmsi'] ?? '?';
-        const sog = p['sog'] != null ? `${p['sog']} kn` : '—';
-        const cog = p['cog'] != null ? `${p['cog']}°` : (p['heading'] != null ? `${p['heading']}°` : '—');
-        const lastSeen = p['last_seen'] || p['ts'] || '';
+        const name = (p['vessel_name'] || p['name'] || '') as string;
+        const mmsi = p['mmsi'] as number | undefined;
+        const sog = p['sog'] as number | undefined;
+        const cog = (p['cog'] ?? p['heading']) as number | undefined;
+        const destination = p['destination'] as string | undefined;
+        const shipType = p['ship_type'] as number | undefined;
+        const lengthM = p['length_m'] as number | undefined;
+        const flag = p['flag'] as string | undefined;
+        const lastSeen = (p['last_seen'] || p['ts']) as string | undefined;
         html = `
-          <div style="font: 12px system-ui, sans-serif; color: #e6ecf3;">
-            <strong style="font-size:13px">${name || `MMSI ${mmsi}`}</strong><br/>
-            <span style="color:#64748b">MMSI :</span> ${mmsi}<br/>
-            <span style="color:#64748b">Vitesse :</span> ${sog}<br/>
-            <span style="color:#64748b">Cap :</span> ${cog}<br/>
-            <span style="color:#64748b">Dernier signal :</span> ${lastSeen}
+          <div>
+            <div style="font-size:13px;font-weight:600;color:#e6ecf3;border-bottom:1px solid #2a3245;padding-bottom:6px;margin-bottom:4px">🚢 ${name || `MMSI ${mmsi ?? '?'}`}</div>
+            ${row('MMSI', mmsi)}
+            ${row('Vitesse', sog != null ? sog.toFixed(1) : null, ' kn')}
+            ${row('Cap', cog != null ? Math.round(cog) : null, '°')}
+            ${row('Destination', destination)}
+            ${row('Type', shipType)}
+            ${row('Longueur', lengthM, ' m')}
+            ${row('Pavillon', flag)}
+            ${row('Dernier signal', fmtRelTime(lastSeen))}
           </div>`;
       } else if (layerId === 'vec-lightning') {
-        const ts = p['ts'] || '';
-        const strength = p['strength'] != null ? `${p['strength']}` : '—';
+        const ts = p['ts'] as string | undefined;
+        const strength = p['strength'] as number | undefined;
         html = `
-          <div style="font: 12px system-ui, sans-serif; color: #e6ecf3;">
-            <strong>⚡ Foudre</strong><br/>
-            <span style="color:#64748b">Heure :</span> ${ts}<br/>
-            <span style="color:#64748b">Intensité :</span> ${strength}
+          <div>
+            <div style="font-size:13px;font-weight:600;color:#fde047;border-bottom:1px solid #2a3245;padding-bottom:6px;margin-bottom:4px">⚡ Éclair</div>
+            ${row('Heure', fmtRelTime(ts))}
+            ${row('Intensité', strength)}
           </div>`;
       } else if (layerId === 'vec-alerts') {
-        const kind = p['kind'] || '?';
-        const severity = p['severity'] || '?';
-        const target = p['vessel_name'] || (p['mmsi'] ? `MMSI ${p['mmsi']}` : '');
-        const ts = p['ts'] || '';
+        const kind = p['kind'] as string | undefined;
+        const severity = (p['severity'] as string | undefined) ?? 'info';
+        const target = (p['vessel_name'] || (p['mmsi'] ? `MMSI ${p['mmsi']}` : '')) as string;
+        const ts = p['ts'] as string | undefined;
         const colorMap: Record<string, string> = { danger: '#dc2626', warning: '#f97316', info: '#38bdf8' };
-        const color = colorMap[severity as string] ?? '#94a3b8';
+        const color = colorMap[severity] ?? '#94a3b8';
         html = `
-          <div style="font: 12px system-ui, sans-serif; color: #e6ecf3;">
-            <strong style="color:${color}">⚠ ${kind}</strong> <span style="text-transform:uppercase;font-size:10px;color:${color}">(${severity})</span><br/>
-            ${target ? `<span style="color:#64748b">Cible :</span> ${target}<br/>` : ''}
-            <span style="color:#64748b">Heure :</span> ${ts}
+          <div>
+            <div style="font-size:13px;font-weight:600;color:${color};border-bottom:1px solid #2a3245;padding-bottom:6px;margin-bottom:4px">⚠ ${kind ?? 'Alerte'} <span style="font-size:10px;text-transform:uppercase;opacity:.8">(${severity})</span></div>
+            ${row('Cible', target)}
+            ${row('Heure', fmtRelTime(ts))}
           </div>`;
       }
 
