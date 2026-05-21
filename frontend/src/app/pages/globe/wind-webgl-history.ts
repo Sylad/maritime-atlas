@@ -179,9 +179,9 @@ void main() {
     // dans draw shader pendant K_HISTORY frames → pas de laser pointant
     // vers les vieilles positions).
     float age_new = mix(min(age_prev + 1.0, 255.0), 0.0, drop);
-    // ttl_target = nouveau random ∈ [MAX_TTL - 50, MAX_TTL] au respawn,
+    // ttl_target = nouveau random ∈ [MAX_TTL - 75, MAX_TTL] au respawn,
     // conservé sinon. Désync naturelle entre particules sur cycles successifs.
-    float new_ttl = u_max_ttl - rand(seed + 7.3) * 50.0;
+    float new_ttl = u_max_ttl - rand(seed + 7.3) * 75.0;
     float ttl_target_new = mix(ttl_target_prev, new_ttl, drop);
     fragAge = vec4(age_new / 255.0, ttl_target_new / 255.0, 0.0, 1.0);
   } else {
@@ -333,10 +333,12 @@ void main() {
   float age = texture(u_age, age_uv).r * 255.0;
   float age_valid = step(sub_idx + 1.0, age);
 
-  // Fade in/out doux sur 20 frames aux extrémités du cycle de vie.
-  // Match le pattern canvas 2D OL (FADE_FRAMES=20).
-  float fade_in = clamp(age / 20.0, 0.0, 1.0);
-  float fade_out = clamp((u_max_ttl - age) / 20.0, 0.0, 1.0);
+  // Fade in/out 40 frames (rev12) — au lieu de 20. Transition plus douce
+  // aux extrémités du cycle de vie → réduit la perception "clignotement"
+  // flaggée par Sylvain. À 144 FPS, 40 frames = ~280 ms = transition
+  // douce mais imperceptible si fond avec autres particules.
+  float fade_in = clamp(age / 40.0, 0.0, 1.0);
+  float fade_out = clamp((u_max_ttl - age) / 40.0, 0.0, 1.0);
   float life_fade = min(fade_in, fade_out);
 
   v_alpha = base_alpha * pixel_wrap * age_valid * life_fade;
@@ -500,7 +502,10 @@ export class WindWebGL {
     this.dropRate = opts.dropRate ?? 0.005;
     this.dropRateBump = opts.dropRateBump ?? 0.0;
     this.lineWidth = opts.lineWidth ?? 2.5;
-    this.maxTtl = opts.maxTtl ?? 200;
+    // 200 → 255 (rev12) : à 144 FPS, 200 frames = 1.4s seulement
+    // (canvas 2D OL fait 3.3s @ 60 FPS). 255 = max possible avec encoding
+    // 8-bit. Cycle de vie + long → effet clignotement réduit.
+    this.maxTtl = opts.maxTtl ?? 255;
 
     this.updateProgram = createProgram(gl, quadVert, updateFrag);
     this.quadBuffer = createBuffer(gl, new Float32Array([0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1]));
@@ -577,8 +582,9 @@ export class WindWebGL {
     const ageData = new Uint8Array(historyWidth * historyHeight * 4);
     const initAgeMin = Math.min(K_HISTORY, 255);
     const initAgeMax = Math.min(this.maxTtl, 255);
+    // Spread ttl_target élargi (75 frames vs 50) pour désync max au démarrage.
     const ttlMax = Math.min(this.maxTtl, 255);
-    const ttlMin = Math.max(ttlMax - 50, 1);
+    const ttlMin = Math.max(ttlMax - 75, 1);
     for (let i = 0; i < ageData.length; i += 4) {
       ageData[i] = initAgeMin + Math.floor(Math.random() * Math.max(initAgeMax - initAgeMin, 1));
       ageData[i + 1] = ttlMin + Math.floor(Math.random() * Math.max(ttlMax - ttlMin, 1));
