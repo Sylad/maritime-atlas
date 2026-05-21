@@ -447,10 +447,13 @@ export class WindWebGL {
     this.speedFactor = opts.speedFactor ?? 0.06;
     this.dropRate = opts.dropRate ?? 0.005;
     this.dropRateBump = opts.dropRateBump ?? 0.0;
-    // 2026-05-21 rev3 — kSteps 5 (au lieu de 10) suffit avec triangle strip
-    // extrusion : chaque segment = trait continu vrai, plus de problème de
-    // pointillé. Réduit le draw count (2× moins de quads à dessiner).
-    this.kSteps = opts.kSteps ?? 5;
+    // 2026-05-21 rev4 — kSteps 1 : 1 SEUL quad par particule par frame,
+    // allant directement de prev_pos à curr_pos. Plus de sub-step découpage
+    // (qui créait des quads de 2-3 px de long bout-à-bout avec micro-gaps
+    // angulaires dans les courbes → effet pointillé restant). Chaque frame =
+    // 1 segment de 8-12 px, jointures frame-à-frame à curr_N = prev_N+1
+    // exactement → trail continu.
+    this.kSteps = opts.kSteps ?? 1;
     // Épaisseur du trait en pixels. Calibration visuelle Sylvain :
     //   2.0 → "beaucoup trop fin" (rev3 initial, illisible à zoom large)
     //   3.5 → bon compromis (rev4 retenu)
