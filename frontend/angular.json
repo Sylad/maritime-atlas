@@ -28,7 +28,7 @@
             "assets": [
               { "glob": "**/*", "input": "public", "output": "/" }
             ],
-            "styles": ["src/styles.scss", "node_modules/ol/ol.css"],
+            "styles": ["src/styles.scss", "node_modules/ol/ol.css", "node_modules/maplibre-gl/dist/maplibre-gl.css"],
             "scripts": []
           },
           "configurations": {
