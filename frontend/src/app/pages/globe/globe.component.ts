@@ -900,8 +900,18 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       }
 
       if (html) {
-        new maplibregl.Popup({ closeButton: true, maxWidth: '260px' })
-          .setLngLat(e.lngLat)
+        // Ancrer la popup sur les coords EXACTES du feature, pas e.lngLat
+        // (position du curseur). Sinon sur le globe sphère projection, le
+        // popup peut se retrouver positionné bizarrement (panneau en bas
+        // de la map au lieu de bulle pointant sur le vessel cliqué).
+        const featureCoords = (f.geometry as GeoJSON.Point).coordinates as [number, number];
+        new maplibregl.Popup({
+          closeButton: true,
+          maxWidth: '260px',
+          anchor: 'bottom',  // pointe vers le bas = bulle au-dessus du point cliqué
+          offset: 8,
+        })
+          .setLngLat(featureCoords)
           .setHTML(html)
           .addTo(map);
       }
