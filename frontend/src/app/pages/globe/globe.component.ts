@@ -445,7 +445,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
           tiles: [
             '/geoserver/maritime/wms' +
               '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
-              '&LAYERS=maritime:sst-daily&STYLES=&FORMAT=image/png&TRANSPARENT=true' +
+              '&LAYERS=aetherwx:sst-daily&STYLES=&FORMAT=image/png&TRANSPARENT=true' +
               '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256',
           ],
           tileSize: 256,
@@ -631,7 +631,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     const url =
       '/geoserver/maritime/wms' +
       '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
-      `&LAYERS=maritime:${product.gsName}` +
+      `&LAYERS=aetherwx:${product.gsName}` +
       `&TIME=${encodeURIComponent(timeParam)}` +
       '&STYLES=&FORMAT=image/png&TRANSPARENT=true' +
       '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256';

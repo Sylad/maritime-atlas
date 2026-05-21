@@ -54,8 +54,8 @@ export interface TracksFeatureCollection {
 
 /**
  * Wrapper WFS GeoServer pour les couches :
- *   - maritime:v_vessels_live → positions live (last 15 min)
- *   - maritime:vessel_tracks_daily → tracks aggregés par jour (LineStrings)
+ *   - aetherwx:v_vessels_live → positions live (last 15 min)
+ *   - aetherwx:vessel_tracks_daily → tracks aggregés par jour (LineStrings)
  *
  * En dev nginx proxy /geoserver/* → http://geoserver:8080/geoserver/* —
  * pas besoin de gérer CORS côté front, conf portée par le reverse proxy.
@@ -83,7 +83,7 @@ export class VesselsService {
         service: 'WFS',
         version: '2.0.0',
         request: 'GetFeature',
-        typeName: 'maritime:v_vessels_live',
+        typeName: 'aetherwx:v_vessels_live',
         outputFormat: 'application/json',
         srsName: 'EPSG:4326',
         CQL_FILTER: cql,
@@ -108,7 +108,7 @@ export class VesselsService {
         service: 'WFS',
         version: '2.0.0',
         request: 'GetFeature',
-        typeName: 'maritime:vessels_at_time',
+        typeName: 'aetherwx:vessels_at_time',
         outputFormat: 'application/json',
         srsName: 'EPSG:4326',
         viewparams: `at:${at.toISOString()};window:${windowSecs}`,
@@ -129,7 +129,7 @@ export class VesselsService {
         service: 'WFS',
         version: '2.0.0',
         request: 'GetFeature',
-        typeName: 'maritime:vessel_tracks_daily',
+        typeName: 'aetherwx:vessel_tracks_daily',
         outputFormat: 'application/json',
         srsName: 'EPSG:4326',
         CQL_FILTER: `day='${day}'`,

@@ -25,7 +25,7 @@ export interface LightningFeatureCollection {
 }
 
 /**
- * Wrapper WFS pour la layer maritime:v_lightning_recent.
+ * Wrapper WFS pour la layer aetherwx:v_lightning_recent.
  *
  * La view n'a plus de filtre temporel hardcodé (cf migration
  * 2026-05-15-uniform-retention.sql) : le frontend impose une fenêtre
@@ -50,7 +50,7 @@ export class LightningService {
         service: 'WFS',
         version: '2.0.0',
         request: 'GetFeature',
-        typeName: 'maritime:v_lightning_recent',
+        typeName: 'aetherwx:v_lightning_recent',
         outputFormat: 'application/json',
         srsName: 'EPSG:4326',
         CQL_FILTER: cql,

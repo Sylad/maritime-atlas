@@ -3113,26 +3113,26 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // entrée dans la time-bar peu importe quel rendu (raster, isolignes, ou
     // les 2). Sylvain : "1 barre par source de données". Évite doublons
     // raster+isoline dans le panneau time-slider et dans le cap5.
-    { key: 'wind',           label: 'Vent',           type: 'wms',    gsLayerName: 'maritime:wind-speed',     active: () => this.showWind()  || this.showWindContours() },
-    { key: 'waves',          label: 'Vagues',         type: 'wms',    gsLayerName: 'maritime:wave-hs',        active: () => this.showWaves() || this.showWaveContours() },
-    { key: 'sst',            label: 'SST',            type: 'wms',    gsLayerName: 'maritime:sst-daily',      active: () => this.showSST()   || this.showSstContours() },
+    { key: 'wind',           label: 'Vent',           type: 'wms',    gsLayerName: 'aetherwx:wind-speed',     active: () => this.showWind()  || this.showWindContours() },
+    { key: 'waves',          label: 'Vagues',         type: 'wms',    gsLayerName: 'aetherwx:wave-hs',        active: () => this.showWaves() || this.showWaveContours() },
+    { key: 'sst',            label: 'SST',            type: 'wms',    gsLayerName: 'aetherwx:sst-daily',      active: () => this.showSST()   || this.showSstContours() },
     // 2026-05-18 — arrows/particles ajoutées comme master-éligibles (time
     // dim GS partagée avec wind-speed/wave-dir). Permet à l'user de les
     // sélectionner comme maître du temps depuis la time-bar étendue.
-    { key: 'windArrows',     label: 'Flèches vent',   type: 'wms',    gsLayerName: 'maritime:wind-speed',     active: () => this.showWindArrows() },
-    { key: 'waveArrows',     label: 'Flèches vagues', type: 'wms',    gsLayerName: 'maritime:wave-dir',       active: () => this.showWaveArrows() },
-    { key: 'windParticles',  label: 'Particules vent',type: 'wms',    gsLayerName: 'maritime:wind-speed',     active: () => this.showWindParticles() },
+    { key: 'windArrows',     label: 'Flèches vent',   type: 'wms',    gsLayerName: 'aetherwx:wind-speed',     active: () => this.showWindArrows() },
+    { key: 'waveArrows',     label: 'Flèches vagues', type: 'wms',    gsLayerName: 'aetherwx:wave-dir',       active: () => this.showWaveArrows() },
+    { key: 'windParticles',  label: 'Particules vent',type: 'wms',    gsLayerName: 'aetherwx:wind-speed',     active: () => this.showWindParticles() },
     // 2026-05-19 APEX Satellites Phase 4 — type 'wms' avec vrais gsLayerName
     // pointant sur les coverages GeoServer auto-créées par grib-parser sidecar
     // depuis les GeoTIFFs NASA. Master-éligibles → time-bar apparaît même si
     // user n'active QUE des satellites.
-    { key: 'satTrueColor',      label: 'Satellite MODIS',     type: 'wms', gsLayerName: 'maritime:sat-modis-true-color', active: () => this.showSatTrueColor() },
-    { key: 'satTrueColorVIIRS', label: 'Satellite VIIRS',     type: 'wms', gsLayerName: 'maritime:sat-viirs-true-color', active: () => this.showSatTrueColorVIIRS() },
-    { key: 'satIR',             label: 'Satellite IR',        type: 'wms', gsLayerName: 'maritime:sat-modis-ir',         active: () => this.showSatIR() },
-    { key: 'satWaterVapor',     label: 'Satellite T° air',    type: 'wms', gsLayerName: 'maritime:sat-airs-air-temp',    active: () => this.showSatWaterVapor() },
-    { key: 'satCloudTop',       label: 'Satellite nuages',    type: 'wms', gsLayerName: 'maritime:sat-modis-cloud-top',  active: () => this.showSatCloudTop() },
-    { key: 'satAerosol',        label: 'Satellite aérosols',  type: 'wms', gsLayerName: 'maritime:sat-modis-aerosol',    active: () => this.showSatAerosol() },
-    { key: 'satDayNight',       label: 'Satellite jour/nuit', type: 'wms', gsLayerName: 'maritime:sat-viirs-day-night',  active: () => this.showSatDayNight() },
+    { key: 'satTrueColor',      label: 'Satellite MODIS',     type: 'wms', gsLayerName: 'aetherwx:sat-modis-true-color', active: () => this.showSatTrueColor() },
+    { key: 'satTrueColorVIIRS', label: 'Satellite VIIRS',     type: 'wms', gsLayerName: 'aetherwx:sat-viirs-true-color', active: () => this.showSatTrueColorVIIRS() },
+    { key: 'satIR',             label: 'Satellite IR',        type: 'wms', gsLayerName: 'aetherwx:sat-modis-ir',         active: () => this.showSatIR() },
+    { key: 'satWaterVapor',     label: 'Satellite T° air',    type: 'wms', gsLayerName: 'aetherwx:sat-airs-air-temp',    active: () => this.showSatWaterVapor() },
+    { key: 'satCloudTop',       label: 'Satellite nuages',    type: 'wms', gsLayerName: 'aetherwx:sat-modis-cloud-top',  active: () => this.showSatCloudTop() },
+    { key: 'satAerosol',        label: 'Satellite aérosols',  type: 'wms', gsLayerName: 'aetherwx:sat-modis-aerosol',    active: () => this.showSatAerosol() },
+    { key: 'satDayNight',       label: 'Satellite jour/nuit', type: 'wms', gsLayerName: 'aetherwx:sat-viirs-day-night',  active: () => this.showSatDayNight() },
     // RainViewer IR — type vector pour ne pas être master (validités gérées
     // via snapshot RainViewer, pas via GS GetCapabilities) ; visible dans
     // sliderLayerCoverage avec refreshIntervalMin=10.
@@ -3140,12 +3140,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // 2026-05-20 cascade EUMETSAT — type 'wms' avec cascade GS workspace
     // maritime. Master-éligibles (WMS time-enabled même si GS GetCapabilities
     // ne les expose pas — validityListPerLayer génère client-side).
-    { key: 'satEuIrRss',        label: 'Sat IR Europe RSS (5min)',  type: 'wms', gsLayerName: 'maritime:sat-eu-ir-rss',     active: () => this.showSatEuIrRss() },
-    { key: 'satGlobalIrMtg',    label: 'Sat IR global MTG (10min)', type: 'wms', gsLayerName: 'maritime:sat-global-ir-mtg', active: () => this.showSatGlobalIrMtg() },
-    { key: 'satEuHrvRgb',       label: 'Sat HRV RGB Europe (15min)',type: 'wms', gsLayerName: 'maritime:sat-eu-hrv-rgb',    active: () => this.showSatEuHrvRgb() },
+    { key: 'satEuIrRss',        label: 'Sat IR Europe RSS (5min)',  type: 'wms', gsLayerName: 'aetherwx:sat-eu-ir-rss',     active: () => this.showSatEuIrRss() },
+    { key: 'satGlobalIrMtg',    label: 'Sat IR global MTG (10min)', type: 'wms', gsLayerName: 'aetherwx:sat-global-ir-mtg', active: () => this.showSatGlobalIrMtg() },
+    { key: 'satEuHrvRgb',       label: 'Sat HRV RGB Europe (15min)',type: 'wms', gsLayerName: 'aetherwx:sat-eu-hrv-rgb',    active: () => this.showSatEuHrvRgb() },
     // 2026-05-20 cascade radar (DWD + KNMI)
-    { key: 'radarDwd',          label: 'Radar Allemagne (DWD)',     type: 'wms', gsLayerName: 'maritime:radar-dwd-de',      active: () => this.showRadarDwd() },
-    { key: 'radarKnmi',         label: 'Radar Pays-Bas (KNMI)',     type: 'wms', gsLayerName: 'maritime:radar-knmi-nl',     active: () => this.showRadarKnmi() },
+    { key: 'radarDwd',          label: 'Radar Allemagne (DWD)',     type: 'wms', gsLayerName: 'aetherwx:radar-dwd-de',      active: () => this.showRadarDwd() },
+    { key: 'radarKnmi',         label: 'Radar Pays-Bas (KNMI)',     type: 'wms', gsLayerName: 'aetherwx:radar-knmi-nl',     active: () => this.showRadarKnmi() },
     { key: 'vessels',        label: 'Navires AIS',    type: 'vector',                                          active: () => this.showVessels() },
     { key: 'tracks',         label: 'Trajets AIS',    type: 'vector',                                          active: () => this.showTracks() },
     { key: 'alerts',         label: 'Alertes',        type: 'vector',                                          active: () => this.showAlerts() },
@@ -3340,8 +3340,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   // 'arpege' = Météo-France 0.1° ≈ 11km (Europe étroite, 2.5× plus fin que
   // GFS, dispo ~3h après chaque run). ARPEGE remplace l'ex-AROME 0.025° FR
   // qui était trop restreint pour la bbox Europe.
-  // Le toggle pilote à la fois le layer WMS (maritime:wind-speed vs
-  // maritime:wind-speed-arpege) ET les arrows GeoJSON (wind_arrows_*.geojson
+  // Le toggle pilote à la fois le layer WMS (aetherwx:wind-speed vs
+  // aetherwx:wind-speed-arpege) ET les arrows GeoJSON (wind_arrows_*.geojson
   // vs arpege_wind_arrows_*.geojson).
   readonly windSource = signal<'gfs' | 'arpege' | 'arome'>('gfs');
   /** Label long affiché dans la légende sous "Vent". */
@@ -3449,7 +3449,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   /** Définition des 7 produits NASA GIBS (Phase 4 — GeoServer-native).
    *  `id` = identifier WMTS NASA (legacy, juste pour traçabilité doc),
    *  `gsName` = nom de la coverage GeoServer (= `output_prefix` côté
-   *  orchestrator sink_config). La layer WMS exposée = `maritime:{gsName}`.
+   *  orchestrator sink_config). La layer WMS exposée = `aetherwx:{gsName}`.
    *  `maxZ` = niveau max conseillé (les GeoTIFF source NASA ont une
    *  résolution finie — au-delà OL up-scale). `label` = texte panel. */
   private readonly SAT_PRODUCTS: ReadonlyArray<{
@@ -4880,9 +4880,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     effect(() => {
       const src = this.windSource();
       queueMicrotask(() => {
-        const layer = src === 'arpege' ? 'maritime:wind-speed-arpege'
-                    : src === 'arome'  ? 'maritime:wind-speed-arome'
-                                       : 'maritime:wind-speed';
+        const layer = src === 'arpege' ? 'aetherwx:wind-speed-arpege'
+                    : src === 'arome'  ? 'aetherwx:wind-speed-arome'
+                                       : 'aetherwx:wind-speed';
         if (this.windWmsSource) {
           this.windWmsSource.updateParams({ LAYERS: layer });
         }
@@ -4987,9 +4987,9 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       const minTime = new Date(now - 168 * 3_600_000);
       const maxTime = new Date(now + 168 * 3_600_000);
 
-      const windLayerName = windSrc === 'arpege' ? 'maritime:wind-speed-arpege'
-                          : windSrc === 'arome'  ? 'maritime:wind-speed-arome'
-                                                 : 'maritime:wind-speed';
+      const windLayerName = windSrc === 'arpege' ? 'aetherwx:wind-speed-arpege'
+                          : windSrc === 'arome'  ? 'aetherwx:wind-speed-arome'
+                                                 : 'aetherwx:wind-speed';
 
       // 2026-05-18 (post-APEX 12) — UNE seule call GetCapabilities qui couvre
       // toutes les layers WMS time-enabled actives. Parse le XML une fois et
@@ -5093,7 +5093,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
             if (d.length > 0) newMap['sst'] = d;
           }
           if (wantWind || wantWindArrows || wantWindParticles) {
-            const d = filterRange(this.parseTimeDimension(xml, windLayerName.replace(/^maritime:/, '')));
+            const d = filterRange(this.parseTimeDimension(xml, windLayerName.replace(/^aetherwx:/, '')));
             if (d.length > 0) {
               if (wantWind)          newMap['wind']          = d;
               if (wantWindArrows)    newMap['windArrows']    = d;
@@ -5256,7 +5256,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     if (!styleName) return '';
     // Look up the palette id matching this style
     const found = this.palettesSvc.myPalettes().find(
-      (p) => `user_${p.userId}_${p.slug}` === styleName.replace(/^maritime:/, ''),
+      (p) => `user_${p.userId}_${p.slug}` === styleName.replace(/^aetherwx:/, ''),
     );
     return found ? String(found.id) : '';
   }
@@ -5286,7 +5286,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private applyUserStyles(prefs: Record<string, string | null>): void {
     const styleParam = (kind: string): string => {
       const sn = prefs[kind];
-      return sn ? `maritime:${sn}` : '';
+      return sn ? `aetherwx:${sn}` : '';
     };
     if (this.sstSource)     this.sstSource.updateParams({ STYLES: styleParam('sst') });
     if (this.windWmsSource) this.windWmsSource.updateParams({ STYLES: styleParam('wind') });
@@ -6951,7 +6951,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private parseTimeDimension(xml: string, layerName: string): Date[] {
     // GS expose <Name>sst-daily</Name> sans préfixe quand on est sur
     // le virtual host workspace /geoserver/maritime/. On strip le prefix.
-    const shortName = layerName.replace(/^maritime:/, '');
+    const shortName = layerName.replace(/^aetherwx:/, '');
     const doc = new DOMParser().parseFromString(xml, 'application/xml');
     if (doc.querySelector('parsererror')) return [];
     // Cherche TOUS les <Layer> du document, puis filtre par <Name> enfant direct
@@ -7206,7 +7206,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       projection: 'EPSG:3857',
       ratio: 1.0,  // 1.2 → 1.0 (Sylvain 2026-05-14 soir) — évite OOM heap GS
       params: {
-        LAYERS: 'maritime:sst-daily',
+        LAYERS: 'aetherwx:sst-daily',
         TRANSPARENT: true,
         INTERPOLATIONS: 'bicubic',
       },
@@ -7242,8 +7242,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       projection: 'EPSG:3857',
       ratio: 1.0,
       params: {
-        LAYERS: 'maritime:sst-daily',
-        STYLES: 'maritime:sst-contours-only',
+        LAYERS: 'aetherwx:sst-daily',
+        STYLES: 'aetherwx:sst-contours-only',
         TRANSPARENT: true,
         INTERPOLATIONS: 'bicubic',
         env: `contourInterval:${this.sstContourInterval()}`,
@@ -7266,12 +7266,12 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // GeoServer applique automatiquement un style "raster" arc-en-ciel par
     // défaut. Sprint 11 + Europe Chantier #2 + Phase C.6 (AROME réintro) :
     // le LAYERS param est dynamique (signal `windSource`) entre
-    // 'maritime:wind-speed' (GFS) / 'maritime:wind-speed-arpege' /
-    // 'maritime:wind-speed-arome'.
+    // 'aetherwx:wind-speed' (GFS) / 'aetherwx:wind-speed-arpege' /
+    // 'aetherwx:wind-speed-arome'.
     const wsrc = this.windSource();
-    const initialWindLayer = wsrc === 'arpege' ? 'maritime:wind-speed-arpege'
-                           : wsrc === 'arome'  ? 'maritime:wind-speed-arome'
-                                               : 'maritime:wind-speed';
+    const initialWindLayer = wsrc === 'arpege' ? 'aetherwx:wind-speed-arpege'
+                           : wsrc === 'arome'  ? 'aetherwx:wind-speed-arome'
+                                               : 'aetherwx:wind-speed';
     // Cap zoom 10 : GFS=0.25° (27 km), ARPEGE=0.1° (11 km), AROME=0.025°
     // (2.5 km). Au-delà de zoom 10 (~150 m/pixel), sur-échantillonnage
     // excessif même sur AROME. Le LAYERS bascule dynamique (GFS/ARPEGE/
@@ -7304,7 +7304,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       ratio: 1.0,
       params: {
         LAYERS: initialWindLayer,
-        STYLES: 'maritime:wind-speed-contours-only',
+        STYLES: 'aetherwx:wind-speed-contours-only',
         TRANSPARENT: true,
         INTERPOLATIONS: 'bicubic',
         env: `contourInterval:${this.windContourInterval()}`,
@@ -7330,7 +7330,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       url: '/geoserver/maritime/wms',
       projection: 'EPSG:3857',
       ratio: 1.0,  // 1.2 → 1.0 (Sylvain 2026-05-14 soir) — évite OOM heap GS
-      params: { LAYERS: 'maritime:wave-hs', TRANSPARENT: true, INTERPOLATIONS: 'bicubic' },
+      params: { LAYERS: 'aetherwx:wave-hs', TRANSPARENT: true, INTERPOLATIONS: 'bicubic' },
       serverType: 'geoserver',
       attributions: ATTRIB_NOAA,
     });
@@ -7351,8 +7351,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       projection: 'EPSG:3857',
       ratio: 1.0,
       params: {
-        LAYERS: 'maritime:wave-hs',
-        STYLES: 'maritime:wave-hs-contours-only',
+        LAYERS: 'aetherwx:wave-hs',
+        STYLES: 'aetherwx:wave-hs-contours-only',
         TRANSPARENT: true,
         INTERPOLATIONS: 'bicubic',
         env: `contourInterval:${this.waveContourInterval()}`,
@@ -7459,7 +7459,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // 2026-05-19 APEX Satellites Phase 4 — TileLayer<TileWMS> GeoServer.
     // Architecture canonique au même titre que SST/wind/waves :
     //   - source = ImageMosaic GS auto-créée par grib-parser sidecar
-    //   - layer name = maritime:sat-<product>
+    //   - layer name = aetherwx:sat-<product>
     //   - TIME dim = jour J-1 par défaut (NASA lag 24h), suit le cursor
     //     via updateParams() dans l'effect currentSatDate plus bas
     //   - reprojection 4326→3857 native côté GS (plus de bug stretch)
@@ -7472,7 +7472,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       const src = new TileWMS({
         url: '/geoserver/maritime/wms',
         params: {
-          LAYERS: `maritime:${p.gsName}`,
+          LAYERS: `aetherwx:${p.gsName}`,
           TIME: initialDate,
           FORMAT: 'image/png',
           TRANSPARENT: true,
@@ -7493,7 +7493,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
     // 2026-05-20 — Cascade WMS EUMETSAT (3 sat) + DWD/KNMI (2 radar). Même
     // pattern que SAT_PRODUCTS NASA ci-dessus : TileWMS pointant vers GS
-    // maritime:* (où GS cascade vers les WMS upstream view.eumetsat.int /
+    // aetherwx:* (où GS cascade vers les WMS upstream view.eumetsat.int /
     // maps.dwd.de / geoservices.knmi.nl).
     //
     // TIME : drive par effect currentCascadeTime (cf plus bas). Validités
@@ -7510,7 +7510,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       const src = new TileWMS({
         url: '/geoserver/maritime/wms',
         params: {
-          LAYERS: `maritime:${p.gsName}`,
+          LAYERS: `aetherwx:${p.gsName}`,
           TIME: initialTime,
           FORMAT: 'image/png',
           TRANSPARENT: true,

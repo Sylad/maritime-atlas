@@ -12,7 +12,7 @@ const configuration = () => ({
   geoserverUrl: process.env.GEOSERVER_URL ?? 'http://geoserver:8080/geoserver',
   geoserverUser: process.env.GEOSERVER_ADMIN_USER ?? 'admin',
   geoserverPass: process.env.GEOSERVER_ADMIN_PASSWORD ?? 'geoserver',
-  geoserverWorkspace: process.env.GEOSERVER_WORKSPACE ?? 'maritime',
+  geoserverWorkspace: process.env.GEOSERVER_WORKSPACE ?? 'aetherwx',
   nodeEnv: process.env.NODE_ENV ?? 'development',
   paletteLimit: parseInt(process.env.PALETTE_LIMIT_PER_USER ?? '5', 10),
   // ─── Sprint Auth refonte ───

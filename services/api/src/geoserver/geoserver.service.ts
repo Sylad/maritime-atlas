@@ -19,7 +19,7 @@ export class GeoServerService {
     this.url = config.get<string>('geoserverUrl') ?? 'http://geoserver:8080/geoserver';
     this.user = config.get<string>('geoserverUser') ?? 'admin';
     this.pass = config.get<string>('geoserverPass') ?? 'geoserver';
-    this.workspace = config.get<string>('geoserverWorkspace') ?? 'maritime';
+    this.workspace = config.get<string>('geoserverWorkspace') ?? 'aetherwx';
   }
 
   private auth(): string {

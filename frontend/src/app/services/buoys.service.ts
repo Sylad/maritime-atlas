@@ -10,14 +10,14 @@ import { Observable } from 'rxjs';
  * UK Met Office, …).
  *
  * Deux endpoints WFS côté GeoServer maritime :
- *  - maritime:buoys                       → toutes les plateformes + métadonnées
- *  - maritime:v_buoy_observations_recent  → idem + dernières mesures (vide en
+ *  - aetherwx:buoys                       → toutes les plateformes + métadonnées
+ *  - aetherwx:v_buoy_observations_recent  → idem + dernières mesures (vide en
  *    MVP — pas d'ingest NetCDF temps réel, Chantier optionnel post-sprint).
  *
  * ⚠ La colonne PK garde son nom historique `candhis_id` côté backend (et donc
  * côté API GeoServer / frontend). Sa valeur est désormais PLATFORMCODE
  * EMODnet — c'est de la dette technique calculée pour minimiser le churn
- * (cf provisioner GeoServer + nom GeoServer maritime:buoys).
+ * (cf provisioner GeoServer + nom GeoServer aetherwx:buoys).
  */
 
 export interface BuoyProperties {
@@ -85,7 +85,7 @@ export class BuoysService {
         service: 'WFS',
         version: '2.0.0',
         request: 'GetFeature',
-        typeName: 'maritime:buoys',
+        typeName: 'aetherwx:buoys',
         outputFormat: 'application/json',
         srsName: 'EPSG:4326',
         count: '500',
@@ -109,7 +109,7 @@ export class BuoysService {
         service: 'WFS',
         version: '2.0.0',
         request: 'GetFeature',
-        typeName: 'maritime:v_buoy_observations_recent',
+        typeName: 'aetherwx:v_buoy_observations_recent',
         outputFormat: 'application/json',
         srsName: 'EPSG:4326',
         CQL_FILTER: cql,
