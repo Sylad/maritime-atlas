@@ -387,21 +387,9 @@ function gibsDailyDate(): string {
       border-left-color: rgba(20, 24, 38, 0.95) !important;
       border-right-color: rgba(20, 24, 38, 0.95) !important;
     }
-    ::ng-deep .maplibregl-popup-close-button {
-      position: absolute !important;
-      top: 4px !important;
-      right: 6px !important;
-      color: #8a96a8 !important;
-      font-size: 18px !important;
-      line-height: 1;
-      padding: 2px 6px !important;
-      background: transparent !important;
-      border: 0 !important;
-    }
-    ::ng-deep .maplibregl-popup-close-button:hover {
-      color: #e6ecf3 !important;
-      background: transparent !important;
-    }
+    /* PAS d'override sur .maplibregl-popup-close-button — le default MapLibre
+       le positionne correctement via son propre CSS. Mes overrides
+       (position: absolute) sans parent relative coupable peuvent perturber. */
   `,
 })
 export class GlobeComponent implements AfterViewInit, OnDestroy {
@@ -948,6 +936,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
 
     this.map = map;
+    // 2026-05-21 — Expose en window pour debug DOM popup positioning
+    (window as unknown as { globeMap: MapLibreMap }).globeMap = map;
   }
 
   private _startFpsLoop(): void {
