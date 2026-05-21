@@ -12,7 +12,7 @@
  *   - Trails wipe au pan/zoom/pitch/rotate via setMoving(true)
  *
  * Defaults retenus après tuning visuel Sylvain :
- *   fadeOpacity=0.99, speedFactor=0.1, dropRate=0.005, dropRateBump=0,
+ *   fadeOpacity=0.99, speedFactor=0.06, dropRate=0.005, dropRateBump=0,
  *   kSteps=5, gl_PointSize=1.5
  *
  * Le bbox est un [minLon, minLat, maxLon, maxLat] sur lequel les particules
@@ -385,7 +385,7 @@ export class WindWebGL {
     this.gl = gl;
     this.bounds = opts.bounds ?? [-15, 35, 30, 65];
     this.fadeOpacity = opts.fadeOpacity ?? 0.99;
-    this.speedFactor = opts.speedFactor ?? 0.1;
+    this.speedFactor = opts.speedFactor ?? 0.06;
     this.dropRate = opts.dropRate ?? 0.005;
     this.dropRateBump = opts.dropRateBump ?? 0.0;
     this.kSteps = opts.kSteps ?? 5;
