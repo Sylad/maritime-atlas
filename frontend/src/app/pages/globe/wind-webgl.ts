@@ -113,7 +113,9 @@ vec2 lonlat_to_mercator(vec2 lonlat) {
 }
 
 void main() {
-  float segments_per_particle = u_k_steps - 1.0;
+  // K=1 → segments_per_particle = 0 → division par zéro / mod par zéro = NaN
+  // → particules invisibles. Clamp à >=1 (cf JS Math.max(K-1, 1)).
+  float segments_per_particle = max(u_k_steps - 1.0, 1.0);
   float particle_idx = floor(a_seg / segments_per_particle);
   float sub_idx_start = mod(a_seg, segments_per_particle);
   float sub_idx_end = sub_idx_start + 1.0;
