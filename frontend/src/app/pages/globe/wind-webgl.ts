@@ -58,13 +58,35 @@ interface ProgramWrapper {
   [k: string]: WebGLProgram | WebGLUniformLocation | number | null | undefined;
 }
 
+// 2026-05-21 rev3 — Triangle strip extrusion (wide-line WebGL pattern).
+//
+// Au lieu de dessiner des POINTS individuels (qui donnent un pointillé dans
+// les courbes même avec K=10 sub-steps), on dessine un QUAD par segment :
+// chaque segment [sub_pos_a → sub_pos_b] devient un rectangle extrudé
+// perpendiculairement à la direction du segment, d'épaisseur `u_line_width`
+// en pixels écran. Le fragment shader applique un AA smoothstep sur la
+// distance perpendiculaire au centre du segment → trait continu vrai,
+// AA propre, équivalent du rendu canvas 2D ctx.lineTo.
+//
+// Attributes (per vertex, 6 vertices par quad) :
+//   a_seg     : float — index global du segment (particle_idx * (K-1) + sub_idx_start)
+//   a_side    : float ∈ {-1, +1} — côté du quad (perpendiculaire au segment)
+//   a_t       : float ∈ {0, 1}   — extrémité du quad (start=0 ou end=1 du segment)
+//
+// Layout des 6 vertices d'un quad : 2 triangles = (a_t=0, a_side=-1), (a_t=1, a_side=-1),
+//   (a_t=0, a_side=+1), (a_t=0, a_side=+1), (a_t=1, a_side=-1), (a_t=1, a_side=+1).
+//
+// Wrap handling : si dist(prev, curr) > 0.5 normalized, on collapse le segment
+// à un point (skip rendering) — sinon trait horrible traverse l'écran.
 const drawVertTemplate = (prelude: string, define: string) => `#version 300 es
 precision mediump float;
 
 ${prelude}
 ${define}
 
-in float a_index;
+in float a_seg;
+in float a_side;
+in float a_t;
 
 uniform sampler2D u_particles;
 uniform sampler2D u_particles_prev;
@@ -72,9 +94,12 @@ uniform sampler2D u_particles_age;
 uniform float u_particles_res;
 uniform vec4 u_bbox;
 uniform float u_k_steps;
+uniform vec2 u_canvas_size;
+uniform float u_line_width;
 
 out vec2 v_particle_pos;
 out float v_age_fade;
+out float v_side;             // pour AA fragment (smoothstep sur abs(v_side))
 
 vec2 decode_pos(vec4 color) {
   return vec2(color.r / 255.0 + color.b, color.g / 255.0 + color.a);
@@ -88,8 +113,10 @@ vec2 lonlat_to_mercator(vec2 lonlat) {
 }
 
 void main() {
-  float particle_idx = floor(a_index / u_k_steps);
-  float t = mod(a_index, u_k_steps) / max(u_k_steps - 1.0, 1.0);
+  float segments_per_particle = u_k_steps - 1.0;
+  float particle_idx = floor(a_seg / segments_per_particle);
+  float sub_idx_start = mod(a_seg, segments_per_particle);
+  float sub_idx_end = sub_idx_start + 1.0;
 
   vec2 uv = vec2(
     fract(particle_idx / u_particles_res),
@@ -98,31 +125,56 @@ void main() {
   vec2 curr_pos = decode_pos(texture(u_particles, uv));
   vec2 prev_pos = decode_pos(texture(u_particles_prev, uv));
 
+  // Wrap detection : si la particule a respawn, collapse le segment pour
+  // ne pas dessiner un trait traversant l'écran.
   vec2 delta = curr_pos - prev_pos;
-  float dist2 = dot(delta, delta);
-  if (dist2 > 0.25) {
-    v_particle_pos = curr_pos;
-  } else {
-    v_particle_pos = mix(prev_pos, curr_pos, t);
+  if (dot(delta, delta) > 0.25) {
+    prev_pos = curr_pos;
   }
 
-  float lon = mix(u_bbox.x, u_bbox.z, v_particle_pos.x);
-  float lat = mix(u_bbox.w, u_bbox.y, v_particle_pos.y);
+  // Positions des 2 extrémités du segment dans l'espace normalisé bbox.
+  float t_start = sub_idx_start / max(segments_per_particle, 1.0);
+  float t_end   = sub_idx_end   / max(segments_per_particle, 1.0);
+  vec2 sub_a = mix(prev_pos, curr_pos, t_start);
+  vec2 sub_b = mix(prev_pos, curr_pos, t_end);
 
-  vec2 mercator = lonlat_to_mercator(vec2(lon, lat));
+  // v_particle_pos = position du vertex le long du segment, pour color sampling
+  // du wind dans le fragment shader (gradient Beaufort).
+  v_particle_pos = mix(sub_a, sub_b, a_t);
+
+  // Lat/lon → mercator → clip space pour les 2 extrémités.
+  float lon_a = mix(u_bbox.x, u_bbox.z, sub_a.x);
+  float lat_a = mix(u_bbox.w, u_bbox.y, sub_a.y);
+  float lon_b = mix(u_bbox.x, u_bbox.z, sub_b.x);
+  float lat_b = mix(u_bbox.w, u_bbox.y, sub_b.y);
+
+  vec4 clip_a = projectTile(lonlat_to_mercator(vec2(lon_a, lat_a)));
+  vec4 clip_b = projectTile(lonlat_to_mercator(vec2(lon_b, lat_b)));
+
+  // NDC → pixel space pour calculer normal en pixels écran.
+  vec2 ndc_a = clip_a.xy / clip_a.w;
+  vec2 ndc_b = clip_b.xy / clip_b.w;
+  vec2 px_a = (ndc_a * 0.5 + 0.5) * u_canvas_size;
+  vec2 px_b = (ndc_b * 0.5 + 0.5) * u_canvas_size;
+
+  vec2 seg_dir = normalize(px_b - px_a + vec2(1e-6, 0.0));
+  vec2 seg_normal = vec2(-seg_dir.y, seg_dir.x);
+
+  // Choisit l'extrémité du segment (a ou b) selon a_t, puis offset perpendiculaire
+  // de demi-épaisseur dans le sens a_side (-1 ou +1).
+  vec4 clip_pos = mix(clip_a, clip_b, a_t);
+  vec2 offset_px = seg_normal * a_side * (u_line_width * 0.5);
+
+  // Convertit l'offset pixel en clip space (×w pour annuler la division
+  // perspective qui se fera après le vertex shader).
+  vec2 offset_clip = (offset_px / u_canvas_size) * 2.0 * clip_pos.w;
+
+  gl_Position = clip_pos + vec4(offset_clip, 0.0, 0.0);
 
   float age_frames = texture(u_particles_age, uv).r * 255.0;
   v_age_fade = clamp(age_frames / 20.0, 0.0, 1.0);
 
-  // 2026-05-21 rev2 — point size 3.5 + K=10 sub-steps (cf this.kSteps).
-  // À 144 FPS avec vent rapide, distance par frame ≈ 8-12 px en zoom moyen.
-  // K=10 sub-steps × 3.5 px pointSize avec AA fade = overlap garanti entre
-  // sous-points consécutifs → trail visuellement continu, plus de "spermatozoïdes"
-  // (pointillé visible quand sub-points trop espacés vs pointSize).
-  // 1.5 était trop petit pour laisser room au gradient AA (smoothstep 0.4→0.5
-  // sur 1.5 pixels ≈ 0.15 px de fade = invisible).
-  gl_PointSize = 3.5;
-  gl_Position = projectTile(mercator);
+  v_side = a_side;  // -1 sur un bord, 0 au centre, +1 autre bord
 }
 `;
 
@@ -135,6 +187,7 @@ uniform vec2 u_wind_max;
 
 in vec2 v_particle_pos;
 in float v_age_fade;
+in float v_side;          // -1 sur un bord, 0 au centre, +1 autre bord — AA distance
 out vec4 fragColor;
 
 void main() {
@@ -153,14 +206,14 @@ void main() {
                         min(v_particle_pos.y, 1.0 - v_particle_pos.y));
   float edge_fade = smoothstep(0.0, 0.1, edge_dist);
 
-  // 2026-05-21 — Anti-aliasing point : transforme le quad rasterisé hard-edge
-  // (carré 2.5x2.5 px) en disque AA. gl_PointCoord = uv du point [0,1]², on
-  // calcule la distance au centre (0.5,0.5) et on fade alpha de 0.40 → 0.50.
-  // Donne le même rendu lisse que canvas 2D ctx.lineTo (AA natif).
-  vec2 coord = gl_PointCoord - vec2(0.5);
-  float point_aa = 1.0 - smoothstep(0.40, 0.50, length(coord));
+  // 2026-05-21 rev3 — Anti-aliasing via distance-to-line.
+  // v_side est interpolé de -1 à +1 entre les 2 bords du quad extrudé.
+  // abs(v_side) = 0 au centre du segment, 1 sur les bords. smoothstep
+  // 0.7 → 1.0 → fade les bords sur ~30% de la largeur du quad → AA propre.
+  // Équivalent du rendu canvas 2D ctx.lineTo qui a son propre AA hardware.
+  float line_aa = 1.0 - smoothstep(0.7, 1.0, abs(v_side));
 
-  fragColor = vec4(color.rgb, color.a * edge_fade * v_age_fade * point_aa);
+  fragColor = vec4(color.rgb, color.a * edge_fade * v_age_fade * line_aa);
 }
 `;
 
@@ -353,6 +406,7 @@ export interface WindWebGLOptions {
   dropRate?: number;
   dropRateBump?: number;
   kSteps?: number;
+  lineWidth?: number;
 }
 
 export class WindWebGL {
@@ -363,6 +417,8 @@ export class WindWebGL {
   dropRate: number;
   dropRateBump: number;
   kSteps: number;
+  /** Épaisseur du trait en pixels écran (utilisé par triangle strip extrusion). */
+  lineWidth: number;
 
   private _numParticles = 0;
   private particleStateResolution = 0;
@@ -391,7 +447,13 @@ export class WindWebGL {
     this.speedFactor = opts.speedFactor ?? 0.06;
     this.dropRate = opts.dropRate ?? 0.005;
     this.dropRateBump = opts.dropRateBump ?? 0.0;
-    this.kSteps = opts.kSteps ?? 10;
+    // 2026-05-21 rev3 — kSteps 5 (au lieu de 10) suffit avec triangle strip
+    // extrusion : chaque segment = trait continu vrai, plus de problème de
+    // pointillé. Réduit le draw count (2× moins de quads à dessiner).
+    this.kSteps = opts.kSteps ?? 5;
+    // Épaisseur du trait en pixels. 2.0 = trait fin lisible. À monter à 2.5-3
+    // si on veut un rendu plus marqué.
+    this.lineWidth = opts.lineWidth ?? 2.0;
 
     this.screenProgram = createProgram(gl, quadVert, screenFrag);
     this.updateProgram = createProgram(gl, quadVert, updateFrag);
@@ -415,6 +477,8 @@ export class WindWebGL {
     program['u_particles_prev'] = this.gl.getUniformLocation(program.program, 'u_particles_prev') ?? undefined;
     program['u_particles_age'] = this.gl.getUniformLocation(program.program, 'u_particles_age') ?? undefined;
     program['u_k_steps'] = this.gl.getUniformLocation(program.program, 'u_k_steps') ?? undefined;
+    program['u_canvas_size'] = this.gl.getUniformLocation(program.program, 'u_canvas_size') ?? undefined;
+    program['u_line_width'] = this.gl.getUniformLocation(program.program, 'u_line_width') ?? undefined;
     this._drawProgramVariants.set(key, program);
     return program;
   }
@@ -460,12 +524,45 @@ export class WindWebGL {
     this.particleStateAge0 = createTexture(gl, gl.NEAREST, ageState, particleRes, particleRes);
     this.particleStateAge1 = createTexture(gl, gl.NEAREST, ageState, particleRes, particleRes);
 
-    const totalIndices = this._numParticles * this.kSteps;
-    const particleIndices = new Float32Array(totalIndices);
-    for (let i = 0; i < totalIndices; i++) particleIndices[i] = i;
+    // 2026-05-21 rev3 — Triangle strip extrusion. Buffer interleaved
+    // (a_seg, a_side, a_t) × 6 vertices par quad × (K-1) segments × N particules.
+    //
+    // Layout des 6 vertices d'un quad (2 triangles) :
+    //   t=0 side=-1 → corner a-
+    //   t=1 side=-1 → corner b-
+    //   t=0 side=+1 → corner a+
+    //   t=0 side=+1 → corner a+   (start tri 2)
+    //   t=1 side=-1 → corner b-
+    //   t=1 side=+1 → corner b+
+    //
+    // a_seg = particle_idx * (K-1) + sub_idx_start. Le vertex shader reconstruit
+    // sub_idx_end = sub_idx_start + 1 et calcule les positions des 2 extrémités
+    // du segment depuis u_particles + u_particles_prev.
+    const segmentsPerParticle = Math.max(this.kSteps - 1, 1);
+    const totalSegments = this._numParticles * segmentsPerParticle;
+    const verticesPerSegment = 6;
+    const floatsPerVertex = 3;  // (a_seg, a_side, a_t)
+    const attrs = new Float32Array(totalSegments * verticesPerSegment * floatsPerVertex);
+    const corners: Array<[number, number]> = [
+      [-1, 0],  // t=0 side=-1
+      [-1, 1],  // t=1 side=-1
+      [+1, 0],  // t=0 side=+1
+      [+1, 0],  // t=0 side=+1  (start tri 2)
+      [-1, 1],  // t=1 side=-1
+      [+1, 1],  // t=1 side=+1
+    ];
+    let w = 0;
+    for (let segIdx = 0; segIdx < totalSegments; segIdx++) {
+      for (let v = 0; v < verticesPerSegment; v++) {
+        const [side, t] = corners[v];
+        attrs[w++] = segIdx;
+        attrs[w++] = side;
+        attrs[w++] = t;
+      }
+    }
     if (this.particleIndexBuffer) gl.deleteBuffer(this.particleIndexBuffer);
-    this.particleIndexBuffer = createBuffer(gl, particleIndices);
-    this._totalDrawIndices = totalIndices;
+    this.particleIndexBuffer = createBuffer(gl, attrs);
+    this._totalDrawIndices = totalSegments * verticesPerSegment;
   }
 
   get numParticles() { return this._numParticles; }
@@ -577,7 +674,19 @@ export class WindWebGL {
     const program = this._getDrawProgram(args.shaderData);
     gl.useProgram(program.program);
 
-    bindAttribute(gl, this.particleIndexBuffer!, program['a_index'] as number, 1);
+    // Interleaved (a_seg, a_side, a_t) — stride 12 bytes, 3 attributes.
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.particleIndexBuffer!);
+    const stride = 12;  // 3 floats × 4 bytes
+    const aSeg = program['a_seg'] as number;
+    const aSide = program['a_side'] as number;
+    const aT = program['a_t'] as number;
+    gl.enableVertexAttribArray(aSeg);
+    gl.vertexAttribPointer(aSeg, 1, gl.FLOAT, false, stride, 0);
+    gl.enableVertexAttribArray(aSide);
+    gl.vertexAttribPointer(aSide, 1, gl.FLOAT, false, stride, 4);
+    gl.enableVertexAttribArray(aT);
+    gl.vertexAttribPointer(aT, 1, gl.FLOAT, false, stride, 8);
+
     bindTexture(gl, this.particleStateTexture1!, 3);
     bindTexture(gl, this.particleStateAge0!, 4);
 
@@ -592,6 +701,14 @@ export class WindWebGL {
     gl.uniform2f(program['u_wind_max'] as WebGLUniformLocation, this.windData!.uMax, this.windData!.vMax);
     gl.uniform4f(program['u_bbox'] as WebGLUniformLocation, this.bounds[0], this.bounds[1], this.bounds[2], this.bounds[3]);
 
+    // 2026-05-21 rev3 — uniforms wide-line extrusion.
+    if (program['u_canvas_size']) {
+      gl.uniform2f(program['u_canvas_size'] as WebGLUniformLocation, gl.canvas.width, gl.canvas.height);
+    }
+    if (program['u_line_width']) {
+      gl.uniform1f(program['u_line_width'] as WebGLUniformLocation, this.lineWidth);
+    }
+
     const pd = args.defaultProjectionData;
     if (program['u_projection_matrix']) gl.uniformMatrix4fv(program['u_projection_matrix'] as WebGLUniformLocation, false, pd.mainMatrix);
     if (program['u_projection_fallback_matrix']) gl.uniformMatrix4fv(program['u_projection_fallback_matrix'] as WebGLUniformLocation, false, pd.fallbackMatrix);
@@ -599,7 +716,7 @@ export class WindWebGL {
     if (program['u_projection_clipping_plane']) gl.uniform4f(program['u_projection_clipping_plane'] as WebGLUniformLocation, ...pd.clippingPlane);
     if (program['u_projection_transition']) gl.uniform1f(program['u_projection_transition'] as WebGLUniformLocation, pd.projectionTransition);
 
-    gl.drawArrays(gl.POINTS, 0, this._totalDrawIndices);
+    gl.drawArrays(gl.TRIANGLES, 0, this._totalDrawIndices);
   }
 
   private _updateParticles() {
