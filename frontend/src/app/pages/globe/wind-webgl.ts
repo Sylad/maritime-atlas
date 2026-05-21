@@ -705,11 +705,16 @@ export class WindWebGL {
     gl.uniform4f(program['u_bbox'] as WebGLUniformLocation, this.bounds[0], this.bounds[1], this.bounds[2], this.bounds[3]);
 
     // 2026-05-21 rev3 — uniforms wide-line extrusion.
+    // HiDPI fix : gl.canvas.width est en device pixels (×devicePixelRatio).
+    // Si on passe lineWidth tel quel, sur écran HiDPI (DPR=2) le trait paraît
+    // 2× plus fin que demandé en CSS pixels. On multiplie par DPR pour que
+    // lineWidth reste en CSS pixels (visuel humain).
     if (program['u_canvas_size']) {
       gl.uniform2f(program['u_canvas_size'] as WebGLUniformLocation, gl.canvas.width, gl.canvas.height);
     }
     if (program['u_line_width']) {
-      gl.uniform1f(program['u_line_width'] as WebGLUniformLocation, this.lineWidth);
+      const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio ?? 1) : 1;
+      gl.uniform1f(program['u_line_width'] as WebGLUniformLocation, this.lineWidth * dpr);
     }
 
     const pd = args.defaultProjectionData;
