@@ -171,8 +171,13 @@ void main() {
 
     fragPos = encode_pos(pos);
 
-    // Age tracking : reset à 0 si drop, sinon increment clamp 255.
-    float age_new = mix(min(age_prev + 1.0, 255.0), 0.0, drop);
+    // Age tracking : reset à un random ∈ [0, 30] si drop, sinon increment.
+    // Random modéré pour désynchroniser les respawns entre particules
+    // (sinon effet "battement de coeur" — Sylvain rev8 : "toutes les
+    // particules s'éteignent en même temps"). 30/200 = 15% de variance
+    // sur durée de vie. Cumul sur plusieurs cycles → désynchro totale.
+    float reset_offset = rand(seed + 5.7) * 30.0;
+    float age_new = mix(min(age_prev + 1.0, 255.0), reset_offset, drop);
     fragAge = vec4(age_new / 255.0, 0.0, 0.0, 1.0);
   } else {
     // Slot k > 0 : shift à droite (copie slot k-1 de history_in pour pos
@@ -557,12 +562,17 @@ export class WindWebGL {
     this.historyA = createTexture(gl, gl.NEAREST, data, historyWidth, historyHeight);
     this.historyB = createTexture(gl, gl.NEAREST, data, historyWidth, historyHeight);
 
-    // Age textures : init à K_HISTORY (= déjà alive) pour ne pas attendre
-    // K frames de warmup au démarrage. Même taille que history pour MRT.
+    // Age textures : init à un random ∈ [K_HISTORY, MAX_TTL] par particule
+    // pour déphaser dès le démarrage (sinon toutes les particules respawn
+    // au même moment au premier cycle → "battement de coeur"). Min = K_HISTORY
+    // pour que toutes les particules soient immédiatement visibles (l'historique
+    // n'a pas encore K_HISTORY frames de positions vraies, mais les segments
+    // s'invalident un par un via age_valid step).
     const ageData = new Uint8Array(historyWidth * historyHeight * 4);
-    const initAge = Math.min(K_HISTORY, 255);
+    const minAge = K_HISTORY;
+    const maxAgeInit = Math.min(this.maxTtl, 255);
     for (let i = 0; i < ageData.length; i += 4) {
-      ageData[i] = initAge;
+      ageData[i] = minAge + Math.floor(Math.random() * (maxAgeInit - minAge));
     }
     if (this.ageA) gl.deleteTexture(this.ageA);
     if (this.ageB) gl.deleteTexture(this.ageB);
