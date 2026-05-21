@@ -486,10 +486,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     const layerIds: Record<typeof kind, string[]> = {
       lightning: ['vec-lightning'],
       alerts: ['vec-alerts'],
-      // Pas de symbol layer pour le count cluster — le style raster basemap
-       // n'embarque pas de glyphs URL, MapLibre crash sinon. Le comptage est
-       // affiché dans le panel à la place.
-      vessels: ['vec-vessels-clusters', 'vec-vessels-points'],
+      // 2026-05-21 — glyphs URL ajouté au style MapLibre (cf style.glyphs)
+      // → symbol text layer fonctionne maintenant. Count visible sur cluster.
+      vessels: ['vec-vessels-clusters', 'vec-vessels-cluster-count', 'vec-vessels-points'],
     };
 
     // Toggle off : retire les layers + source
@@ -572,6 +571,25 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
             'circle-opacity': 0.85,
             'circle-stroke-color': '#0f172a',
             'circle-stroke-width': 1.5,
+          },
+        });
+        // 2026-05-21 — count cluster sur les bubbles (Sylvain feedback).
+        map.addLayer({
+          id: 'vec-vessels-cluster-count',
+          type: 'symbol',
+          source: sourceId,
+          filter: ['has', 'point_count'],
+          layout: {
+            'text-field': '{point_count_abbreviated}',
+            'text-font': ['Open Sans Regular'],
+            'text-size': 12,
+            'text-allow-overlap': true,
+            'text-ignore-placement': true,
+          },
+          paint: {
+            'text-color': '#ffffff',
+            'text-halo-color': 'rgba(0,0,0,0.5)',
+            'text-halo-width': 1,
           },
         });
         map.addLayer({
@@ -730,6 +748,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       container,
       style: {
         version: 8,
+        // Glyphs URL nécessaire pour les symbol text layers (count cluster
+        // vessels). Source publique OpenMapTiles fonts. Sans ça, ajouter
+        // une layer type=symbol crash MapLibre.
+        glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
         sources: {
           'carto-dark': {
             type: 'raster',
