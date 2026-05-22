@@ -3270,44 +3270,82 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Applique setZIndex à chaque layer OL selon l'ordre `layerZIndexOrder`.
-   *  Base z-index 30, +1 par position. Premier (top de liste) = plus haut. */
+   *  Base z-index 30, +1 par position. Premier (top de liste) = plus haut.
+   *  Sprint Z (2026-05-22) — itère sur les N layers retournées par
+   *  olLayersByKey (raster + isoline + cascade partagent souvent une key). */
   private applyLayerZIndices(): void {
     const order = this.layerZIndexOrder();
     if (order.length === 0) return;
     const BASE_Z = 30;
-    // L'item en tête est visuellement au-dessus, donc z-index le plus grand
     order.forEach((key, idx) => {
       const z = BASE_Z + (order.length - idx);
-      const layer = this.olLayerByKey(key);
-      if (layer) layer.setZIndex(z);
+      for (const layer of this.olLayersByKey(key)) {
+        layer.setZIndex(z);
+      }
     });
   }
 
-  /** Mapping key → BaseLayer OL. Pour Feature 3 z-index reorder. Retourne
-   *  null si la layer n'est pas trouvée (vector layer ou layer pas init). */
-  private olLayerByKey(key: string): { setZIndex: (z: number) => void } | null {
+  /** Mapping key → BaseLayer[]. Sprint Z (2026-05-22) — retourne TOUTES les
+   *  layers OL associées à une key sémantique : raster + isoline + cascade
+   *  partagent souvent un même key dans `animatableLayers` (cf OR-clause
+   *  raster/isolines wind/waves/sst). Ainsi le drag d'une rangée bouge tout
+   *  son rendu en bloc, pas juste le raster.
+   *
+   *  Returns array vide si aucune layer trouvée (vector pas init, windParticles
+   *  qui est WebGL canvas hors OL, etc.). */
+  private olLayersByKey(key: string): Array<{ setZIndex: (z: number) => void }> {
+    const out: Array<{ setZIndex: (z: number) => void }> = [];
     switch (key) {
-      case 'sst':           return this.sstLayer ?? null;
-      case 'wind':          return this.windLayer ?? null;
-      case 'waves':         return this.wavesLayer ?? null;
-      case 'rain':          return this.rainLayer ?? null;
-      case 'windArrows':    return this.windArrowsLayer ?? null;
-      case 'waveArrows':    return this.waveArrowsLayer ?? null;
-      // windParticles = canvas WebGL custom (particlesEngine), pas une OL layer
-      // → pas de setZIndex effectif. La rangée reste draggable visuellement.
-      case 'windParticles': return null;
-      case 'vessels':       return this.vesselLayer ?? null;
-      case 'tracks':        return this.trackLayer ?? null;
-      case 'alerts':        return this.alertsLayer ?? null;
-      case 'buoys':         return this.buoysLayer ?? null;
-      case 'lightning':     return this.lightningLayer ?? null;
-      case 'metar':         return this.metarLayer ?? null;
-      case 'hubeau':        return this.hubeauLayer ?? null;
-      case 'piezo':         return this.piezoLayer ?? null;
-      case 'quakes':        return this.quakesLayer ?? null;
-      case 'firms':         return this.firmsLayer ?? null;
-      default:              return null;
+      case 'sst':
+        if (this.sstLayer) out.push(this.sstLayer);
+        if (this.sstContoursLayer) out.push(this.sstContoursLayer);
+        break;
+      case 'wind':
+        if (this.windLayer) out.push(this.windLayer);
+        if (this.windContoursLayer) out.push(this.windContoursLayer);
+        break;
+      case 'waves':
+        if (this.wavesLayer) out.push(this.wavesLayer);
+        if (this.wavesContoursLayer) out.push(this.wavesContoursLayer);
+        break;
+      case 'rain':          if (this.rainLayer) out.push(this.rainLayer); break;
+      case 'windArrows':    if (this.windArrowsLayer) out.push(this.windArrowsLayer); break;
+      case 'waveArrows':    if (this.waveArrowsLayer) out.push(this.waveArrowsLayer); break;
+      // windParticles = canvas WebGL custom (particlesEngine), pas une OL layer.
+      case 'windParticles': break;
+      case 'vessels':       if (this.vesselLayer) out.push(this.vesselLayer); break;
+      case 'tracks':        if (this.trackLayer) out.push(this.trackLayer); break;
+      case 'alerts':        if (this.alertsLayer) out.push(this.alertsLayer); break;
+      case 'buoys':         if (this.buoysLayer) out.push(this.buoysLayer); break;
+      case 'lightning':     if (this.lightningLayer) out.push(this.lightningLayer); break;
+      case 'metar':         if (this.metarLayer) out.push(this.metarLayer); break;
+      case 'hubeau':        if (this.hubeauLayer) out.push(this.hubeauLayer); break;
+      case 'piezo':         if (this.piezoLayer) out.push(this.piezoLayer); break;
+      case 'quakes':        if (this.quakesLayer) out.push(this.quakesLayer); break;
+      case 'firms':         if (this.firmsLayer) out.push(this.firmsLayer); break;
+      // NASA GIBS (satLayers map keyed par layer key)
+      case 'satTrueColor':
+      case 'satTrueColorVIIRS':
+      case 'satIR':
+      case 'satWaterVapor':
+      case 'satCloudTop':
+      case 'satAerosol':
+      case 'satDayNight':
+        if (this.satLayers[key]) out.push(this.satLayers[key]);
+        break;
+      case 'satRainviewer':
+        if (this.satRainviewerLayer) out.push(this.satRainviewerLayer);
+        break;
+      // Cascade WMS (EUMETSAT + DWD + KNMI radar) — cascadeLayers map
+      case 'satEuIrRss':
+      case 'satGlobalIrMtg':
+      case 'satEuHrvRgb':
+      case 'radarDwd':
+      case 'radarKnmi':
+        if (this.cascadeLayers[key]) out.push(this.cascadeLayers[key]);
+        break;
     }
+    return out;
   }
 
   private persistLayerZIndices(): void {
