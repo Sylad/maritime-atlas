@@ -1942,10 +1942,16 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (kind === 'vessels') {
       return await firstValueFrom(this.vesselsService.fetchLiveVessels(new Date(), 900));
     }
-    // G8 — fetch REST direct pour 6 layers vector (metar/hubeau/piezo/quakes/firms/buoys).
-    // Endpoints standardisés sur /api/<kind>/recent côté NestJS api.
+    // G8 — fetch REST direct pour 6 layers vector. Mapping endpoint :
+    //  - piezo  → /api/hubeau/piezo/recent (path nested sous hubeau)
+    //  - quakes → /api/earthquakes/recent  (controller earthquakes.controller)
+    //  - buoys  → WFS (BuoysService), pas /recent — TODO endpoint /api/buoys
+    //  - autres → /api/<kind>/recent
     const at = new Date().toISOString();
-    const resp = await fetch(`/api/${kind}/recent?at=${encodeURIComponent(at)}`);
+    const endpoint = kind === 'piezo'  ? '/api/hubeau/piezo/recent'
+                   : kind === 'quakes' ? '/api/earthquakes/recent'
+                   : `/api/${kind}/recent`;
+    const resp = await fetch(`${endpoint}?at=${encodeURIComponent(at)}`);
     if (!resp.ok) {
       throw new Error(`/api/${kind}/recent → HTTP ${resp.status}`);
     }

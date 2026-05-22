@@ -11,10 +11,12 @@
  *  caller doit utiliser la vue existante avec son WHERE now() - INTERVAL.
  */
 export interface AtWindow {
-  /** Timestamp du cursor, ou null si live mode. */
-  at: Date | null;
-  /** Borne basse de la fenêtre, ou null si live mode. */
-  from: Date | null;
+  /** Timestamp du cursor, ou null si live mode. ISO string (driver postgres.js
+   *  attend string, pas Date — fix 2026-05-22 bug TypeError Date instead
+   *  of string sur Function.byteLength). */
+  at: string | null;
+  /** Borne basse de la fenêtre, ou null si live mode. ISO string idem. */
+  from: string | null;
   /** Taille effective de la fenêtre en secondes (clampée). */
   windowSecs: number;
 }
@@ -27,9 +29,9 @@ export function parseAtWindow(atIso: string | undefined, windowStr: string | und
   }
 
   if (!atIso) return { at: null, from: null, windowSecs };
-  const at = new Date(atIso);
-  if (isNaN(at.getTime())) return { at: null, from: null, windowSecs };
+  const atDate = new Date(atIso);
+  if (isNaN(atDate.getTime())) return { at: null, from: null, windowSecs };
 
-  const from = new Date(at.getTime() - windowSecs * 1000);
-  return { at, from, windowSecs };
+  const fromDate = new Date(atDate.getTime() - windowSecs * 1000);
+  return { at: atDate.toISOString(), from: fromDate.toISOString(), windowSecs };
 }
