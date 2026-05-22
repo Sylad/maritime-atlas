@@ -4,6 +4,7 @@ import { SourcesController } from './sources.controller';
 import { JobsController } from './jobs.controller';
 import { PublicOrchestratorController } from './public-orchestrator.controller';
 import { OrchestratorStreamController } from './orchestrator-stream.controller';
+import { InternalTriggerController } from './internal-trigger.controller';
 import { OrchestratorRunnerService } from './orchestrator-runner.service';
 import { QueueAutoscalerService } from './queue-autoscaler.service';
 
@@ -29,7 +30,7 @@ import { QueueAutoscalerService } from './queue-autoscaler.service';
  */
 @Module({
   imports: [ScheduleModule],
-  controllers: [SourcesController, JobsController, PublicOrchestratorController, OrchestratorStreamController],
+  controllers: [SourcesController, JobsController, PublicOrchestratorController, OrchestratorStreamController, InternalTriggerController],
   providers: [OrchestratorRunnerService, QueueAutoscalerService],
   exports: [OrchestratorRunnerService],
 })
