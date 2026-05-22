@@ -105,6 +105,23 @@ function gibsDailyDate(): string {
         </div>
         <nav class="nav-links">
           <a routerLink="/legacy-map" class="nav-link">Carte 2D (legacy)</a>
+          <span class="nav-sep">·</span>
+          <a routerLink="/about" class="nav-link">À propos</a>
+          <!-- G18 M15 (audit G-7) — auth corner parité /legacy-map -->
+          <span class="nav-sep">·</span>
+          @if (currentUser(); as u) {
+            <a routerLink="/palettes" class="nav-link">{{ '@' + u.username }}</a>
+            @if (u.role === 'admin') {
+              <span class="nav-sep">·</span>
+              <a routerLink="/admin/users" class="nav-link nav-admin-pill" title="Espace admin">ADMIN</a>
+            }
+            <span class="nav-sep">·</span>
+            <button type="button" class="nav-btn" (click)="logout()">Déconnexion</button>
+          } @else {
+            <a routerLink="/auth/login" class="nav-link">Connexion</a>
+            <span class="nav-sep">·</span>
+            <a routerLink="/auth/register" class="nav-link">Inscription</a>
+          }
         </nav>
       </header>
 
@@ -590,7 +607,7 @@ function gibsDailyDate(): string {
       font-size: 10px;
       letter-spacing: .04em;
     }
-    .nav-links { display: flex; gap: 12px; }
+    .nav-links { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .nav-link {
       color: #c9d6e8;
       text-decoration: none;
@@ -602,6 +619,25 @@ function gibsDailyDate(): string {
       transition: background .15s;
     }
     .nav-link:hover { background: #2a3448; }
+    /* G18 M15 — auth corner (parité /legacy-map) */
+    .nav-sep { color: #4a5566; font-size: 11px; }
+    .nav-btn {
+      background: rgba(80, 30, 30, 0.5);
+      color: #fecaca;
+      border: 1px solid #6b3a3a;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .nav-btn:hover { background: rgba(120, 40, 40, 0.7); color: #fff; }
+    .nav-admin-pill {
+      background: rgba(120, 80, 30, 0.5);
+      border-color: #8b6020;
+      color: #fde68a;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+    }
 
     .map-container {
       position: absolute;
@@ -1053,6 +1089,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   private readonly vesselsService = inject(VesselsService);
   private readonly rainviewerService = inject(RainviewerService);
   private readonly auth = inject(AuthService);
+  /** G18 M15 (2026-05-22) — auth corner (parité /legacy-map) */
+  readonly currentUser = this.auth.currentUser;
+  readonly isAuthenticated = this.auth.isAuthenticated;
+  logout(): void { this.auth.logout(); }
   private readonly prefsSync = inject(PreferencesSyncService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
