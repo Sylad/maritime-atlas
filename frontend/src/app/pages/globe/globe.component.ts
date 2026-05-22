@@ -137,18 +137,26 @@ function gibsDailyDate(): string {
             <div class="catalog-section-body">
               <div class="row">
                 <button type="button" class="btn full" [class.active]="showVessels()"
+                        [class.mode-incompatible]="!!layerModeWarning('vessels')"
+                        [title]="layerModeWarning('vessels')"
                         (click)="toggleVector('vessels')" [disabled]="vectorLoading() === 'vessels'">🚢 Navires AIS (cluster)</button>
               </div>
               <div class="row">
                 <button type="button" class="btn full" [class.active]="showTracks()"
+                        [class.mode-incompatible]="!!layerModeWarning('tracks')"
+                        [title]="layerModeWarning('tracks')"
                         (click)="toggleTracks(!showTracks())" [disabled]="vectorLoading() === 'tracks'">🚢 Trajets AIS</button>
               </div>
               <div class="row">
                 <button type="button" class="btn full" [class.active]="showAlerts()"
+                        [class.mode-incompatible]="!!layerModeWarning('alerts')"
+                        [title]="layerModeWarning('alerts')"
                         (click)="toggleVector('alerts')" [disabled]="vectorLoading() === 'alerts'">⚠ Alertes</button>
               </div>
               <div class="row">
                 <button type="button" class="btn full" [class.active]="showLightning()"
+                        [class.mode-incompatible]="!!layerModeWarning('lightning')"
+                        [title]="layerModeWarning('lightning')"
                         (click)="toggleVector('lightning')" [disabled]="vectorLoading() === 'lightning'">⚡ Foudre</button>
               </div>
               @if (vectorCounts()['vessels'] != null && showVessels()) {
@@ -180,12 +188,16 @@ function gibsDailyDate(): string {
           @if (catalogSections().observation) {
             <div class="catalog-section-body">
               <div class="row"><button type="button" class="btn full" [class.active]="showMetar()"
+                [class.mode-incompatible]="!!layerModeWarning('metar')" [title]="layerModeWarning('metar')"
                 (click)="toggleVector('metar')" [disabled]="vectorLoading() === 'metar'">🌡 METAR</button></div>
               <div class="row"><button type="button" class="btn full" [class.active]="showQuakes()"
+                [class.mode-incompatible]="!!layerModeWarning('quakes')" [title]="layerModeWarning('quakes')"
                 (click)="toggleVector('quakes')" [disabled]="vectorLoading() === 'quakes'">🌐 Séismes</button></div>
               <div class="row"><button type="button" class="btn full" [class.active]="showFirms()"
+                [class.mode-incompatible]="!!layerModeWarning('firms')" [title]="layerModeWarning('firms')"
                 (click)="toggleVector('firms')" [disabled]="vectorLoading() === 'firms'">🔥 FIRMS feux</button></div>
               <div class="row"><button type="button" class="btn full" [class.active]="showBuoys()"
+                [class.mode-incompatible]="!!layerModeWarning('buoys')" [title]="layerModeWarning('buoys')"
                 (click)="toggleVector('buoys')" [disabled]="vectorLoading() === 'buoys'">⚓ Bouées</button></div>
               @if (vectorCounts()['metar'] != null && showMetar()) { <div class="info">METAR — {{ vectorCounts()['metar'] }}</div> }
               @if (vectorCounts()['quakes'] != null && showQuakes()) { <div class="info">Séismes — {{ vectorCounts()['quakes'] }}</div> }
@@ -208,8 +220,10 @@ function gibsDailyDate(): string {
           @if (catalogSections().hydrology) {
             <div class="catalog-section-body">
               <div class="row"><button type="button" class="btn full" [class.active]="showHubeau()"
+                [class.mode-incompatible]="!!layerModeWarning('hubeau')" [title]="layerModeWarning('hubeau')"
                 (click)="toggleVector('hubeau')" [disabled]="vectorLoading() === 'hubeau'">💧 Hub'eau débits FR</button></div>
               <div class="row"><button type="button" class="btn full" [class.active]="showPiezo()"
+                [class.mode-incompatible]="!!layerModeWarning('piezo')" [title]="layerModeWarning('piezo')"
                 (click)="toggleVector('piezo')" [disabled]="vectorLoading() === 'piezo'">🩸 Niveaux piézo FR</button></div>
               @if (vectorCounts()['hubeau'] != null && showHubeau()) { <div class="info">Hub'eau — {{ vectorCounts()['hubeau'] }} stations</div> }
               @if (vectorCounts()['piezo'] != null && showPiezo()) { <div class="info">Piezo — {{ vectorCounts()['piezo'] }} stations</div> }
@@ -514,6 +528,20 @@ function gibsDailyDate(): string {
     .controls .btn.active { background: #3b5bff; border-color: #5878ff; }
     .controls .btn:disabled { opacity: .5; cursor: progress; }
     .controls .btn.full { flex: 1 1 100%; }
+    /* G18 M3 — mode-aware : toggle activé mais cursor incompatible (ex: vessels
+       en mode future) → grisé + curseur not-allowed + tooltip natif via title. */
+    .controls .btn.mode-incompatible {
+      opacity: 0.4;
+      background: #1c2333;
+      border-style: dashed;
+      border-color: #6b4a4a;
+      color: #8a96a8;
+      cursor: help;
+    }
+    .controls .btn.mode-incompatible.active {
+      background: rgba(59, 91, 255, 0.25);
+      border-color: #6b4a8a;
+    }
     .controls .info {
       font-size: 11px;
       color: #8a96a8;
@@ -862,6 +890,55 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
 
   toggleLegend(): void { this.legendOpen.update((v) => !v); }
   toggleAttrCollapsed(): void { this.attrOpen.update((v) => !v); }
+
+  /** G18 M3 (2026-05-22) — UX mode-aware (parité /map line 4524+).
+   *  Détecte si cursor time-bar est sur "live" (±5min de now), futur ou passé.
+   *  Sert à griser les toggles dont la layer ne peut PAS s'afficher (ex :
+   *  vessels en future, METAR en past). Le `currentTime` signal de globe
+   *  drive ces 3 computeds. */
+  private static readonly LIVE_THRESHOLD_MS = 5 * 60_000;
+  readonly modeIsLive   = computed(() => Math.abs(Date.now() - this.currentTime().getTime()) < GlobeComponent.LIVE_THRESHOLD_MS);
+  readonly modeIsFuture = computed(() => this.currentTime().getTime() > Date.now() + GlobeComponent.LIVE_THRESHOLD_MS);
+  readonly modeIsPast   = computed(() => !this.modeIsLive() && !this.modeIsFuture());
+
+  /** Mapping layer→restrictions mode-aware (parité /map line 4589).
+   *  - 'live-only' : alerts, buoys, lightning, metar, hubeau, piezo, quakes, firms
+   *  - 'past-only' : tracks (granularité 1j)
+   *  - 'no-future' : vessels (pas de forecast trajectoire)
+   *  Retourne tooltip si incompatible, '' sinon. */
+  layerModeWarning(key: string): string {
+    const isLive = this.modeIsLive();
+    const isFuture = this.modeIsFuture();
+    const isPast = this.modeIsPast();
+    const LIVE_ONLY = new Set(['alerts', 'buoys', 'lightning', 'metar', 'hubeau', 'piezo', 'quakes', 'firms']);
+    const PAST_ONLY = new Set(['tracks']);
+    const NO_FUTURE = new Set(['vessels']);
+    if (LIVE_ONLY.has(key) && !isLive) {
+      return 'Layer live-only — affichée seulement quand le cursor est sur maintenant. Clique NOW.';
+    }
+    if (PAST_ONLY.has(key) && !isPast) {
+      return 'Layer past-only — affichée seulement en mode replay. Recule la time-bar.';
+    }
+    if (NO_FUTURE.has(key) && isFuture) {
+      return 'Pas de forecast pour cette layer — recule la time-bar.';
+    }
+    return '';
+  }
+
+  /** *Active computeds : layer toggled ON ET compatible avec mode courant.
+   *  Sert au rendu (apply visibility) et au styling (dim si toggled mais
+   *  incompatible). */
+  readonly vesselsActive  = computed(() => this.showVessels()  && !this.modeIsFuture());
+  readonly tracksActive   = computed(() => this.showTracks()   && this.modeIsPast());
+  readonly alertsActive   = computed(() => this.showAlerts()   && this.modeIsLive());
+  readonly lightningActive = computed(() => this.showLightning() && this.modeIsLive());
+  readonly metarActive    = computed(() => this.showMetar()    && this.modeIsLive());
+  readonly hubeauActive   = computed(() => this.showHubeau()   && this.modeIsLive());
+  readonly piezoActive    = computed(() => this.showPiezo()    && this.modeIsLive());
+  readonly quakesActive   = computed(() => this.showQuakes()   && this.modeIsLive());
+  readonly firmsActive    = computed(() => this.showFirms()    && this.modeIsLive());
+  readonly buoysActive    = computed(() => this.showBuoys()    && this.modeIsLive());
+  readonly sstActive      = computed(() => this.showSst()      && !this.modeIsFuture());
 
   /** G15 (2026-05-22) — sections accordéon du menu gauche, calquées sur /map.
    *  6 sections regroupant les 22+ layers globe. Default = Maritime+Sources
