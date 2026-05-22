@@ -334,8 +334,10 @@ function gibsDailyDate(): string {
           [layerCoverage]="sliderLayerCoverage()"
           [validityList]="masterValidityList()"
           [externalCurrentTime]="currentTime()"
+          [externalAnimationActive]="playing()"
           [autoZIndexEnabled]="autoZIndexEnabled()"
           (timeChange)="onSliderTimeChange($event)"
+          (playClicked)="onSliderPlayClicked()"
           (masterChange)="setMasterLayer($event)"
           (reorderRequest)="reorderLayerByDrag($event.fromKey, $event.toKey)"
           (autoZIndexEnabledChange)="onAutoZIndexToggleChange($event)" />
@@ -605,6 +607,11 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
    *  (sat cascade, sst, etc.) via setSource() au changement. */
   readonly currentTime = signal<Date>(new Date());
 
+  /** G11c (2026-05-22) — playback animation temporelle (+6h/s).
+   *  Toggle via bouton ▶︎ du TimeSliderComponent. */
+  readonly playing = signal<boolean>(false);
+  private animTimer?: ReturnType<typeof setInterval>;
+
   /** G7 (2026-05-22) — porté depuis /map Sprint Z. Rank sémantique pour
    *  l'ordre Z auto : sat (0, fond images larges) → raster sst (1) → radar
    *  (2) → WFS (4, points/lignes) → animations (5, particules au sommet). */
@@ -729,6 +736,33 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   /** G7 — handler ★ click du slider. Set le master du temps explicite. */
   setMasterLayer(key: string): void {
     this.masterLayerKey.set(key);
+  }
+
+  /** G11c — handler play/pause du slider. Toggle l'animation +6h/s. */
+  onSliderPlayClicked(): void {
+    if (this.playing()) this.stopPlay();
+    else this.startPlay();
+  }
+
+  private startPlay(): void {
+    this.playing.set(true);
+    this.animTimer = setInterval(() => {
+      const cur = this.currentTime();
+      const max = this.sliderMaxTime();
+      const min = this.sliderMinTime();
+      const next = new Date(cur.getTime() + 6 * 3_600_000);
+      if (next > max) this.currentTime.set(min);
+      else this.currentTime.set(next);
+      this.refreshWmsTimeForActiveLayers();
+    }, 1000);
+  }
+
+  private stopPlay(): void {
+    this.playing.set(false);
+    if (this.animTimer) {
+      clearInterval(this.animTimer);
+      this.animTimer = undefined;
+    }
   }
 
   /** G7 — handler drag-DnD du slider. Réordonne layerZIndexOrder et désactive
@@ -961,6 +995,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
 
   ngOnDestroy(): void {
     if (this.rafHandle !== undefined) cancelAnimationFrame(this.rafHandle);
+    if (this.animTimer) clearInterval(this.animTimer);
     this.windEngine = undefined;
     this.windLayer = undefined;
     this.map?.remove();
