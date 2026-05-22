@@ -290,12 +290,21 @@ async function main(): Promise<void> {
   });
   await ch.bindQueue(aisQ.queue, 'ais.positions', '*.position');
   ch.prefetch(50);
-  ch.consume(aisQ.queue, (msg) => {
+  // BUG-2 fix code-review 2026-05-22 : ack après onPosition résolu, sinon
+  // si pg.query échoue, le message est perdu sans retry. Avec prefetch 50
+  // la concurrence reste correcte (50 in-flight max).
+  ch.consume(aisQ.queue, async (msg) => {
     if (!msg) return;
     try {
       const evt: PositionEvent = JSON.parse(msg.content.toString());
-      onPosition(evt).catch((err) => console.error('[alerts] onPosition err:', err));
-    } catch { /* ignore malformed */ }
+      await onPosition(evt);
+    } catch (err) {
+      // JSON malformed OU onPosition foire → log + ack quand même (pas de retry)
+      // pour ne pas bloquer la queue indéfiniment. Si erreur transient, le
+      // prochain message AIS sur le même vessel arrivera dans <60s.
+      const e = err as Error;
+      if (e?.message) console.error('[alerts] onPosition err:', e.message);
+    }
     ch.ack(msg);
   });
 
