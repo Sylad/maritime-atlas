@@ -1259,9 +1259,9 @@ function gibsDailyDate(): string {
       }
     }
 
-    /* G22 (2026-05-22) — Hero logo header réduit : utilise le logo "tap"
-       déjà cropé (wordmark AETHERWX). User feedback : "logo ridiculement
-       grand, utiliser juste la partie supérieure". */
+    /* G22 (2026-05-22) — Hero logo header réduit : crop sur la partie
+       basse (wordmark AETHERWX) du logo_menu original. User feedback :
+       "j'aime bien la police et les couleurs, limite à côté le screenshot". */
     .data-catalog .catalog-header {
       display: block;
       width: calc(100% + 2.4em);
@@ -1269,11 +1269,11 @@ function gibsDailyDate(): string {
       border: 0;
       cursor: pointer;
       background-color: transparent;
-      background-image: url(/AetherWX_logo_tap.png);
-      background-size: contain;
-      background-position: center;
+      background-image: url(/AetherWX_logo_menu.png);
+      background-size: 100% auto;
+      background-position: center 75%;
       background-repeat: no-repeat;
-      height: 56px;
+      height: 64px;
       margin: -0.6em -1.2em 0.8em -1.2em;
       border-bottom: 1px solid var(--border);
       border-radius: 8px 8px 0 0;
