@@ -39,6 +39,7 @@ import { firstValueFrom } from 'rxjs';
 import { ArrowsService } from '../../services/arrows.service';
 import { AlertsService } from '../../services/alerts.service';
 import { LightningService } from '../../services/lightning.service';
+import { RainviewerService } from '../../services/rainviewer.service';
 import { VesselsService } from '../../services/vessels.service';
 import {
   buildWindTexture,
@@ -246,6 +247,15 @@ function gibsDailyDate(): string {
           <button type="button" class="btn full" [class.active]="showBuoys()"
                   (click)="toggleVector('buoys')" [disabled]="vectorLoading() === 'buoys'">⚓ Bouées</button>
         </div>
+        <!-- G8b — tracks (vessel polylines) + rain (RainViewer XYZ). -->
+        <div class="row">
+          <button type="button" class="btn full" [class.active]="showTracks()"
+                  (click)="toggleTracks(!showTracks())" [disabled]="vectorLoading() === 'tracks'">🚢 Trajets AIS</button>
+        </div>
+        <div class="row">
+          <button type="button" class="btn full" [class.active]="showRain()"
+                  (click)="toggleRain(!showRain())" [disabled]="vectorLoading() === 'rain'">🌧 Pluie RainViewer</button>
+        </div>
         @if (vectorCounts()['metar'] != null && showMetar()) {
           <div class="info">METAR — {{ vectorCounts()['metar'] }} stations</div>
         }
@@ -263,6 +273,12 @@ function gibsDailyDate(): string {
         }
         @if (vectorCounts()['buoys'] != null && showBuoys()) {
           <div class="info">Bouées — {{ vectorCounts()['buoys'] }} stations</div>
+        }
+        @if (vectorCounts()['tracks'] != null && showTracks()) {
+          <div class="info">Trajets — {{ vectorCounts()['tracks'] }} polylines</div>
+        }
+        @if (vectorCounts()['rain'] != null && showRain()) {
+          <div class="info">Pluie radar RainViewer (snap au cursor)</div>
         }
 
         <div class="info subtle">
@@ -469,6 +485,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   private readonly alertsService = inject(AlertsService);
   private readonly lightningService = inject(LightningService);
   private readonly vesselsService = inject(VesselsService);
+  private readonly rainviewerService = inject(RainviewerService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -493,6 +510,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       void this.showQuakes();
       void this.showFirms();
       void this.showBuoys();
+      void this.showTracks();
+      void this.showRain();
       if (!enabled) return;
       const auto = this.computeAutoZIndexOrder();
       if (auto.length === 0) return;
@@ -521,6 +540,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   readonly showQuakes = signal(false);
   readonly showFirms = signal(false);
   readonly showBuoys = signal(false);
+  readonly showTracks = signal(false);
+  readonly showRain = signal(false);
   readonly vectorLoading = signal<string | null>(null);
   readonly vectorCounts = signal<Record<string, number | undefined>>({});
 
@@ -540,6 +561,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     radarDwd: 2, radarKnmi: 2,
     lightning: 4, alerts: 4, vessels: 4,
     metar: 4, hubeau: 4, piezo: 4, quakes: 4, firms: 4, buoys: 4,
+    tracks: 4,
+    rain: 2,
     windParticles: 5,
   };
   private readonly DEFAULT_LAYER_RANK = 3;
@@ -592,6 +615,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     push(this.showQuakes(),    'quakes',    'quakes',    '#ef4444', 24, 0);
     push(this.showFirms(),     'firms',     'firms',     '#f97316', 24, 0);
     push(this.showBuoys(),     'buoys',     'buoys',     '#10b981', 24, 0);
+    push(this.showTracks(),    'tracks',    'tracks',    '#22c55e', 24, 0);
+    push(this.showRain(),      'rain',      'rain',      '#22d3ee', 2, 0);
     if (this.activeSat() !== 'none') {
       const sat = SAT_PRODUCTS.find((p) => p.key === this.activeSat());
       if (sat) push(true, sat.key, sat.gsName, '#a855f7', 168, 0);
@@ -684,6 +709,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (this.showQuakes()) active.push('quakes');
     if (this.showFirms()) active.push('firms');
     if (this.showBuoys()) active.push('buoys');
+    if (this.showTracks()) active.push('tracks');
+    if (this.showRain()) active.push('rain');
     return [...active].sort((a, b) => {
       const rA = this.LAYER_CATEGORY[a] ?? this.DEFAULT_LAYER_RANK;
       const rB = this.LAYER_CATEGORY[b] ?? this.DEFAULT_LAYER_RANK;
@@ -704,6 +731,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (key === 'metar' || key === 'hubeau' || key === 'piezo' || key === 'quakes' || key === 'firms' || key === 'buoys') {
       return [`vec-${key}`];
     }
+    if (key === 'tracks') return ['vec-tracks'];
+    if (key === 'rain') return ['rain-tiles'];
     if (key.startsWith('sat')) return [`sat-${key}`];
     return [];
   }
@@ -1048,6 +1077,80 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       console.error(`[globe] ${kind} fetch failed`, err);
       this.vectorLoading.set(null);
       showSig.set(false);
+    }
+  }
+
+  /** G8b — tracks vessels : LineString polylines depuis WFS aetherwx:vessel_tracks_daily.
+   *  Fetch les tracks du jour courant (UTC). Cap WFS 5000 features. */
+  async toggleTracks(on: boolean) {
+    if (this.showTracks() === on) return;
+    this.showTracks.set(on);
+    const map = this.map;
+    if (!map) return;
+    const sourceId = 'vec-tracks';
+    const layerId = 'vec-tracks';
+    if (!on) {
+      if (map.getLayer(layerId)) map.removeLayer(layerId);
+      if (map.getSource(sourceId)) map.removeSource(sourceId);
+      this.vectorCounts.update((c) => ({ ...c, tracks: undefined }));
+      return;
+    }
+    this.vectorLoading.set('tracks');
+    try {
+      const day = this.currentTime().toISOString().split('T')[0];
+      const fc = await firstValueFrom(this.vesselsService.fetchTracksForDay(day));
+      if (map.getSource(sourceId)) map.removeSource(sourceId);
+      map.addSource(sourceId, { type: 'geojson', data: fc as any });
+      map.addLayer({
+        id: layerId,
+        type: 'line',
+        source: sourceId,
+        paint: {
+          'line-color': '#22c55e',
+          'line-width': 1.2,
+          'line-opacity': 0.65,
+        },
+      });
+      this.vectorCounts.update((c) => ({ ...c, tracks: fc.features?.length ?? 0 }));
+    } catch (err) {
+      console.error('[globe] tracks fetch failed', err);
+      this.showTracks.set(false);
+    } finally {
+      this.vectorLoading.set(null);
+    }
+  }
+
+  /** G8b — RainViewer XYZ tiles (radar pluie monde). Pas via GS — frames
+   *  hostées par api.rainviewer.com. findNearestFrame snap au cursor. */
+  async toggleRain(on: boolean) {
+    if (this.showRain() === on) return;
+    this.showRain.set(on);
+    const map = this.map;
+    if (!map) return;
+    const layerId = 'rain-tiles';
+    const sourceId = 'rain-tiles';
+    if (!on) {
+      if (map.getLayer(layerId)) map.removeLayer(layerId);
+      if (map.getSource(sourceId)) map.removeSource(sourceId);
+      this.vectorCounts.update((c) => ({ ...c, rain: undefined }));
+      return;
+    }
+    this.vectorLoading.set('rain');
+    try {
+      const snap = await this.rainviewerService.getSnapshot();
+      const nowSec = Math.floor(this.currentTime().getTime() / 1000);
+      const frame = this.rainviewerService.findNearestFrame(snap, nowSec);
+      if (!frame) throw new Error('Aucune frame RainViewer disponible (cursor hors fenêtre).');
+      const url = `${snap.host}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;
+      if (map.getSource(sourceId)) map.removeSource(sourceId);
+      map.addSource(sourceId, { type: 'raster', tiles: [url], tileSize: 256, attribution: 'RainViewer' });
+      map.addLayer({ id: layerId, type: 'raster', source: sourceId, paint: { 'raster-opacity': 0.75 } });
+      this.vectorCounts.update((c) => ({ ...c, rain: 1 }));
+    } catch (err) {
+      console.error('[globe] rain fetch failed', err);
+      this.showRain.set(false);
+    } finally {
+      this.vectorLoading.set(null);
     }
   }
 
