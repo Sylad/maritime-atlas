@@ -107,8 +107,14 @@ function gibsDailyDate(): string {
     <div class="globe-root">
       <header class="globe-header">
         <div class="brand">
-          <!-- G26 — combo : icon tap (globe) + wordmark text séparé. -->
-          <img src="/AetherWX_logo_tap.png" alt="" class="brand-icon-img" aria-hidden="true" />
+          <!-- G27 — click sur icon globe = toggle drawer (remplace ☰ et ✕). -->
+          <button type="button" class="brand-icon-btn"
+                  (click)="toggleLegend()"
+                  [title]="legendOpen() ? 'Réduire les couches' : 'Afficher les couches'"
+                  [attr.aria-expanded]="legendOpen()"
+                  aria-label="Afficher / masquer le panneau des couches">
+            <img src="/AetherWX_logo_tap.png" alt="" class="brand-icon-img" aria-hidden="true" />
+          </button>
           <img src="/AetherWX_logo_text.png" alt="AetherWX" class="brand-text-img" />
           <span class="brand-mode">— Globe 3D <span class="brand-mode-pill">spike</span></span>
         </div>
@@ -136,26 +142,17 @@ function gibsDailyDate(): string {
 
       <div #mapContainer class="map-container"></div>
 
-      <!-- G19 (2026-05-22) — Bouton hamburger pour ré-ouvrir le panneau quand
-           collapsed. En mode mobile, il prend le relais du logo. -->
-      @if (!legendOpen()) {
-        <button type="button" class="legend-toggle is-collapsed"
-                (click)="toggleLegend()"
-                [attr.aria-expanded]="legendOpen()"
-                aria-label="Afficher le panneau">
-          <span aria-hidden="true">☰</span>
-        </button>
-      }
+      <!-- G27 — hamburger retiré : le click sur l'icône globe du header
+           toggle le drawer (cf .brand-icon-btn). -->
+
 
       <!-- G19 (2026-05-22) — Template panneau gauche porté à l'identique de
            /legacy-map (template + CSS) pour parité visuelle 100%. Bindings
            adaptés au modèle globe (showSst au lieu de showSST, etc.). -->
       <div class="legend data-catalog" [class.legend--closed]="!legendOpen()">
-        <!-- G26 — bouton close minimal flottant top-right du drawer
-             (sans titre "Couches" : redondant avec le contenu visible). -->
-        <button type="button" class="catalog-close-btn"
-                (click)="toggleLegend()"
-                title="Réduire le panneau" aria-label="Réduire le panneau">✕</button>
+        <!-- G27 — bouton ✕ retiré : le click sur l'icône globe header
+             toggle le drawer (entry point unique). -->
+
         <!-- 2026-05-20 — Bouton ✕ close mobile : logo header caché donc plus
              de surface pour fermer le panneau. Visible uniquement ≤ 760px. -->
         <button type="button" class="legend-close-mobile"
@@ -1140,7 +1137,8 @@ function gibsDailyDate(): string {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 8px 14px;
+      /* G27 — padding vertical réduit (4px vs 8px) */
+      padding: 4px 14px;
       background: rgba(10, 14, 26, 0.78);
       /* G26 — cyan glow (parité drawer + nav buttons) */
       border-bottom: 1px solid hsl(224 85% 55% / 0.5);
@@ -1152,15 +1150,35 @@ function gibsDailyDate(): string {
     }
     .brand { display: flex; align-items: center; gap: 10px; font-size: 14px; }
     .brand-icon { font-size: 18px; }
-    /* G26 — duo icon (globe) + wordmark text adapté hauteur barre */
+    /* G27 — bouton clickable (toggle drawer) avec hover/focus glow */
+    .brand-icon-btn {
+      padding: 0;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 50%;
+      cursor: pointer;
+      line-height: 0;
+      transition: filter 150ms, transform 150ms, border-color 150ms;
+    }
+    .brand-icon-btn:hover {
+      filter: brightness(1.15);
+      transform: scale(1.03);
+      border-color: hsl(224 85% 55% / 0.5);
+    }
+    .brand-icon-btn:focus-visible {
+      outline: 2px solid hsl(224 95% 65%);
+      outline-offset: 1px;
+    }
+    /* G26/G27 — duo icon (globe) + wordmark text. Tailles compactes
+       car padding header réduit (4px vs 8px) → image ~28px lisible. */
     .brand-icon-img {
-      height: 36px;
-      width: 36px;
+      height: 32px;
+      width: 32px;
       object-fit: contain;
       display: block;
     }
     .brand-text-img {
-      height: 24px;
+      height: 22px;
       width: auto;
       object-fit: contain;
       display: block;
