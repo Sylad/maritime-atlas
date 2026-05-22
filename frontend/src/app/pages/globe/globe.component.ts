@@ -3993,10 +3993,12 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     this.toggleForecastLayer({ key: 'wavesForecast', layerId: 'waves-forecast-wms', gsName: 'aetherwx:wave-hs', style: 'raster', opacity: 0.7, on });
   }
   toggleWindArrows(on: boolean): void {
-    this.toggleForecastLayer({ key: 'windArrows', layerId: 'wind-arrows-wms', gsName: 'aetherwx:wind-speed', style: 'aetherwx:wind-arrows', opacity: 0.9, on });
+    // G22 — aetherwx:wind-arrows SLD missing → fallback raster (TODO bootstrap SLD).
+    this.toggleForecastLayer({ key: 'windArrows', layerId: 'wind-arrows-wms', gsName: 'aetherwx:wind-speed', style: 'raster', opacity: 0.9, on });
   }
   toggleWaveArrows(on: boolean): void {
-    this.toggleForecastLayer({ key: 'waveArrows', layerId: 'wave-arrows-wms', gsName: 'aetherwx:wave-dir', style: 'aetherwx:wave-arrows', opacity: 0.9, on });
+    // G22 — aetherwx:wave-arrows SLD missing → fallback raster.
+    this.toggleForecastLayer({ key: 'waveArrows', layerId: 'wave-arrows-wms', gsName: 'aetherwx:wave-dir', style: 'raster', opacity: 0.9, on });
   }
 
   /** G8b — tracks vessels : LineString polylines depuis WFS aetherwx:vessel_tracks_daily.
