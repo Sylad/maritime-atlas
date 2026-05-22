@@ -102,7 +102,7 @@ function gibsDailyDate(): string {
           <span class="brand-mode">— Globe 3D <span class="brand-mode-pill">spike</span></span>
         </div>
         <nav class="nav-links">
-          <a routerLink="/" class="nav-link">← Carte 2D</a>
+          <a routerLink="/legacy-map" class="nav-link">Carte 2D (legacy)</a>
         </nav>
       </header>
 
@@ -610,6 +610,21 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       this.layerZIndexOrder.set(auto);
       queueMicrotask(() => this.applyMapLibreZIndex());
     }, { allowSignalWrites: true });
+
+    // G11e (2026-05-22) — persist globe prefs (show* + autoZIndex + master + projection)
+    // au moindre changement. Restore en ngAfterViewInit avant _initMap.
+    effect(() => {
+      void this.showSst(); void this.showWind(); void this.activeSat();
+      void this.showLightning(); void this.showAlerts(); void this.showVessels();
+      void this.showMetar(); void this.showHubeau(); void this.showPiezo();
+      void this.showQuakes(); void this.showFirms(); void this.showBuoys();
+      void this.showTracks(); void this.showRain();
+      void this.showWindForecast(); void this.showWavesForecast();
+      void this.showWindArrows(); void this.showWaveArrows();
+      void this.showBathy(); void this.showEez(); void this.showMpa(); void this.showEfas();
+      void this.autoZIndexEnabled(); void this.masterLayerKey(); void this.projection();
+      this.persistGlobePrefs();
+    });
   }
 
   readonly projection = signal<'globe' | 'mercator'>('globe');
@@ -837,6 +852,96 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       const parsed = JSON.parse(raw) as Record<string, number>;
       this.layerOpacities.set({ ...this.LAYER_OPACITY_DEFAULTS, ...parsed });
     } catch { /* JSON malformed — ignore */ }
+  }
+
+  /** G11e (2026-05-22) — persist le state /globe (show* + autoZIndex +
+   *  masterLayerKey). À chaque toggle de layer ou changement, le caller
+   *  appelle `persistGlobePrefs()`. Le DB sync cross-device viendra plus
+   *  tard (refacto prefsSync pour englober les keys /globe). */
+  private persistGlobePrefs(): void {
+    try {
+      const state = {
+        showSst: this.showSst(),
+        showWind: this.showWind(),
+        activeSat: this.activeSat(),
+        showLightning: this.showLightning(),
+        showAlerts: this.showAlerts(),
+        showVessels: this.showVessels(),
+        showMetar: this.showMetar(),
+        showHubeau: this.showHubeau(),
+        showPiezo: this.showPiezo(),
+        showQuakes: this.showQuakes(),
+        showFirms: this.showFirms(),
+        showBuoys: this.showBuoys(),
+        showTracks: this.showTracks(),
+        showRain: this.showRain(),
+        showWindForecast: this.showWindForecast(),
+        showWavesForecast: this.showWavesForecast(),
+        showWindArrows: this.showWindArrows(),
+        showWaveArrows: this.showWaveArrows(),
+        showBathy: this.showBathy(),
+        showEez: this.showEez(),
+        showMpa: this.showMpa(),
+        showEfas: this.showEfas(),
+        autoZIndexEnabled: this.autoZIndexEnabled(),
+        masterLayerKey: this.masterLayerKey(),
+        projection: this.projection(),
+      };
+      localStorage.setItem('globe.prefs-v1', JSON.stringify(state));
+    } catch { /* localStorage full or disabled — silence */ }
+  }
+
+  private restoreGlobePrefs(): void {
+    try {
+      const raw = localStorage.getItem('globe.prefs-v1');
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      if (typeof data?.autoZIndexEnabled === 'boolean') this.autoZIndexEnabled.set(data.autoZIndexEnabled);
+      if (typeof data?.masterLayerKey === 'string' || data?.masterLayerKey === null) this.masterLayerKey.set(data.masterLayerKey);
+      if (data?.projection === 'globe' || data?.projection === 'mercator') this.projection.set(data.projection);
+      // show* signals : restore mais ne pas relancer toggleX (les sources/layers ne sont pas init)
+      // → on stocke les show signals en pending, qui seront relayés par un effect APRÈS _initMap.
+      this._pendingRestore = {
+        showSst: !!data?.showSst, showWind: !!data?.showWind, activeSat: data?.activeSat ?? 'none',
+        showLightning: !!data?.showLightning, showAlerts: !!data?.showAlerts, showVessels: !!data?.showVessels,
+        showMetar: !!data?.showMetar, showHubeau: !!data?.showHubeau, showPiezo: !!data?.showPiezo,
+        showQuakes: !!data?.showQuakes, showFirms: !!data?.showFirms, showBuoys: !!data?.showBuoys,
+        showTracks: !!data?.showTracks, showRain: !!data?.showRain,
+        showWindForecast: !!data?.showWindForecast, showWavesForecast: !!data?.showWavesForecast,
+        showWindArrows: !!data?.showWindArrows, showWaveArrows: !!data?.showWaveArrows,
+        showBathy: !!data?.showBathy, showEez: !!data?.showEez, showMpa: !!data?.showMpa, showEfas: !!data?.showEfas,
+      };
+    } catch { /* JSON malformed — silence */ }
+  }
+  private _pendingRestore?: Record<string, boolean | string>;
+
+  /** G11e — appelé après _initMap pour appliquer les toggles persistés. */
+  private applyPendingRestore(): void {
+    const p = this._pendingRestore;
+    if (!p) return;
+    this._pendingRestore = undefined;
+    if (p['showSst']) this.toggleSst(true);
+    if (p['showWind']) this.toggleWind(true);
+    if (p['activeSat'] && p['activeSat'] !== 'none') this.onSatChange(p['activeSat'] as string);
+    if (p['showLightning']) this.toggleVector('lightning');
+    if (p['showAlerts'])    this.toggleVector('alerts');
+    if (p['showVessels'])   this.toggleVector('vessels');
+    if (p['showMetar'])     this.toggleVector('metar');
+    if (p['showHubeau'])    this.toggleVector('hubeau');
+    if (p['showPiezo'])     this.toggleVector('piezo');
+    if (p['showQuakes'])    this.toggleVector('quakes');
+    if (p['showFirms'])     this.toggleVector('firms');
+    if (p['showBuoys'])     this.toggleVector('buoys');
+    if (p['showTracks'])    this.toggleTracks(true);
+    if (p['showRain'])      this.toggleRain(true);
+    if (p['showWindForecast'])  this.toggleWindForecast(true);
+    if (p['showWavesForecast']) this.toggleWavesForecast(true);
+    if (p['showWindArrows'])    this.toggleWindArrows(true);
+    if (p['showWaveArrows'])    this.toggleWaveArrows(true);
+    if (p['showBathy']) this.toggleBathy(true);
+    if (p['showEez'])   this.toggleEez(true);
+    if (p['showMpa'])   this.toggleMpa(true);
+    if (p['showEfas'])  this.toggleEfas(true);
   }
 
   /** G11d — keys des layers actives qui ont un slider opacité utile. */
@@ -1126,6 +1231,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
 
   ngAfterViewInit(): void {
     this.restoreLayerOpacities();
+    this.restoreGlobePrefs();
     this._initMap();
     this._startFpsLoop();
   }
@@ -1742,7 +1848,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // strict. Appel explicite setProjection() après load pour la sandbox JS,
     // ici on le fait au load aussi pour Angular TS.
     map.on('load', () => {
-      map.setProjection({ type: 'globe' });
+      map.setProjection({ type: this.projection() });
+      // G11e — applique le state user restauré depuis localStorage AVANT le boot
+      // (toggleX peut maintenant créer les sources/layers).
+      this.applyPendingRestore();
     });
 
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }));
