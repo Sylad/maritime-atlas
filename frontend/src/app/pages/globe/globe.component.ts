@@ -15,6 +15,7 @@ import {
   AfterViewInit,
   ChangeDetectionStrategy,
   Component,
+  computed,
   DestroyRef,
   ElementRef,
   inject,
@@ -23,6 +24,8 @@ import {
   viewChild,
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
+
+import { TimeSliderComponent, TimeSliderLayerCoverage } from '../../components/time-slider/time-slider.component';
 
 import maplibregl, {
   type CustomLayerInterface,
@@ -86,7 +89,7 @@ function gibsDailyDate(): string {
 @Component({
   selector: 'app-globe',
   standalone: true,
-  imports: [CommonModule, RouterLink],
+  imports: [CommonModule, RouterLink, TimeSliderComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="globe-root">
@@ -223,6 +226,18 @@ function gibsDailyDate(): string {
       </aside>
 
       <div class="fps" aria-label="frames per second">FPS {{ fps() }}</div>
+
+      <!-- G6 (2026-05-22) — time-bar /globe. Inputs minimaux (minTime,
+           maxTime, layerCoverage). G6b ajoutera validityList + WMS time
+           refresh + master du temps. -->
+      @if (sliderLayerCoverage().length > 0) {
+        <app-time-slider
+          [minTime]="sliderMinTime()"
+          [maxTime]="sliderMaxTime()"
+          [layerCoverage]="sliderLayerCoverage()"
+          [externalCurrentTime]="currentTime()"
+          (timeChange)="onSliderTimeChange($event)" />
+      }
     </div>
   `,
   styles: `
@@ -422,6 +437,41 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   readonly showVessels = signal(false);
   readonly vectorLoading = signal<string | null>(null);
   readonly vectorCounts = signal<{ lightning?: number; alerts?: number; vessels?: number }>({});
+
+  /** G6 (2026-05-22) — temps courant du globe, drive l'overlay time-bar.
+   *  Default = maintenant. Future G6b : drive les WMS time-enabled
+   *  (sat cascade, sst, etc.) via setSource() au changement. */
+  readonly currentTime = signal<Date>(new Date());
+
+  /** G6 — bornes ±6h par défaut (placeholder, raffinées en G7 selon master). */
+  readonly sliderMinTime = computed<Date>(() => new Date(this.currentTime().getTime() - 6 * 3_600_000));
+  readonly sliderMaxTime = computed<Date>(() => new Date(this.currentTime().getTime() + 6 * 3_600_000));
+
+  /** G6 — couverture des layers actifs sur la time-bar. Pour l'instant : 1 rangée
+   *  par layer activé, sans validités précises (G6b wiring GS GetCapabilities).
+   *  Pas master-éligible tant que validités non câblées. */
+  readonly sliderLayerCoverage = computed<TimeSliderLayerCoverage[]>(() => {
+    const out: TimeSliderLayerCoverage[] = [];
+    const push = (active: boolean, key: string, name: string, color: string, pastH: number, futureH: number) => {
+      if (active) out.push({ key, name, color, pastH, futureH, isMaster: false, canBeMaster: false });
+    };
+    push(this.showSst(),       'sst',       'sst',       '#3b82f6', 168, 0);
+    push(this.showWind(),      'windParticles', 'wind-particles', '#10b981', 0, 168);
+    push(this.showLightning(), 'lightning', 'lightning', '#facc15', 1, 0);
+    push(this.showAlerts(),    'alerts',    'alerts',    '#ef4444', 1, 0);
+    push(this.showVessels(),   'vessels',   'vessels',   '#06b6d4', 24, 0);
+    if (this.activeSat() !== 'none') {
+      const sat = SAT_PRODUCTS.find((p) => p.key === this.activeSat());
+      if (sat) push(true, sat.key, sat.gsName, '#a855f7', 168, 0);
+    }
+    return out;
+  });
+
+  /** G6 — handler timeChange du slider. Pour l'instant set juste le signal,
+   *  G6b ajoutera le refresh WMS sources. */
+  onSliderTimeChange(t: Date): void {
+    this.currentTime.set(t);
+  }
 
   // Expose templates constants
   protected readonly WIND_BBOX = WIND_BBOX;
