@@ -106,9 +106,8 @@ function gibsDailyDate(): string {
     <div class="globe-root">
       <header class="globe-header">
         <div class="brand">
-          <!-- G23 — favicon tap logo dans le header (replace globe emoji) -->
-          <img src="/AetherWX_logo_tap.png" alt="AetherWX" class="brand-icon-img" />
-          <span class="brand-title">AetherWX</span>
+          <!-- G24 — logo image full (wordmark) adapté à la hauteur barre (56px). -->
+          <img src="/AetherWX_logo_menu.png" alt="AetherWX" class="brand-logo-img" />
           <span class="brand-mode">— Globe 3D <span class="brand-mode-pill">spike</span></span>
         </div>
         <nav class="nav-links">
@@ -150,13 +149,14 @@ function gibsDailyDate(): string {
            /legacy-map (template + CSS) pour parité visuelle 100%. Bindings
            adaptés au modèle globe (showSst au lieu de showSST, etc.). -->
       <div class="legend data-catalog" [class.legend--closed]="!legendOpen()">
-        <!-- 2026-05-18 APEX 11 — click sur le logo collapse le panneau gauche.
-             En mode collapsed, le bouton .legend-toggle prend le relais (☰). -->
-        <button type="button" class="catalog-header"
-                role="img"
-                aria-label="AetherWX — see the atmosphere (cliquer pour réduire le panneau)"
-                title="Réduire le panneau"
-                (click)="toggleLegend()"></button>
+        <!-- G24 — header drawer minimal : titre "Couches" + bouton close.
+             Le wordmark AETHERWX est maintenant dans le header bar du site. -->
+        <div class="catalog-header-bar">
+          <h2 class="catalog-title">Couches</h2>
+          <button type="button" class="catalog-close-btn"
+                  (click)="toggleLegend()"
+                  title="Réduire le panneau" aria-label="Réduire le panneau">✕</button>
+        </div>
         <!-- 2026-05-20 — Bouton ✕ close mobile : logo header caché donc plus
              de surface pour fermer le panneau. Visible uniquement ≤ 760px. -->
         <button type="button" class="legend-close-mobile"
@@ -1146,13 +1146,14 @@ function gibsDailyDate(): string {
       border-bottom: 1px solid #1c2333;
       backdrop-filter: blur(6px);
     }
-    .brand { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-size: 14px; }
     .brand-icon { font-size: 18px; }
-    .brand-icon-img {
-      width: 24px;
-      height: 24px;
+    /* G24 — logo image dans header (vs texte "AetherWX") */
+    .brand-logo-img {
+      height: 44px;
+      width: auto;
       object-fit: contain;
-      border-radius: 4px;
+      display: block;
     }
     .brand-title { font-weight: 600; color: #c9d6e8; letter-spacing: .04em; }
     .brand-mode { color: #8a96a8; font-size: 12px; }
@@ -1167,29 +1168,56 @@ function gibsDailyDate(): string {
       letter-spacing: .04em;
     }
     .nav-links { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .nav-link {
+    /* G24 — boutons header harmonisés : hauteur fixe 28px, padding égaux,
+       border cyan glow comme le drawer (parité bordure magnifique demandée). */
+    .nav-link, .nav-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 28px;
+      padding: 0 12px;
+      box-sizing: border-box;
       color: #c9d6e8;
       text-decoration: none;
       font-size: 13px;
-      padding: 4px 10px;
-      border: 1px solid #2a3245;
+      font-family: inherit;
+      line-height: 1;
+      border: 1px solid hsl(224 85% 55% / 0.5);
       border-radius: 6px;
-      background: rgba(20, 24, 38, 0.6);
-      transition: background .15s;
+      background: rgba(15, 23, 42, 0.85);
+      cursor: pointer;
+      transition: background .15s, border-color .15s, box-shadow .15s;
+      /* Glow neon cyan (même style que .legend drawer) */
+      box-shadow:
+        0 0 0 1px hsl(224 95% 60% / 0.12),
+        0 0 8px 0 hsl(224 95% 60% / 0.18);
     }
-    .nav-link:hover { background: #2a3448; }
+    .nav-link:hover, .nav-btn:hover {
+      background: rgba(30, 40, 70, 0.95);
+      border-color: hsl(224 95% 65%);
+      box-shadow:
+        0 0 0 1px hsl(224 95% 65% / 0.25),
+        0 0 14px 0 hsl(224 95% 60% / 0.35);
+    }
     /* G18 M15 — auth corner (parité /legacy-map) */
     .nav-sep { color: #4a5566; font-size: 11px; }
-    .nav-btn {
-      background: rgba(80, 30, 30, 0.5);
+    .nav-btn[type="button"] {
+      /* Distinction Déconnexion : reste dans le même size mais teinte rouge */
+      background: rgba(80, 30, 30, 0.55);
       color: #fecaca;
-      border: 1px solid #6b3a3a;
-      padding: 4px 10px;
-      border-radius: 6px;
-      font-size: 12px;
-      cursor: pointer;
+      border-color: hsl(0 60% 50% / 0.6);
+      box-shadow:
+        0 0 0 1px hsl(0 70% 55% / 0.15),
+        0 0 8px 0 hsl(0 80% 55% / 0.18);
     }
-    .nav-btn:hover { background: rgba(120, 40, 40, 0.7); color: #fff; }
+    .nav-btn[type="button"]:hover {
+      background: rgba(120, 40, 40, 0.75);
+      color: #fff;
+      border-color: hsl(0 70% 60%);
+      box-shadow:
+        0 0 0 1px hsl(0 80% 60% / 0.3),
+        0 0 14px 0 hsl(0 80% 60% / 0.4);
+    }
     .nav-admin-pill {
       background: rgba(120, 80, 30, 0.5);
       border-color: #8b6020;
@@ -1268,29 +1296,39 @@ function gibsDailyDate(): string {
       }
     }
 
-    /* G22 (2026-05-23) — Hero logo header crop sur le wordmark AETHER WX
-       (bottom du logo_menu 1176x709). Background-position bottom + size
-       100% auto + height 52px = montre uniquement la zone wordmark. */
-    .data-catalog .catalog-header {
-      display: block;
-      width: calc(100% + 2.4em);
-      padding: 0;
-      border: 0;
+    /* G24 — Drawer header minimal : titre Couches + bouton close.
+       Le wordmark logo est dans le header bar du site. */
+    .data-catalog .catalog-header-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: -0.4em -0.4em 0.6em -0.4em;
+      padding-bottom: 0.4em;
+      border-bottom: 1px solid hsl(224 50% 30% / 0.5);
+    }
+    .data-catalog .catalog-title {
+      margin: 0;
+      font-size: 11px;
+      color: #c9d6e8;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    .data-catalog .catalog-close-btn {
+      background: transparent;
+      color: #8a96a8;
+      border: 1px solid hsl(224 50% 35% / 0.6);
+      border-radius: 4px;
+      padding: 2px 8px;
       cursor: pointer;
-      background-color: transparent;
-      background-image: url(/AetherWX_logo_menu.png);
-      background-size: 100% auto;
-      background-position: center bottom;
-      background-repeat: no-repeat;
-      height: 52px;
-      margin: -0.6em -1.2em 0.8em -1.2em;
-      border-bottom: 1px solid var(--border);
-      border-radius: 8px 8px 0 0;
-      transition: filter 150ms;
-      &:hover, &:focus-visible {
-        filter: brightness(1.1);
-        outline: none;
-      }
+      font-size: 13px;
+      line-height: 1;
+      transition: background 150ms, color 150ms, border-color 150ms;
+    }
+    .data-catalog .catalog-close-btn:hover {
+      background: hsl(0 60% 40% / 0.3);
+      color: #fff;
+      border-color: hsl(0 60% 55%);
     }
 
     /* cap5 warning inline */
