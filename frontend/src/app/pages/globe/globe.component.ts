@@ -167,7 +167,7 @@ function gibsDailyDate(): string {
           }
         </div>
 
-        <!-- ═══ Section OBSERVATION (metar, hubeau, piezo, quakes, firms, buoys) ═══ -->
+        <!-- ═══ Section OBSERVATION (metar, quakes, firms, buoys) — hubeau/piezo migrés à hydrology -->
         <div class="catalog-section" [class.is-open]="catalogSections().observation">
           <button type="button" class="catalog-section-head"
                   (click)="toggleCatalogSection('observation')"
@@ -181,10 +181,6 @@ function gibsDailyDate(): string {
             <div class="catalog-section-body">
               <div class="row"><button type="button" class="btn full" [class.active]="showMetar()"
                 (click)="toggleVector('metar')" [disabled]="vectorLoading() === 'metar'">🌡 METAR</button></div>
-              <div class="row"><button type="button" class="btn full" [class.active]="showHubeau()"
-                (click)="toggleVector('hubeau')" [disabled]="vectorLoading() === 'hubeau'">💧 Hub'eau débits</button></div>
-              <div class="row"><button type="button" class="btn full" [class.active]="showPiezo()"
-                (click)="toggleVector('piezo')" [disabled]="vectorLoading() === 'piezo'">🩸 Piezo nappes</button></div>
               <div class="row"><button type="button" class="btn full" [class.active]="showQuakes()"
                 (click)="toggleVector('quakes')" [disabled]="vectorLoading() === 'quakes'">🌐 Séismes</button></div>
               <div class="row"><button type="button" class="btn full" [class.active]="showFirms()"
@@ -192,11 +188,32 @@ function gibsDailyDate(): string {
               <div class="row"><button type="button" class="btn full" [class.active]="showBuoys()"
                 (click)="toggleVector('buoys')" [disabled]="vectorLoading() === 'buoys'">⚓ Bouées</button></div>
               @if (vectorCounts()['metar'] != null && showMetar()) { <div class="info">METAR — {{ vectorCounts()['metar'] }}</div> }
-              @if (vectorCounts()['hubeau'] != null && showHubeau()) { <div class="info">Hub'eau — {{ vectorCounts()['hubeau'] }}</div> }
-              @if (vectorCounts()['piezo'] != null && showPiezo()) { <div class="info">Piezo — {{ vectorCounts()['piezo'] }}</div> }
               @if (vectorCounts()['quakes'] != null && showQuakes()) { <div class="info">Séismes — {{ vectorCounts()['quakes'] }}</div> }
               @if (vectorCounts()['firms'] != null && showFirms()) { <div class="info">FIRMS — {{ vectorCounts()['firms'] }}</div> }
               @if (vectorCounts()['buoys'] != null && showBuoys()) { <div class="info">Bouées — {{ vectorCounts()['buoys'] }}</div> }
+            </div>
+          }
+        </div>
+
+        <!-- ═══ Section HYDROLOGY (hubeau debits + piezo nappes) — parité /map ═══ -->
+        <div class="catalog-section" [class.is-open]="catalogSections().hydrology">
+          <button type="button" class="catalog-section-head"
+                  (click)="toggleCatalogSection('hydrology')"
+                  [attr.aria-expanded]="catalogSections().hydrology">
+            <span class="head-chevron">{{ catalogSections().hydrology ? '▼' : '▶' }}</span>
+            <span class="head-icon">💧</span>
+            <span class="head-name">Hydrologie</span>
+            <span class="head-count">{{ catalogSectionCount('hydrology').active }}/{{ catalogSectionCount('hydrology').total }}</span>
+          </button>
+          @if (catalogSections().hydrology) {
+            <div class="catalog-section-body">
+              <div class="row"><button type="button" class="btn full" [class.active]="showHubeau()"
+                (click)="toggleVector('hubeau')" [disabled]="vectorLoading() === 'hubeau'">💧 Hub'eau débits FR</button></div>
+              <div class="row"><button type="button" class="btn full" [class.active]="showPiezo()"
+                (click)="toggleVector('piezo')" [disabled]="vectorLoading() === 'piezo'">🩸 Niveaux piézo FR</button></div>
+              @if (vectorCounts()['hubeau'] != null && showHubeau()) { <div class="info">Hub'eau — {{ vectorCounts()['hubeau'] }} stations</div> }
+              @if (vectorCounts()['piezo'] != null && showPiezo()) { <div class="info">Piezo — {{ vectorCounts()['piezo'] }} stations</div> }
+              <div class="info subtle">Prévisions crues EFAS + qualité eau EEA — à venir</div>
             </div>
           }
         </div>
@@ -856,6 +873,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     radar: boolean;
     forecast: boolean;
     dynamics: boolean;
+    hydrology: boolean;
     sources: boolean;
   }>({
     maritime: true,
@@ -864,6 +882,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     radar: false,
     forecast: false,
     dynamics: false,
+    hydrology: false,
     sources: false,
   });
 
@@ -881,8 +900,13 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         };
       case 'observation':
         return {
-          active: [this.showMetar(), this.showHubeau(), this.showPiezo(), this.showQuakes(), this.showFirms(), this.showBuoys()].filter(Boolean).length,
-          total: 6,
+          active: [this.showMetar(), this.showQuakes(), this.showFirms(), this.showBuoys()].filter(Boolean).length,
+          total: 4,
+        };
+      case 'hydrology':
+        return {
+          active: [this.showHubeau(), this.showPiezo()].filter(Boolean).length,
+          total: 2,
         };
       case 'satellites': {
         // G16 — count multi-sat actifs (GIBS + cascade EUMETSAT)
