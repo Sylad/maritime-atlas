@@ -213,23 +213,23 @@ function gibsDailyDate(): string {
           </button>
           @if (globeSections().satellites) {
             <div class="catalog-section-body">
-              <label class="sat-label">
-                <span class="sat-title">Sélection produit (1 actif à la fois)</span>
-                <select class="sat-select" [value]="activeSat()" (change)="onSatChange($any($event.target).value)">
-                  <option value="none">— Aucune</option>
-                  <optgroup label="NASA GIBS (journalier J-1)">
-                    @for (p of GIBS_PRODUCTS; track p.key) {
-                      <option [value]="p.key">{{ p.label }}</option>
-                    }
-                  </optgroup>
-                  <optgroup label="EUMETSAT / Radar (NRT)">
-                    @for (p of CASCADE_PRODUCTS; track p.key) {
-                      <option [value]="p.key">{{ p.label }}</option>
-                    }
-                  </optgroup>
-                </select>
-              </label>
-              @if (activeSat() !== 'none') {
+              <div class="info subtle">NASA GIBS (journalier J-1) — stack possible</div>
+              @for (p of GIBS_PRODUCTS; track p.key) {
+                <div class="row">
+                  <button type="button" class="btn full"
+                          [class.active]="isSatActive(p.key)"
+                          (click)="toggleSatLayer(p.key, !isSatActive(p.key))">{{ p.label }}</button>
+                </div>
+              }
+              <div class="info subtle" style="margin-top:0.6em;">EUMETSAT / Radar (NRT)</div>
+              @for (p of CASCADE_PRODUCTS; track p.key) {
+                <div class="row">
+                  <button type="button" class="btn full"
+                          [class.active]="isSatActive(p.key)"
+                          (click)="toggleSatLayer(p.key, !isSatActive(p.key))">{{ p.label }}</button>
+                </div>
+              }
+              @if (currentSatAttribution()) {
                 <div class="info">{{ currentSatAttribution() }}</div>
               }
             </div>
@@ -703,6 +703,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       const enabled = this.autoZIndexEnabled();
       // Subscribe aux signaux activation
       void this.activeSat();
+      // G16 — subscribe les 13 sat signals individuels
+      for (const sig of Object.values(this.satShowSignals())) { void sig(); }
       void this.showSst();
       void this.showWind();
       void this.showLightning();
@@ -737,6 +739,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // au moindre changement. Restore en ngAfterViewInit avant _initMap.
     effect(() => {
       void this.showSst(); void this.showWind(); void this.activeSat();
+      // G16 — subscribe les 13 sat signals pour persist auto
+      for (const sig of Object.values(this.satShowSignals())) { void sig(); }
       void this.showLightning(); void this.showAlerts(); void this.showVessels();
       void this.showMetar(); void this.showHubeau(); void this.showPiezo();
       void this.showQuakes(); void this.showFirms(); void this.showBuoys();
@@ -756,7 +760,51 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   readonly windError = signal<string | null>(null);
   readonly fps = signal('—');
   /** Sélecteur radio mutuellement exclusif. 'none' = pas de sat actif. */
+  /** @deprecated G16 (2026-05-22) — Conservé pour compat persist localStorage
+   *  legacy. Le nouveau modèle = 1 signal show* par produit sat, plusieurs
+   *  peuvent être actifs simultanément (stacking radar + sat IR + …). */
   readonly activeSat = signal<string>('none');
+
+  /** G16 — toggles individuels par produit sat. Lecture seule via
+   *  isSatActive(key) ou directement le bon signal. */
+  readonly showSatTrueColor      = signal(false);
+  readonly showSatTrueColorVIIRS = signal(false);
+  readonly showSatIR             = signal(false);
+  readonly showSatWaterVapor     = signal(false);
+  readonly showSatCloudTop       = signal(false);
+  readonly showSatAerosol        = signal(false);
+  readonly showSatDayNight       = signal(false);
+  readonly showSatRainviewer     = signal(false);
+  readonly showSatEuIrRss        = signal(false);
+  readonly showSatGlobalIrMtg    = signal(false);
+  readonly showSatEuHrvRgb       = signal(false);
+  readonly showRadarDwd          = signal(false);
+  readonly showRadarKnmi         = signal(false);
+
+  /** Map key → signal pour usage dynamique (templates @for / autres methods). */
+  private satShowSignals(): Record<string, ReturnType<typeof signal<boolean>>> {
+    return {
+      satTrueColor: this.showSatTrueColor,
+      satTrueColorVIIRS: this.showSatTrueColorVIIRS,
+      satIR: this.showSatIR,
+      satWaterVapor: this.showSatWaterVapor,
+      satCloudTop: this.showSatCloudTop,
+      satAerosol: this.showSatAerosol,
+      satDayNight: this.showSatDayNight,
+      satRainviewer: this.showSatRainviewer,
+      satEuIrRss: this.showSatEuIrRss,
+      satGlobalIrMtg: this.showSatGlobalIrMtg,
+      satEuHrvRgb: this.showSatEuHrvRgb,
+      radarDwd: this.showRadarDwd,
+      radarKnmi: this.showRadarKnmi,
+    };
+  }
+
+  /** Reader pour le template. */
+  isSatActive(key: string): boolean {
+    const sig = this.satShowSignals()[key];
+    return sig ? sig() : false;
+  }
   readonly showLightning = signal(false);
   readonly showAlerts = signal(false);
   readonly showVessels = signal(false);
@@ -826,11 +874,17 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
           active: [this.showMetar(), this.showHubeau(), this.showPiezo(), this.showQuakes(), this.showFirms(), this.showBuoys()].filter(Boolean).length,
           total: 6,
         };
-      case 'satellites':
-        return { active: this.activeSat() !== 'none' ? 1 : 0, total: SAT_PRODUCTS.length };
+      case 'satellites': {
+        // G16 — count multi-sat actifs (GIBS + cascade EUMETSAT)
+        const gibsKeys = ['satTrueColor','satTrueColorVIIRS','satIR','satWaterVapor','satCloudTop','satAerosol','satDayNight'];
+        const cascadeKeys = ['satEuIrRss','satGlobalIrMtg','satEuHrvRgb'];
+        const all = [...gibsKeys, ...cascadeKeys];
+        const active = all.filter((k) => this.satShowSignals()[k]()).length;
+        return { active, total: all.length };
+      }
       case 'radar':
         return {
-          active: [this.showRain(), this.activeSat() === 'satRainviewer', this.activeSat() === 'radarDwd', this.activeSat() === 'radarKnmi'].filter(Boolean).length,
+          active: [this.showRain(), this.showSatRainviewer(), this.showRadarDwd(), this.showRadarKnmi()].filter(Boolean).length,
           total: 4,
         };
       case 'forecast':
@@ -941,9 +995,12 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     push(this.showWavesForecast(), 'wavesForecast', 'waves',        '#3b82f6', 0, 168);
     push(this.showWindArrows(),    'windArrows',    'wind-arrows',  '#22c55e', 0, 168);
     push(this.showWaveArrows(),    'waveArrows',    'wave-arrows',  '#3b82f6', 0, 168);
-    if (this.activeSat() !== 'none') {
-      const sat = SAT_PRODUCTS.find((p) => p.key === this.activeSat());
-      if (sat) push(true, sat.key, sat.gsName, '#a855f7', 168, 0);
+    // G16 — push une rangée par produit sat ACTIVÉ (stacking multi-sat).
+    for (const [key, sig] of Object.entries(this.satShowSignals())) {
+      if (sig()) {
+        const sat = SAT_PRODUCTS.find((p) => p.key === key);
+        if (sat) push(true, sat.key, sat.gsName, '#a855f7', 168, 0);
+      }
     }
     // G7 — réordonne selon layerZIndexOrder. Layers non listées (= ordre user
     // n'a pas encore tagué cette layer) gardent l'ordre déclaratif ci-dessus.
@@ -967,13 +1024,16 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     const explicit = this.masterLayerKey();
     if (explicit) {
       if (explicit === 'sst' && this.showSst()) return explicit;
-      if (explicit.startsWith('sat') && this.activeSat() === explicit) return explicit;
+      if (explicit.startsWith('sat') && this.isSatActive(explicit)) return explicit;
       if (explicit === 'windForecast'  && this.showWindForecast())  return explicit;
       if (explicit === 'wavesForecast' && this.showWavesForecast()) return explicit;
       if (explicit === 'windArrows'    && this.showWindArrows())    return explicit;
       if (explicit === 'waveArrows'    && this.showWaveArrows())    return explicit;
     }
-    if (this.activeSat() !== 'none') return this.activeSat();
+    // G16 fallback : 1er sat actif (ordre déclaratif SAT_PRODUCTS) sinon sst > forecast.
+    for (const [key, sig] of Object.entries(this.satShowSignals())) {
+      if (sig()) return key;
+    }
     if (this.showSst()) return 'sst';
     if (this.showWindForecast()) return 'windForecast';
     if (this.showWavesForecast()) return 'wavesForecast';
@@ -1086,10 +1146,16 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       this.prefsSync.schedulePushBatch(this.collectGlobeBatch());
     }
     try {
+      // G16 — collecte les 13 sat signals en un sub-object
+      const satState: Record<string, boolean> = {};
+      for (const [key, sig] of Object.entries(this.satShowSignals())) {
+        satState[key] = sig();
+      }
       const state = {
         showSst: this.showSst(),
         showWind: this.showWind(),
-        activeSat: this.activeSat(),
+        activeSat: this.activeSat(),   // legacy compat
+        sat: satState,                 // G16 multi-toggles
         showLightning: this.showLightning(),
         showAlerts: this.showAlerts(),
         showVessels: this.showVessels(),
@@ -1137,6 +1203,16 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         showWindArrows: !!data?.showWindArrows, showWaveArrows: !!data?.showWaveArrows,
         showBathy: !!data?.showBathy, showEez: !!data?.showEez, showMpa: !!data?.showMpa, showEfas: !!data?.showEfas,
       };
+      // G16 — restore les 13 sat signals multi-toggle. Compat ascendante avec
+      // l'ancien `activeSat` legacy : si data.sat absent mais activeSat='satXyz',
+      // on active uniquement ce produit.
+      if (data?.sat && typeof data.sat === 'object') {
+        for (const [key, val] of Object.entries(data.sat as Record<string, boolean>)) {
+          this._pendingRestore[`sat:${key}`] = !!val;
+        }
+      } else if (typeof data?.activeSat === 'string' && data.activeSat !== 'none') {
+        this._pendingRestore[`sat:${data.activeSat}`] = true;
+      }
     } catch { /* JSON malformed — silence */ }
   }
   private _pendingRestore?: Record<string, boolean | string>;
@@ -1171,7 +1247,17 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     this._pendingRestore = undefined;
     if (p['showSst']) this.toggleSst(true);
     if (p['showWind']) this.toggleWind(true);
-    if (p['activeSat'] && p['activeSat'] !== 'none') this.onSatChange(p['activeSat'] as string);
+    // G16 — restore TOUS les sat layers persistés (clé `sat:<key>`)
+    for (const [k, v] of Object.entries(p)) {
+      if (k.startsWith('sat:') && v) {
+        this.toggleSatLayer(k.slice(4), true);
+      }
+    }
+    // Compat legacy : activeSat unique → toggleSat (déjà couvert par sat:* si data.sat existait)
+    if (p['activeSat'] && p['activeSat'] !== 'none' && typeof p['activeSat'] === 'string') {
+      // Si déjà traité par sat:*, on évite la double activation (toggleSatLayer check sig() === on)
+      this.toggleSatLayer(p['activeSat'], true);
+    }
     if (p['showLightning']) this.toggleVector('lightning');
     if (p['showAlerts'])    this.toggleVector('alerts');
     if (p['showVessels'])   this.toggleVector('vessels');
@@ -1197,7 +1283,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   readonly activeOpacityKeys = computed<string[]>(() => {
     const keys: string[] = [];
     if (this.showSst()) keys.push('sst');
-    if (this.activeSat() !== 'none') keys.push(this.activeSat());
+    // G16 — opacité par produit sat actif (stacking)
+    for (const [key, sig] of Object.entries(this.satShowSignals())) {
+      if (sig()) keys.push(key);
+    }
     if (this.showWindForecast())  keys.push('windForecast');
     if (this.showWavesForecast()) keys.push('wavesForecast');
     if (this.showWindArrows())    keys.push('windArrows');
@@ -1286,10 +1375,13 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  /** G7/G8 — calcule l'ordre Z auto des layers actives selon LAYER_CATEGORY. */
+  /** G7/G8/G16 — calcule l'ordre Z auto des layers actives selon LAYER_CATEGORY.
+   *  Multi-sat supporté (G16) : on push chaque produit sat actif indépendamment. */
   private computeAutoZIndexOrder(): string[] {
     const active: string[] = [];
-    if (this.activeSat() !== 'none') active.push(this.activeSat());
+    for (const [key, sig] of Object.entries(this.satShowSignals())) {
+      if (sig()) active.push(key);
+    }
     if (this.showSst()) active.push('sst');
     if (this.showWind()) active.push('windParticles');
     if (this.showLightning()) active.push('lightning');
@@ -1434,18 +1526,17 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       (src as maplibregl.RasterTileSource).setTiles([url]);
     }
 
-    // Sat actif
-    const satKey = this.activeSat();
-    if (satKey !== 'none') {
+    // G16 — refresh TOUS les sat layers actifs (stacking multi-sat)
+    for (const [satKey, sig] of Object.entries(this.satShowSignals())) {
+      if (!sig()) continue;
       const product = SAT_PRODUCTS.find((p) => p.key === satKey);
       const src = map.getSource(`sat-${satKey}`);
-      if (product && src) {
-        const timeParam = product.kind === 'gibs-daily'
-          ? `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`
-          : t.toISOString().split('.')[0] + 'Z';
-        const url = this.buildWmsTileUrl(`aetherwx:${product.gsName}`, timeParam);
-        (src as maplibregl.RasterTileSource).setTiles([url]);
-      }
+      if (!product || !src) continue;
+      const timeParam = product.kind === 'gibs-daily'
+        ? `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`
+        : t.toISOString().split('.')[0] + 'Z';
+      const url = this.buildWmsTileUrl(`aetherwx:${product.gsName}`, timeParam);
+      (src as maplibregl.RasterTileSource).setTiles([url]);
     }
   }
 
@@ -1463,10 +1554,15 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   protected readonly DEFAULT_WIND_PARTICLES = DEFAULT_WIND_PARTICLES;
   protected readonly GIBS_PRODUCTS = SAT_PRODUCTS.filter((p) => p.kind === 'gibs-daily');
   protected readonly CASCADE_PRODUCTS = SAT_PRODUCTS.filter((p) => p.kind === 'cascade-realtime');
+  /** G16 — concat des attributions de TOUS les sat actifs. */
   protected currentSatAttribution(): string {
-    const k = this.activeSat();
-    const p = SAT_PRODUCTS.find((x) => x.key === k);
-    return p?.attribution ?? '';
+    const attrs: string[] = [];
+    for (const [key, sig] of Object.entries(this.satShowSignals())) {
+      if (!sig()) continue;
+      const p = SAT_PRODUCTS.find((x) => x.key === key);
+      if (p) attrs.push(p.attribution);
+    }
+    return attrs.join(' · ');
   }
 
   private map?: MapLibreMap;
@@ -1958,25 +2054,34 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     return await resp.json();
   }
 
-  onSatChange(key: string) {
-    if (this.activeSat() === key) return;
-    const prev = this.activeSat();
-    this.activeSat.set(key);
+  /** G16 (2026-05-22) — toggle un produit sat de façon indépendante. Permet
+   *  le stacking (radar par-dessus sat IR par-dessus SST, etc.). Remplace
+   *  l'ancien onSatChange radio-select.
+   *
+   *  Backward compat : onSatChange est conservé en wrapper pour le restore
+   *  localStorage des prefs legacy `activeSat: 'satXyz'`. */
+  toggleSatLayer(key: string, on: boolean): void {
+    const sig = this.satShowSignals()[key];
+    if (!sig || sig() === on) return;
+    sig.set(on);
     const map = this.map;
     if (!map) return;
-
-    // Retire la source/layer précédente (s'il y en avait une).
-    if (prev !== 'none') {
-      const prevLayerId = `sat-${prev}`;
-      if (map.getLayer(prevLayerId)) map.removeLayer(prevLayerId);
-      if (map.getSource(prevLayerId)) map.removeSource(prevLayerId);
-    }
-    if (key === 'none') return;
-
     const product = SAT_PRODUCTS.find((p) => p.key === key);
     if (!product) return;
     const sourceId = `sat-${product.key}`;
     const layerId = sourceId;
+
+    if (!on) {
+      if (map.getLayer(layerId)) map.removeLayer(layerId);
+      if (map.getSource(sourceId)) map.removeSource(sourceId);
+      return;
+    }
+
+    // Si déjà présent (race), nettoyer d'abord.
+    if (map.getSource(sourceId)) {
+      if (map.getLayer(layerId)) map.removeLayer(layerId);
+      map.removeSource(sourceId);
+    }
 
     const timeParam =
       product.kind === 'gibs-daily'
@@ -1992,15 +2097,25 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256';
 
     map.addSource(sourceId, { type: 'raster', tiles: [url], tileSize: 256, attribution: product.attribution });
-
-    // z-order : sat sous SST (si présent) et sous wind ; sat-cascade
-    // (EUMETSAT/radar) au-dessus du basemap mais sous tout le reste.
-    const before = map.getLayer('sst-wms')
-      ? 'sst-wms'
-      : map.getLayer('wind-webgl')
-        ? 'wind-webgl'
-        : undefined;
+    // Insertion en dessous des layers vector/animations pour préserver Z auto.
+    const before = map.getLayer('sst-wms') ? 'sst-wms'
+                 : map.getLayer('wind-webgl') ? 'wind-webgl'
+                 : undefined;
     map.addLayer({ id: layerId, type: 'raster', source: sourceId, paint: { 'raster-opacity': 0.85 } }, before);
+  }
+
+  /** Wrapper legacy pour le restore localStorage activeSat='satXyz'. */
+  onSatChange(key: string) {
+    if (key === 'none') {
+      // Désactive tous les sat layers actuellement actifs
+      for (const [satKey, sig] of Object.entries(this.satShowSignals())) {
+        if (sig()) this.toggleSatLayer(satKey, false);
+      }
+      this.activeSat.set('none');
+      return;
+    }
+    this.toggleSatLayer(key, true);
+    this.activeSat.set(key);
   }
 
   async toggleWind(on: boolean) {
