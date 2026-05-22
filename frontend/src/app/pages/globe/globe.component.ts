@@ -110,8 +110,20 @@ function gibsDailyDate(): string {
 
       <div #mapContainer class="map-container"></div>
 
-      <aside class="controls">
-        <h2>Couches</h2>
+      <!-- G18 M12 — bouton réouverture drawer quand collapsed -->
+      @if (!legendOpen()) {
+        <button type="button" class="controls-reopen"
+                (click)="toggleLegend()"
+                title="Afficher les couches">☰</button>
+      }
+
+      <aside class="controls" [class.controls--closed]="!legendOpen()">
+        <div class="controls-header">
+          <h2>Couches</h2>
+          <button type="button" class="controls-close"
+                  (click)="toggleLegend()"
+                  title="Masquer les couches">✕</button>
+        </div>
 
         <!-- G18 M10 — toggle mode simple/avancé (visible ≤ 760px) -->
         <div class="mobile-mode-bar">
@@ -587,13 +599,55 @@ function gibsDailyDate(): string {
       border: 1px solid #2a3245;
       border-radius: 8px;
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+      transition: transform .2s ease, opacity .2s ease;
+    }
+    /* G18 M12 — drawer collapse via legendOpen signal */
+    .controls.controls--closed {
+      transform: translateX(-110%);
+      opacity: 0;
+      pointer-events: none;
+    }
+    .controls-reopen {
+      position: absolute;
+      top: 56px;
+      left: 14px;
+      z-index: 11;
+      width: 40px;
+      height: 40px;
+      background: rgba(20, 24, 38, 0.92);
+      color: #c9d6e8;
+      border: 1px solid #2a3245;
+      border-radius: 8px;
+      font-size: 18px;
+      cursor: pointer;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    }
+    .controls-reopen:hover { background: #2a3448; }
+    .controls-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
     }
     .controls h2 {
-      margin: 0 0 8px;
+      margin: 0;
       font-size: 12px;
       color: #c9d6e8;
       letter-spacing: .07em;
       text-transform: uppercase;
+    }
+    .controls-close {
+      background: transparent;
+      color: #8a96a8;
+      border: none;
+      cursor: pointer;
+      font-size: 16px;
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+    .controls-close:hover {
+      background: #2a3448;
+      color: #fff;
     }
     .controls .row {
       display: flex;
