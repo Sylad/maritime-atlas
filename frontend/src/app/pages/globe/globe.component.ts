@@ -2027,14 +2027,19 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         clusterMaxZoom: 12,
       } as any);
 
-      // G8 — 6 layers points simples : circle paint factorisé via config.
+      // G8 — 4 layers stations cercles (data continue : METAR temp/vent,
+      // débits, piézo, magnitude séisme).
       const SIMPLE_POINT_PAINT: Partial<Record<typeof kind, { color: string; radius: number; stroke: string }>> = {
         metar:  { color: '#fbbf24', radius: 4, stroke: '#92400e' },
         hubeau: { color: '#06b6d4', radius: 5, stroke: '#0e7490' },
         piezo:  { color: '#8b5cf6', radius: 5, stroke: '#6d28d9' },
         quakes: { color: '#ef4444', radius: 5, stroke: '#7f1d1d' },
-        firms:  { color: '#f97316', radius: 4, stroke: '#7c2d12' },
-        buoys:  { color: '#10b981', radius: 5, stroke: '#064e3b' },
+      };
+      // G18 M7+ (2026-05-22) — 2 layers événements instantanés en symbol
+      // emoji (cohérent avec lightning ⚡). Halo noir pour lisibilité.
+      const SYMBOL_GLYPH: Partial<Record<typeof kind, { glyph: string; color: string; size: number }>> = {
+        firms: { glyph: '🔥', color: '#f97316', size: 18 },
+        buoys: { glyph: '⚓', color: '#10b981', size: 16 },
       };
       if (SIMPLE_POINT_PAINT[kind]) {
         const p = SIMPLE_POINT_PAINT[kind]!;
@@ -2048,6 +2053,26 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
             'circle-stroke-width': 1,
             'circle-stroke-color': p.stroke,
             'circle-opacity': 0.85,
+          },
+        });
+      } else if (SYMBOL_GLYPH[kind]) {
+        const g = SYMBOL_GLYPH[kind]!;
+        map.addLayer({
+          id: `vec-${kind}`,
+          type: 'symbol',
+          source: sourceId,
+          layout: {
+            'text-field': g.glyph,
+            'text-font': ['Open Sans Regular'],
+            'text-size': g.size,
+            'text-allow-overlap': true,
+            'text-ignore-placement': true,
+          },
+          paint: {
+            'text-color': g.color,
+            'text-halo-color': 'rgba(0, 0, 0, 0.85)',
+            'text-halo-width': 1.5,
+            'text-opacity': 0.95,
           },
         });
       } else if (kind === 'lightning') {
