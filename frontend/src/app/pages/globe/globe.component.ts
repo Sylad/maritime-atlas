@@ -235,6 +235,7 @@ function gibsDailyDate(): string {
           [minTime]="sliderMinTime()"
           [maxTime]="sliderMaxTime()"
           [layerCoverage]="sliderLayerCoverage()"
+          [validityList]="masterValidityList()"
           [externalCurrentTime]="currentTime()"
           (timeChange)="onSliderTimeChange($event)" />
       }
@@ -443,9 +444,19 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
    *  (sat cascade, sst, etc.) via setSource() au changement. */
   readonly currentTime = signal<Date>(new Date());
 
-  /** G6 — bornes ±6h par défaut (placeholder, raffinées en G7 selon master). */
-  readonly sliderMinTime = computed<Date>(() => new Date(this.currentTime().getTime() - 6 * 3_600_000));
-  readonly sliderMaxTime = computed<Date>(() => new Date(this.currentTime().getTime() + 6 * 3_600_000));
+  /** G6b — bornes alignées sur la fenêtre des validités master.
+   *  Sat/SST = past 168h, futur 0 (cf masterValidityList).
+   *  Pas de WMS time-enabled actif = fallback ±6h. */
+  readonly sliderMinTime = computed<Date>(() => {
+    const list = this.masterValidityList();
+    if (list.length > 0) return list[0];
+    return new Date(this.currentTime().getTime() - 6 * 3_600_000);
+  });
+  readonly sliderMaxTime = computed<Date>(() => {
+    const list = this.masterValidityList();
+    if (list.length > 0) return list[list.length - 1];
+    return new Date(this.currentTime().getTime() + 6 * 3_600_000);
+  });
 
   /** G6 — couverture des layers actifs sur la time-bar. Pour l'instant : 1 rangée
    *  par layer activé, sans validités précises (G6b wiring GS GetCapabilities).
@@ -467,10 +478,82 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     return out;
   });
 
-  /** G6 — handler timeChange du slider. Pour l'instant set juste le signal,
-   *  G6b ajoutera le refresh WMS sources. */
+  /** G6 — handler timeChange du slider. Set le signal + refresh les WMS
+   *  sources actives (sst, sat) avec la nouvelle date. */
   onSliderTimeChange(t: Date): void {
     this.currentTime.set(t);
+    this.refreshWmsTimeForActiveLayers();
+  }
+
+  /** G6b — calcule les validités client-side pour la layer "master" courante.
+   *  Pour sat cascade : step ~5-15min fenêtre 168h past.
+   *  Pour sst : step 24h (daily), fenêtre 168h past.
+   *  Pas de fetch GS GetCapabilities en MVP (factoring en G7).
+   *  Cap à 500 timesteps pour pas saturer la time-bar. */
+  readonly masterValidityList = computed<Date[]>(() => {
+    const now = Date.now();
+    const sat = this.activeSat();
+    if (sat !== 'none') {
+      const product = SAT_PRODUCTS.find((p) => p.key === sat);
+      if (product) {
+        const stepMs = product.kind === 'gibs-daily' ? 24 * 3_600_000 : 5 * 60_000;
+        return this.generateClientValidities(stepMs, 168, 0, now);
+      }
+    }
+    if (this.showSst()) {
+      return this.generateClientValidities(24 * 3_600_000, 168, 0, now);
+    }
+    return [];
+  });
+
+  private generateClientValidities(stepMs: number, pastH: number, futureH: number, now: number): Date[] {
+    const start = now - pastH * 3_600_000;
+    const end = now + futureH * 3_600_000;
+    const span = Math.max(1, end - start);
+    const effStep = Math.max(stepMs, span / 500);
+    const firstSnap = Math.ceil(start / stepMs) * stepMs;
+    const dates: Date[] = [];
+    for (let t = firstSnap; t <= end; t += effStep) dates.push(new Date(t));
+    return dates;
+  }
+
+  /** G6b — appelé après timeChange OU layer activation. Pour chaque WMS time-
+   *  enabled actif (sst + sat), reconstruit l'URL avec &TIME=<currentTime>
+   *  et appelle setTiles() sur la source MapLibre pour refresh les tiles. */
+  private refreshWmsTimeForActiveLayers(): void {
+    const map = this.map;
+    if (!map) return;
+    const t = this.currentTime();
+
+    // SST — daily, format YYYY-MM-DD UTC
+    if (this.showSst() && map.getSource('sst-wms')) {
+      const date = `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`;
+      const url = this.buildWmsTileUrl('aetherwx:sst-daily', date, { interpolations: 'bicubic' });
+      (map.getSource('sst-wms') as maplibregl.RasterTileSource).setTiles([url]);
+    }
+
+    // Sat actif
+    const satKey = this.activeSat();
+    if (satKey !== 'none') {
+      const product = SAT_PRODUCTS.find((p) => p.key === satKey);
+      const src = map.getSource(`sat-${satKey}`);
+      if (product && src) {
+        const timeParam = product.kind === 'gibs-daily'
+          ? `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`
+          : t.toISOString().split('.')[0] + 'Z';
+        const url = this.buildWmsTileUrl(`aetherwx:${product.gsName}`, timeParam);
+        (src as maplibregl.RasterTileSource).setTiles([url]);
+      }
+    }
+  }
+
+  private buildWmsTileUrl(layerName: string, time: string, opts?: { interpolations?: string }): string {
+    return '/geoserver/aetherwx/wms' +
+      '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
+      `&LAYERS=${encodeURIComponent(layerName)}&STYLES=&FORMAT=image/png&TRANSPARENT=true` +
+      `&TIME=${encodeURIComponent(time)}` +
+      (opts?.interpolations ? `&INTERPOLATIONS=${opts.interpolations}` : '') +
+      '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256';
   }
 
   // Expose templates constants
