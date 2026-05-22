@@ -1607,10 +1607,12 @@ function toIsoTimestamp(d: Date): string {
           [layerCoverage]="sliderLayerCoverage()"
           [externalAnimationActive]="animPlayer.state() !== 'idle'"
           [externalCurrentTime]="currentTimeSig()"
+          [autoZIndexEnabled]="autoZIndexEnabled()"
           (timeChange)="onSliderTimeChange($event)"
           (playClicked)="onSliderPlayClicked()"
           (masterChange)="setMasterLayer($event)"
-          (reorderRequest)="reorderLayerByDrag($event.fromKey, $event.toKey)" />
+          (reorderRequest)="reorderLayerByDrag($event.fromKey, $event.toKey)"
+          (autoZIndexEnabledChange)="onAutoZIndexToggleChange($event)" />
       }
     </div>
   `,
@@ -3189,6 +3191,43 @@ export class MapComponent implements AfterViewInit, OnDestroy {
    *  s'applique. */
   readonly layerZIndexOrder = signal<string[]>([]);
 
+  /** Sprint Z (2026-05-22) — mode Z-index auto. Quand ON, recompute
+   *  `layerZIndexOrder` depuis `LAYER_CATEGORY` à chaque changement
+   *  d'activation. Quand l'user drag un layer, on bascule à OFF (= il
+   *  reprend la main). Persisté en localStorage. Default ON. */
+  readonly autoZIndexEnabled = signal<boolean>(true);
+
+  /** Calcule l'ordre Z-index automatique des layers actives. Bas vers haut
+   *  visuel: sat(0) → raster(1) → radar(2) → isolines(3) → WFS(4) → anim(5).
+   *  Premier item retourné = TOP visuel (rank max). Tiebreak = ordre déclaratif
+   *  dans `animatableLayers`. */
+  private computeAutoZIndexOrder(): string[] {
+    const activeKeys = this.animatableLayers.filter((l) => l.active()).map((l) => l.key);
+    return [...activeKeys].sort((a, b) => {
+      const rankA = this.LAYER_CATEGORY[a] ?? this.DEFAULT_LAYER_RANK;
+      const rankB = this.LAYER_CATEGORY[b] ?? this.DEFAULT_LAYER_RANK;
+      if (rankA !== rankB) return rankB - rankA;
+      const idxA = this.animatableLayers.findIndex((l) => l.key === a);
+      const idxB = this.animatableLayers.findIndex((l) => l.key === b);
+      return idxA - idxB;
+    });
+  }
+
+  /** Sprint Z — appelé par le toggle UI du TimeSliderComponent. Active/désactive
+   *  le mode auto. Si ON, force un recompute immédiat. */
+  onAutoZIndexToggleChange(enabled: boolean): void {
+    if (this.autoZIndexEnabled() === enabled) return;
+    this.autoZIndexEnabled.set(enabled);
+    if (enabled) {
+      const auto = this.computeAutoZIndexOrder();
+      if (auto.length > 0) {
+        this.layerZIndexOrder.set(auto);
+        queueMicrotask(() => this.applyLayerZIndices());
+      }
+    }
+    this.persistLayerPrefs();
+  }
+
   /** 2026-05-19 APEX 16 — internal mutable state pour l'effect activationOrder
    *  watcher. Sorti en field de classe (était closure) pour que restoreLayerPrefs
    *  puisse pré-populer l'ordre user persisté AVANT le 1er fire de l'effect. */
@@ -3211,9 +3250,13 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
   /** Réordonne les rangées de la time-bar étendue par drag-and-drop. fromKey
    *  est inséré à la position de toKey. Persiste en localStorage et applique
-   *  setZIndex aux layers OL (premier = z-index le plus haut = au-dessus). */
+   *  setZIndex aux layers OL (premier = z-index le plus haut = au-dessus).
+   *  Sprint Z (2026-05-22) — un drag user désactive le mode auto. */
   reorderLayerByDrag(fromKey: string, toKey: string): void {
     if (fromKey === toKey) return;
+    if (this.autoZIndexEnabled()) {
+      this.autoZIndexEnabled.set(false);
+    }
     const current = this.sliderLayerCoverage().map((c) => c.key);
     const fromIdx = current.indexOf(fromKey);
     const toIdx = current.indexOf(toKey);
@@ -3574,6 +3617,32 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     radarDwd:          { kind: 'obs', stepH: 5/60,  pastH: 168, futureH: 0 },
     radarKnmi:         { kind: 'obs', stepH: 5/60,  pastH: 168, futureH: 0 },
   };
+
+  /** Sprint Z (2026-05-22) — rank sémantique de chaque layer key pour le mode
+   *  "Z-index auto". Bas → haut visuel : sat (0, fond images larges) → raster
+   *  (1, heatmaps continues) → radar (2, cellules pluie) → isolines (3,
+   *  fallback car pas de key distincte) → WFS vector (4, points/lignes
+   *  cliquables) → animations (5, particules/flèches dynamiques au sommet).
+   *  Cf maritime-atlas Sprint Z décision 2026-05-22. */
+  private readonly LAYER_CATEGORY: Record<string, number> = {
+    // sat — z bas, fond
+    satTrueColor: 0, satTrueColorVIIRS: 0, satIR: 0, satWaterVapor: 0,
+    satCloudTop: 0, satAerosol: 0, satDayNight: 0,
+    satEuIrRss: 0, satGlobalIrMtg: 0, satEuHrvRgb: 0,
+    // raster — heatmaps continues
+    wind: 1, waves: 1, sst: 1, rain: 1,
+    // radar — cellules pluie, plus locales
+    radarDwd: 2, radarKnmi: 2, satRainviewer: 2,
+    // WFS / vector — points/lignes interactifs
+    vessels: 4, tracks: 4, alerts: 4, buoys: 4, lightning: 4,
+    metar: 4, hubeau: 4, piezo: 4, firms: 4, quakes: 4,
+    // animations — particules/flèches dynamiques
+    windArrows: 5, waveArrows: 5, windParticles: 5,
+  };
+
+  /** Rank par défaut pour layer key inconnue (isolines hypothétiques ou
+   *  futures additions). 3 = entre radar et WFS. */
+  private readonly DEFAULT_LAYER_RANK = 3;
 
   /** Computed : drive l'input du time-slider selon le MASTER du temps (= la
    *  première layer time-enabled data activée). Retourne `null` si aucune layer
@@ -4196,7 +4265,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       // du temps = activationOrder[0] filtré WMS). Permet de retrouver son
       // setup après reload.
       const activationOrder = this.activationOrder();
-      localStorage.setItem(LAYER_PREFS_KEY, JSON.stringify({ visibility, opacity, zIndexOrder, activationOrder, contours }));
+      // Sprint Z (2026-05-22) — persiste le toggle mode auto pour le restorer
+      // au prochain reload. Le default est ON (cf déclaration du signal).
+      const autoZIndex = this.autoZIndexEnabled();
+      localStorage.setItem(LAYER_PREFS_KEY, JSON.stringify({ visibility, opacity, zIndexOrder, activationOrder, contours, autoZIndex }));
     } catch {
       // localStorage full / disabled — ignore, user reverra son default au reload
     }
@@ -4381,6 +4453,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       // l'ordre déclaratif d'animatableLayers).
       if (Array.isArray(data?.activationOrder) && data.activationOrder.every((k: unknown) => typeof k === 'string')) {
         this.restoredActivationOrder = data.activationOrder;
+      }
+      // Sprint Z (2026-05-22) — restore toggle mode auto. Si absent du blob
+      // (anciennes sessions pré-Sprint Z), default = true (cf signal).
+      if (typeof data?.autoZIndex === 'boolean') {
+        this.autoZIndexEnabled.set(data.autoZIndex);
       }
       // 2026-05-19 APEX 13 — restore contours (toggle + interval + color)
       const c = data?.contours;
@@ -4724,6 +4801,26 @@ export class MapComponent implements AfterViewInit, OnDestroy {
         this.activationOrder.set([...internalOrder]);
       }
       prevActive = currentActive;
+    }, { allowSignalWrites: true });
+
+    // Sprint Z (2026-05-22) — auto z-index reorder. Recompute l'ordre
+    // hiérarchique (sat→raster→radar→isolines→WFS→anim) à chaque changement
+    // d'activation, tant que le mode auto est ON. Quand l'user drag un layer
+    // (cf reorderLayerByDrag), `autoZIndexEnabled` bascule à false → cet
+    // effect devient no-op et l'ordre user persiste.
+    effect(() => {
+      const enabled = this.autoZIndexEnabled();
+      void this.activationOrder();
+      if (!enabled) return;
+      const auto = this.computeAutoZIndexOrder();
+      if (auto.length === 0) return;
+      const current = this.layerZIndexOrder();
+      if (auto.length === current.length && auto.every((k, i) => k === current[i])) return;
+      this.layerZIndexOrder.set(auto);
+      queueMicrotask(() => {
+        this.applyLayerZIndices();
+        this.persistLayerPrefs();
+      });
     }, { allowSignalWrites: true });
 
     // V2.1 cursor snap selon maître du temps (Sylvain 2026-05-16). Quand

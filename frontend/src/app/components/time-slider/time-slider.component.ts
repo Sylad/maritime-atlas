@@ -113,6 +113,23 @@ export interface TimeSliderLayerCoverage {
              ⭐ est cliquable sans déclencher le drag (stopPropagation). -->
         @if (expanded() && layerCoverage().length > 0) {
           <div class="ts-coverage">
+            <!-- Sprint Z (2026-05-22) — toggle Z-index auto. Quand ON,
+                 l'ordre des rangées est calculé automatiquement
+                 (sat→raster→radar→isolines→WFS→anim). Quand l'user drag
+                 une rangée, le toggle bascule à OFF (parent gère). -->
+            <div class="ts-coverage-header">
+              <span class="ts-coverage-header-title">Z-index</span>
+              <button type="button"
+                      class="ts-auto-zindex-toggle"
+                      [class.is-active]="autoZIndexEnabled()"
+                      (click)="onToggleAutoZIndex()"
+                      [title]="autoZIndexEnabled()
+                        ? 'Z-index auto activé (sat→raster→radar→WFS→animations). Cliquez pour reprendre la main, ou glissez une rangée.'
+                        : 'Activer le tri Z-index automatique des layers'">
+                <span class="ts-auto-zindex-icon" aria-hidden="true">{{ autoZIndexEnabled() ? '⟲' : '✋' }}</span>
+                <span class="ts-auto-zindex-label">{{ autoZIndexEnabled() ? 'auto' : 'manuel' }}</span>
+              </button>
+            </div>
             @for (cov of layerCoverage(); track cov.key) {
               <div class="ts-coverage-row"
                    [class.is-drag-over]="dragOverKey() === cov.key"
@@ -514,6 +531,54 @@ export interface TimeSliderLayerCoverage {
       scrollbar-width: thin;
       scrollbar-color: hsl(224 60% 35%) transparent;
     }
+    /* Sprint Z (2026-05-22) — header du panneau coverage : titre "Z-index" + toggle auto. */
+    .ts-coverage-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 0.2em 0.3em;
+      border-bottom: 1px dashed hsl(224 50% 25% / 0.6);
+      margin-bottom: 0.1em;
+    }
+    .ts-coverage-header-title {
+      font-size: 0.7rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: hsl(220 12% 64%);
+      font-weight: 600;
+    }
+    .ts-auto-zindex-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35em;
+      background: transparent;
+      border: 1px solid hsl(224 50% 35%);
+      color: hsl(220 12% 72%);
+      padding: 1px 0.55em;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 120ms, border-color 120ms, color 120ms;
+    }
+    .ts-auto-zindex-toggle:hover {
+      border-color: var(--accent);
+      color: var(--accent-bright);
+    }
+    .ts-auto-zindex-toggle.is-active {
+      background: hsl(160 70% 18%);
+      border-color: hsl(160 80% 50%);
+      color: hsl(160 90% 70%);
+      box-shadow: 0 0 8px hsl(160 80% 50% / 0.35);
+    }
+    .ts-auto-zindex-icon {
+      font-size: 0.9rem;
+      line-height: 1;
+    }
+    .ts-auto-zindex-label {
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
     .ts-coverage-row {
       display: grid;
       /* 2026-05-18 APEX 11 — 4 colonnes : master-btn ★, drag-handle ⋮⋮, label, track.
@@ -673,6 +738,19 @@ export class TimeSliderComponent {
    *  une nouvelle position. Le parent réordonne layerZIndexOrder + applique
    *  setZIndex aux layers OL correspondantes. */
   readonly reorderRequest = output<{ fromKey: string; toKey: string }>();
+
+  /** Sprint Z (2026-05-22) — état du mode Z-index auto. Quand ON, le parent
+   *  recompute l'ordre des layers selon une hiérarchie sémantique
+   *  (sat→raster→radar→isolines→WFS→anim). Quand l'user drag, le parent
+   *  bascule à OFF. Affiché comme un toggle dans le header du panneau
+   *  expanded ".ts-coverage". */
+  readonly autoZIndexEnabled = input<boolean>(true);
+  /** Émis quand l'user click le toggle dans le header. */
+  readonly autoZIndexEnabledChange = output<boolean>();
+
+  onToggleAutoZIndex(): void {
+    this.autoZIndexEnabledChange.emit(!this.autoZIndexEnabled());
+  }
 
   /** Quand true, le bouton play affiche ⏸ et togglePlay émet juste
    *  playClicked au parent (mode "AnimationPlayer externe"). */
