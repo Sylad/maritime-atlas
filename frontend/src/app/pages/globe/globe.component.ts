@@ -2243,8 +2243,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
 
     this.map = map;
-    // 2026-05-21 — Expose en window pour debug DOM popup positioning
-    (window as unknown as { globeMap: MapLibreMap }).globeMap = map;
+    // 2026-05-22 — code review SEC-2 : window.globeMap leakait l'instance
+    // MapLibre en global, accessible par tout script tiers. Supprimé après
+    // que le debug popup soit résolu (G6 maplibre-gl.css fix).
   }
 
   private _startFpsLoop(): void {

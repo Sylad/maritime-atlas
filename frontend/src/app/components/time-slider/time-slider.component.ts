@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, OnDestroy, output, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 
 /**
@@ -707,7 +707,7 @@ export interface TimeSliderLayerCoverage {
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class TimeSliderComponent {
+export class TimeSliderComponent implements OnDestroy {
   // Inputs : range [min, max]. Defaults ±6h — courtoisie quand aucun layer
   // actif (le parent override avec sliderConfig() dérivé de LAYER_PROFILES
   // dès qu'un layer est activé).
@@ -845,6 +845,16 @@ export class TimeSliderComponent {
       }
     }, 60_000);
 
+  }
+
+  /** Fix code review 2026-05-22 : cleanup timers + RAF au démantèlement
+   *  du composant. Sans ce hook, navigation entre /map et /globe leak
+   *  un setInterval 60s à chaque fois. Sur /globe le slider est conditionnel
+   *  (apparaît/disparaît selon layers actifs) → leak compounding. */
+  ngOnDestroy(): void {
+    if (this.nowTickTimer) clearInterval(this.nowTickTimer);
+    if (this.playTimer) clearInterval(this.playTimer);
+    if (this.dragRaf) cancelAnimationFrame(this.dragRaf);
   }
 
   // ─── Computed ──────────────────────────────────────────────────────
