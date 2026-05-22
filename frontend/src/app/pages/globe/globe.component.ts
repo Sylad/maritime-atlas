@@ -1259,9 +1259,9 @@ function gibsDailyDate(): string {
       }
     }
 
-    /* G22 (2026-05-22) — Hero logo header réduit : crop sur la partie
-       basse (wordmark AETHERWX) du logo_menu original. User feedback :
-       "j'aime bien la police et les couleurs, limite à côté le screenshot". */
+    /* G22 (2026-05-23) — Hero logo header crop sur le wordmark AETHER WX
+       (bottom du logo_menu 1176x709). Background-position bottom + size
+       100% auto + height 52px = montre uniquement la zone wordmark. */
     .data-catalog .catalog-header {
       display: block;
       width: calc(100% + 2.4em);
@@ -1271,9 +1271,9 @@ function gibsDailyDate(): string {
       background-color: transparent;
       background-image: url(/AetherWX_logo_menu.png);
       background-size: 100% auto;
-      background-position: center 75%;
+      background-position: center bottom;
       background-repeat: no-repeat;
-      height: 64px;
+      height: 52px;
       margin: -0.6em -1.2em 0.8em -1.2em;
       border-bottom: 1px solid var(--border);
       border-radius: 8px 8px 0 0;
