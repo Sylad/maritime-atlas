@@ -384,23 +384,6 @@ function gibsDailyDate(): string {
 
       <div class="fps" aria-label="frames per second">FPS {{ fps() }}</div>
 
-      <!-- SPIKE OL→MapLibre 2026-05-22 — stress test WMS time @8fps 7j -->
-      <div class="spike-panel">
-        <button type="button" class="spike-btn"
-          [disabled]="spikeRunning()"
-          (click)="runSpikeStress()">
-          @if (spikeRunning()) { ⏳ Stress en cours…  } @else { 🧪 Stress test WMS 8fps 7j }
-        </button>
-        @if (spikeResult(); as r) {
-          <div class="spike-result" [class.ok]="r.sourceErrors === 0 && r.perceivedFps >= 7">
-            <div><b>{{ r.perceivedFps }} fps</b> ({{ r.frames }} frames / {{ r.totalMs }}ms)</div>
-            <div>Target: {{ 1000 / r.targetMs | number: '1.0-0' }} fps · Tick avg {{ r.avgTickMs }}ms · max {{ r.maxTickMs }}ms</div>
-            <div>Source errors : <b>{{ r.sourceErrors }}</b> · Tile events : {{ r.tileLoads }}</div>
-            <div class="layers">Layers : @if (r.activeLayers.length) { {{ r.activeLayers.join(', ') }} } @else { <i>aucune time-enabled active</i> }</div>
-          </div>
-        }
-      </div>
-
       <!-- G6 (2026-05-22) — time-bar /globe. Inputs minimaux (minTime,
            maxTime, layerCoverage). G6b ajoutera validityList + WMS time
            refresh + master du temps. -->
@@ -668,56 +651,6 @@ function gibsDailyDate(): string {
       font-size: 12px;
     }
 
-    /* SPIKE OL→MapLibre 2026-05-22 — panel stress test (à virer après GO/NO-GO). */
-    .spike-panel {
-      position: absolute;
-      top: 90px;
-      right: 14px;
-      z-index: 10;
-      max-width: 320px;
-      padding: 10px 12px;
-      background: rgba(20, 24, 38, 0.95);
-      border: 1px solid #6b3a3a;
-      border-radius: 8px;
-      font-size: 12px;
-      color: #e6ecf3;
-    }
-    .spike-btn {
-      width: 100%;
-      padding: 7px 12px;
-      background: #5e2b6b;
-      color: #fff;
-      border: 1px solid #8b4faf;
-      border-radius: 6px;
-      cursor: pointer;
-      font-weight: 600;
-    }
-    .spike-btn:disabled {
-      opacity: 0.55;
-      cursor: progress;
-    }
-    .spike-btn:hover:not(:disabled) {
-      background: #7338a0;
-    }
-    .spike-result {
-      margin-top: 8px;
-      padding: 8px 10px;
-      background: rgba(40, 20, 24, 0.8);
-      border: 1px solid #6b3a3a;
-      border-radius: 6px;
-      line-height: 1.45;
-      font-family: ui-monospace, monospace;
-    }
-    .spike-result.ok {
-      background: rgba(20, 40, 24, 0.8);
-      border-color: #3a6b46;
-    }
-    .spike-result .layers {
-      margin-top: 4px;
-      opacity: 0.8;
-      font-size: 11px;
-    }
-
     /* Override MapLibre popup pour matcher le thème dark du site.
        Le default MapLibre est fond blanc + texte noir = invisible ici. */
     /* CRITIQUE : forcer position: absolute sur le wrapper. MapLibre default est
@@ -976,23 +909,6 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
    *  Toggle via bouton ▶︎ du TimeSliderComponent. */
   readonly playing = signal<boolean>(false);
   private animTimer?: ReturnType<typeof setInterval>;
-
-  // SPIKE OL→MapLibre (2026-05-22) — stress test WMS time-enabled à 8fps sur 7j.
-  // But : valider que setTiles([url]) à 125ms ne génère pas de flicker /
-  // erreurs avant de forker map.component.ts vers MapLibre. À supprimer
-  // après décision GO/NO-GO.
-  readonly spikeRunning = signal<boolean>(false);
-  readonly spikeResult = signal<{
-    frames: number;
-    targetMs: number;
-    totalMs: number;
-    avgTickMs: number;
-    perceivedFps: number;
-    sourceErrors: number;
-    tileLoads: number;
-    maxTickMs: number;
-    activeLayers: string[];
-  } | null>(null);
 
   /** G11d (2026-05-22) — opacité par layer key. Défauts cohérents /map :
    *  raster forecast/sst = 0.7 (blend lisible), sat = 0.85, sources stat
@@ -1426,78 +1342,6 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       clearInterval(this.animTimer);
       this.animTimer = undefined;
     }
-  }
-
-  /** SPIKE OL→MapLibre — cycle 168 frames à 125ms (8fps) sur 7j past,
-   *  refresh WMS time-enabled de toutes les layers actives à chaque tick.
-   *  Mesure jank tick + tile load count + erreurs source. */
-  async runSpikeStress(): Promise<void> {
-    const map = this.map;
-    if (!map || this.spikeRunning()) return;
-
-    this.spikeRunning.set(true);
-    this.spikeResult.set(null);
-
-    const FRAMES = 168;
-    const FRAME_MS = 125;
-
-    // Active layers actives time-enabled (snapshot avant lancement).
-    const activeLayers: string[] = [];
-    if (this.showSst()) activeLayers.push('sst');
-    if (this.showWindForecast()) activeLayers.push('wind-forecast');
-    if (this.showWavesForecast()) activeLayers.push('waves-forecast');
-    if (this.showWindArrows()) activeLayers.push('wind-arrows');
-    if (this.showWaveArrows()) activeLayers.push('wave-arrows');
-    for (const [k, sig] of Object.entries(this.satShowSignals())) {
-      if (sig()) activeLayers.push(`sat:${k}`);
-    }
-
-    let sourceErrors = 0;
-    let tileLoads = 0;
-    const onError = () => { sourceErrors++; };
-    const onSrcData = (e: maplibregl.MapSourceDataEvent) => {
-      if (e.dataType === 'source' && e.tile && e.isSourceLoaded != null) tileLoads++;
-    };
-    map.on('error', onError);
-    map.on('sourcedata', onSrcData);
-
-    const savedTime = this.currentTime();
-    const anchor = savedTime.getTime() - FRAMES * 3_600_000;
-
-    const tickDurations: number[] = [];
-    let maxTick = 0;
-    const t0Total = performance.now();
-
-    for (let i = 0; i < FRAMES; i++) {
-      const t0 = performance.now();
-      this.currentTime.set(new Date(anchor + i * 3_600_000));
-      this.refreshWmsTimeForActiveLayers();
-      const tickMs = performance.now() - t0;
-      tickDurations.push(tickMs);
-      if (tickMs > maxTick) maxTick = tickMs;
-      await new Promise((r) => setTimeout(r, Math.max(0, FRAME_MS - tickMs)));
-    }
-
-    const totalMs = performance.now() - t0Total;
-    map.off('error', onError);
-    map.off('sourcedata', onSrcData);
-
-    const avgTick = tickDurations.reduce((a, b) => a + b, 0) / FRAMES;
-    this.spikeResult.set({
-      frames: FRAMES,
-      targetMs: FRAME_MS,
-      totalMs: Math.round(totalMs),
-      avgTickMs: Math.round(avgTick * 10) / 10,
-      perceivedFps: Math.round((FRAMES / totalMs) * 1000),
-      sourceErrors,
-      tileLoads,
-      maxTickMs: Math.round(maxTick * 10) / 10,
-      activeLayers,
-    });
-
-    this.currentTime.set(savedTime);
-    this.refreshWmsTimeForActiveLayers();
-    this.spikeRunning.set(false);
   }
 
   /** G7 — handler drag-DnD du slider. Réordonne layerZIndexOrder et désactive
