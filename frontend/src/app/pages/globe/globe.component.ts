@@ -127,22 +127,37 @@ function gibsDailyDate(): string {
 
       <div #mapContainer class="map-container"></div>
 
-      <!-- G18 M12 — bouton réouverture drawer quand collapsed -->
+      <!-- G19 (2026-05-22) — Bouton hamburger pour ré-ouvrir le panneau quand
+           collapsed. En mode mobile, il prend le relais du logo. -->
       @if (!legendOpen()) {
-        <button type="button" class="controls-reopen"
+        <button type="button" class="legend-toggle is-collapsed"
                 (click)="toggleLegend()"
-                title="Afficher les couches">☰</button>
+                [attr.aria-expanded]="legendOpen()"
+                aria-label="Afficher le panneau">
+          <span aria-hidden="true">☰</span>
+        </button>
       }
 
-      <aside class="controls" [class.controls--closed]="!legendOpen()">
-        <div class="controls-header">
-          <h2>Couches</h2>
-          <button type="button" class="controls-close"
-                  (click)="toggleLegend()"
-                  title="Masquer les couches">✕</button>
-        </div>
+      <!-- G19 (2026-05-22) — Template panneau gauche porté à l'identique de
+           /legacy-map (template + CSS) pour parité visuelle 100%. Bindings
+           adaptés au modèle globe (showSst au lieu de showSST, etc.). -->
+      <div class="legend data-catalog" [class.legend--closed]="!legendOpen()">
+        <!-- 2026-05-18 APEX 11 — click sur le logo collapse le panneau gauche.
+             En mode collapsed, le bouton .legend-toggle prend le relais (☰). -->
+        <button type="button" class="catalog-header"
+                role="img"
+                aria-label="AetherWX — see the atmosphere (cliquer pour réduire le panneau)"
+                title="Réduire le panneau"
+                (click)="toggleLegend()"></button>
+        <!-- 2026-05-20 — Bouton ✕ close mobile : logo header caché donc plus
+             de surface pour fermer le panneau. Visible uniquement ≤ 760px. -->
+        <button type="button" class="legend-close-mobile"
+                title="Fermer le panneau"
+                aria-label="Fermer le panneau"
+                (click)="toggleLegend()">✕</button>
 
-        <!-- G18 M10 — toggle mode simple/avancé (visible ≤ 760px) -->
+        <!-- 2026-05-20 — Mode simple/avancé mobile (Sylvain). Toggle visible
+             uniquement sur mobile ≤ 760px. -->
         <div class="mobile-mode-bar">
           <button type="button" class="mobile-mode-toggle"
                   (click)="mobileSimpleMode.set(!mobileSimpleMode())">
@@ -150,380 +165,890 @@ function gibsDailyDate(): string {
           </button>
         </div>
 
-        <!-- G18 M10 — vue simple mobile : grid 2×3 de 6 toggles essentiels -->
         @if (mobileSimpleMode()) {
           <div class="essential-layers">
+            <div class="essential-layers-title">Layers essentielles</div>
             <div class="essential-grid">
-              <button type="button" class="essential-toggle" [class.active]="showVessels()"
-                      (click)="toggleVector('vessels')" [disabled]="vectorLoading() === 'vessels'">
-                <span class="ess-icon">🚢</span><span class="ess-label">Navires</span>
-              </button>
-              <button type="button" class="essential-toggle" [class.active]="showWind()"
-                      (click)="toggleWind(!showWind())" [disabled]="windLoading()">
-                <span class="ess-icon">🌬</span><span class="ess-label">Vent</span>
-              </button>
-              <button type="button" class="essential-toggle" [class.active]="showAlerts()"
-                      (click)="toggleVector('alerts')" [disabled]="vectorLoading() === 'alerts'">
-                <span class="ess-icon">⚠</span><span class="ess-label">Alertes</span>
-              </button>
-              <button type="button" class="essential-toggle" [class.active]="showLightning()"
-                      (click)="toggleVector('lightning')" [disabled]="vectorLoading() === 'lightning'">
-                <span class="ess-icon">⚡</span><span class="ess-label">Foudre</span>
-              </button>
-              <button type="button" class="essential-toggle" [class.active]="showSst()"
-                      (click)="toggleSst(!showSst())">
-                <span class="ess-icon">🌡</span><span class="ess-label">SST</span>
-              </button>
-              <button type="button" class="essential-toggle" [class.active]="isSatActive('satIR')"
-                      (click)="toggleSatLayer('satIR', !isSatActive('satIR'))">
-                <span class="ess-icon">🛰</span><span class="ess-label">Sat IR</span>
-              </button>
+              <label class="essential-toggle" [class.active]="showVessels()">
+                <input type="checkbox" [checked]="showVessels()" (change)="toggleVector('vessels')" />
+                <span class="essential-icon">🚢</span>
+                <span class="essential-label">Navires</span>
+              </label>
+              <label class="essential-toggle" [class.active]="showWind()">
+                <input type="checkbox" [checked]="showWind()" (change)="toggleWind(!showWind())" />
+                <span class="essential-icon">💨</span>
+                <span class="essential-label">Vent</span>
+              </label>
+              <label class="essential-toggle" [class.active]="showRain()">
+                <input type="checkbox" [checked]="showRain()" (change)="toggleRain(!showRain())" />
+                <span class="essential-icon">🌧</span>
+                <span class="essential-label">Pluie</span>
+              </label>
+              <label class="essential-toggle" [class.active]="showSatEuIrRss()">
+                <input type="checkbox" [checked]="showSatEuIrRss()" (change)="toggleSatLayer('satEuIrRss', !showSatEuIrRss())" />
+                <span class="essential-icon">🛰</span>
+                <span class="essential-label">Sat IR</span>
+              </label>
+              <label class="essential-toggle" [class.active]="showLightning()"
+                     [class.mode-incompatible]="!!layerModeWarning('lightning')"
+                     [title]="layerModeWarning('lightning')">
+                <input type="checkbox" [checked]="showLightning()" (change)="toggleVector('lightning')" />
+                <span class="essential-icon">⚡</span>
+                <span class="essential-label">Foudre</span>
+              </label>
+              <label class="essential-toggle" [class.active]="showAlerts()"
+                     [class.mode-incompatible]="!!layerModeWarning('alerts')"
+                     [title]="layerModeWarning('alerts')">
+                <input type="checkbox" [checked]="showAlerts()" (change)="toggleVector('alerts')" />
+                <span class="essential-icon">⚠</span>
+                <span class="essential-label">Alertes</span>
+              </label>
             </div>
+            <p class="essential-hint">Tap "Vue avancée" pour toutes les layers + isolignes + opacité.</p>
           </div>
         }
 
-        <!-- G18 M10 — Wrapper layer-toggles, masqué en mode simple mobile -->
         <div class="layer-toggles" [class.layer-toggles-hidden]="mobileSimpleMode()">
-
-        <!-- Projection toggle (hors sections) -->
-        <div class="row projection-row">
-          <button type="button" class="btn"
-            [class.active]="projection() === 'globe'"
-            (click)="setProjection('globe')">🌍 Globe</button>
-          <button type="button" class="btn"
-            [class.active]="projection() === 'mercator'"
-            (click)="setProjection('mercator')">🗺 Mercator</button>
-        </div>
-
-        <!-- ═══ Section MARITIME (vessels, tracks, alerts, lightning) ═════ -->
-        <div class="catalog-section" [class.is-open]="catalogSections().maritime">
-          <button type="button" class="catalog-section-head"
-                  (click)="toggleCatalogSection('maritime')"
-                  [attr.aria-expanded]="catalogSections().maritime">
-            <span class="head-chevron">{{ catalogSections().maritime ? '▼' : '▶' }}</span>
-            <span class="head-icon">🌊</span>
-            <span class="head-name">Maritime</span>
-            <span class="head-count">{{ catalogSectionCount('maritime').active }}/{{ catalogSectionCount('maritime').total }}</span>
-          </button>
-          @if (catalogSections().maritime) {
-            <div class="catalog-section-body">
-              <div class="row">
-                <button type="button" class="btn full" [class.active]="showVessels()"
-                        [class.mode-incompatible]="!!layerModeWarning('vessels')"
-                        [title]="layerModeWarning('vessels')"
-                        (click)="toggleVector('vessels')" [disabled]="vectorLoading() === 'vessels'">🚢 Navires AIS (cluster)</button>
-              </div>
-              <div class="row">
-                <button type="button" class="btn full" [class.active]="showTracks()"
-                        [class.mode-incompatible]="!!layerModeWarning('tracks')"
-                        [title]="layerModeWarning('tracks')"
-                        (click)="toggleTracks(!showTracks())" [disabled]="vectorLoading() === 'tracks'">🚢 Trajets AIS</button>
-              </div>
-              <div class="row">
-                <button type="button" class="btn full" [class.active]="showAlerts()"
-                        [class.mode-incompatible]="!!layerModeWarning('alerts')"
-                        [title]="layerModeWarning('alerts')"
-                        (click)="toggleVector('alerts')" [disabled]="vectorLoading() === 'alerts'">⚠ Alertes</button>
-              </div>
-              <div class="row">
-                <button type="button" class="btn full" [class.active]="showLightning()"
-                        [class.mode-incompatible]="!!layerModeWarning('lightning')"
-                        [title]="layerModeWarning('lightning')"
-                        (click)="toggleVector('lightning')" [disabled]="vectorLoading() === 'lightning'">⚡ Foudre</button>
-              </div>
-              @if (vectorCounts()['vessels'] != null && showVessels()) {
-                <div class="info">Navires — {{ vectorCounts()['vessels'] }} positions</div>
-              }
-              @if (vectorCounts()['tracks'] != null && showTracks()) {
-                <div class="info">Trajets — {{ vectorCounts()['tracks'] }} polylines</div>
-              }
-              @if (vectorCounts()['alerts'] != null && showAlerts()) {
-                <div class="info">Alertes 1h — {{ vectorCounts()['alerts'] }}</div>
-              }
-              @if (vectorCounts()['lightning'] != null && showLightning()) {
-                <div class="info">Foudre 30 min — {{ vectorCounts()['lightning'] }}</div>
-              }
+          <!-- Projection toggle (hors sections) -->
+          <div class="layer-row projection-row">
+            <div class="proj-buttons">
+              <button type="button" class="proj-btn"
+                [class.active]="projection() === 'globe'"
+                (click)="setProjection('globe')">🌍 Globe</button>
+              <button type="button" class="proj-btn"
+                [class.active]="projection() === 'mercator'"
+                (click)="setProjection('mercator')">🗺 Mercator</button>
             </div>
-          }
-        </div>
+          </div>
 
-        <!-- ═══ Section OBSERVATION (metar, quakes, firms, buoys) — hubeau/piezo migrés à hydrology -->
-        <div class="catalog-section" [class.is-open]="catalogSections().observation">
-          <button type="button" class="catalog-section-head"
-                  (click)="toggleCatalogSection('observation')"
-                  [attr.aria-expanded]="catalogSections().observation">
-            <span class="head-chevron">{{ catalogSections().observation ? '▼' : '▶' }}</span>
-            <span class="head-icon">👁</span>
-            <span class="head-name">Observation</span>
-            <span class="head-count">{{ catalogSectionCount('observation').active }}/{{ catalogSectionCount('observation').total }}</span>
-          </button>
-          @if (catalogSections().observation) {
+          <!-- ═══ Section MARITIME ═══════════════════════════════════ -->
+          <div class="catalog-section" [class.is-open]="catalogSections().maritime">
+            <button type="button" class="catalog-section-head section-maritime"
+                    (click)="toggleCatalogSection('maritime')"
+                    [attr.aria-expanded]="catalogSections().maritime">
+              <span class="head-chevron">{{ catalogSections().maritime ? '▼' : '▶' }}</span>
+              <span class="head-icon">🌊</span>
+              <span class="head-name">Maritime</span>
+              <span class="head-count">{{ catalogSectionCount('maritime').active }}/{{ catalogSectionCount('maritime').total }}</span>
+            </button>
+            @if (catalogSections().maritime) {
             <div class="catalog-section-body">
-              <div class="row"><button type="button" class="btn full" [class.active]="showMetar()"
-                [class.mode-incompatible]="!!layerModeWarning('metar')" [title]="layerModeWarning('metar')"
-                (click)="toggleVector('metar')" [disabled]="vectorLoading() === 'metar'">🌡 METAR</button></div>
-              <div class="row"><button type="button" class="btn full" [class.active]="showQuakes()"
-                [class.mode-incompatible]="!!layerModeWarning('quakes')" [title]="layerModeWarning('quakes')"
-                (click)="toggleVector('quakes')" [disabled]="vectorLoading() === 'quakes'">🌐 Séismes</button></div>
-              <div class="row"><button type="button" class="btn full" [class.active]="showFirms()"
-                [class.mode-incompatible]="!!layerModeWarning('firms')" [title]="layerModeWarning('firms')"
-                (click)="toggleVector('firms')" [disabled]="vectorLoading() === 'firms'">🔥 FIRMS feux</button></div>
-              <div class="row"><button type="button" class="btn full" [class.active]="showBuoys()"
-                [class.mode-incompatible]="!!layerModeWarning('buoys')" [title]="layerModeWarning('buoys')"
-                (click)="toggleVector('buoys')" [disabled]="vectorLoading() === 'buoys'">⚓ Bouées</button></div>
-              @if (vectorCounts()['metar'] != null && showMetar()) { <div class="info">METAR — {{ vectorCounts()['metar'] }}</div> }
-              @if (vectorCounts()['quakes'] != null && showQuakes()) { <div class="info">Séismes — {{ vectorCounts()['quakes'] }}</div> }
-              @if (vectorCounts()['firms'] != null && showFirms()) { <div class="info">FIRMS — {{ vectorCounts()['firms'] }}</div> }
-              @if (vectorCounts()['buoys'] != null && showBuoys()) { <div class="info">Bouées — {{ vectorCounts()['buoys'] }}</div> }
-            </div>
-          }
-        </div>
-
-        <!-- ═══ Section HYDROLOGY (hubeau debits + piezo nappes) — parité /map ═══ -->
-        <div class="catalog-section" [class.is-open]="catalogSections().hydrology">
-          <button type="button" class="catalog-section-head"
-                  (click)="toggleCatalogSection('hydrology')"
-                  [attr.aria-expanded]="catalogSections().hydrology">
-            <span class="head-chevron">{{ catalogSections().hydrology ? '▼' : '▶' }}</span>
-            <span class="head-icon">💧</span>
-            <span class="head-name">Hydrologie</span>
-            <span class="head-count">{{ catalogSectionCount('hydrology').active }}/{{ catalogSectionCount('hydrology').total }}</span>
-          </button>
-          @if (catalogSections().hydrology) {
-            <div class="catalog-section-body">
-              <div class="row"><button type="button" class="btn full" [class.active]="showHubeau()"
-                [class.mode-incompatible]="!!layerModeWarning('hubeau')" [title]="layerModeWarning('hubeau')"
-                (click)="toggleVector('hubeau')" [disabled]="vectorLoading() === 'hubeau'">💧 Hub'eau débits FR</button></div>
-              <div class="row"><button type="button" class="btn full" [class.active]="showPiezo()"
-                [class.mode-incompatible]="!!layerModeWarning('piezo')" [title]="layerModeWarning('piezo')"
-                (click)="toggleVector('piezo')" [disabled]="vectorLoading() === 'piezo'">🩸 Niveaux piézo FR</button></div>
-              @if (vectorCounts()['hubeau'] != null && showHubeau()) { <div class="info">Hub'eau — {{ vectorCounts()['hubeau'] }} stations</div> }
-              @if (vectorCounts()['piezo'] != null && showPiezo()) { <div class="info">Piezo — {{ vectorCounts()['piezo'] }} stations</div> }
-              <div class="info subtle">Prévisions crues EFAS + qualité eau EEA — à venir</div>
-            </div>
-          }
-        </div>
-
-        <!-- ═══ Section SATELLITES (NASA GIBS + EUMETSAT) ═══════════════ -->
-        <div class="catalog-section" [class.is-open]="catalogSections().satellites">
-          <button type="button" class="catalog-section-head"
-                  (click)="toggleCatalogSection('satellites')"
-                  [attr.aria-expanded]="catalogSections().satellites">
-            <span class="head-chevron">{{ catalogSections().satellites ? '▼' : '▶' }}</span>
-            <span class="head-icon">🛰</span>
-            <span class="head-name">Satellites</span>
-            <span class="head-count">{{ catalogSectionCount('satellites').active }}/{{ catalogSectionCount('satellites').total }}</span>
-          </button>
-          @if (catalogSections().satellites) {
-            <div class="catalog-section-body">
-              <div class="info subtle">NASA GIBS (journalier J-1) — stack possible</div>
-              @for (p of GIBS_PRODUCTS; track p.key) {
-                <div class="row">
-                  <button type="button" class="btn full"
-                          [class.active]="isSatActive(p.key)"
-                          (click)="toggleSatLayer(p.key, !isSatActive(p.key))">{{ p.label }}</button>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!vesselsActive()"
+                       [class.mode-incompatible]="!!layerModeWarning('vessels')"
+                       [title]="layerModeWarning('vessels')">
+                  <input type="checkbox" [checked]="showVessels()" (change)="toggleVector('vessels')" />
+                  <span class="toggle-glyph">
+                    <span class="glyph-dot" style="background:#34d399;border-color:#6ee7b7"></span>
+                    <span class="glyph-dot" style="background:#60a5fa;border-color:#93c5fd"></span>
+                    <span class="glyph-dot" style="background:#f87171;border-color:#fca5a5"></span>
+                  </span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Navires</span>
+                    <span class="toggle-count">{{ vectorCounts()['vessels'] ?? 0 }} positions</span>
+                  </span>
+                </label>
+                @if (showVessels()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('vessels')"
+                         (input)="setLayerOpacity('vessels', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!tracksActive()"
+                       [class.mode-incompatible]="!!layerModeWarning('tracks')"
+                       [title]="layerModeWarning('tracks')">
+                  <input type="checkbox" [checked]="showTracks()" (change)="toggleTracks(!showTracks())" />
+                  <span class="toggle-glyph">
+                    <svg viewBox="0 0 24 12" width="24" height="12" aria-hidden="true">
+                      <path d="M0,8 C5,2 10,11 14,5 S22,3 24,7" fill="none" stroke="rgba(45, 212, 191, 0.7)" stroke-width="1.5" />
+                    </svg>
+                  </span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Trajets</span>
+                    <span class="toggle-count">{{ vectorCounts()['tracks'] ?? 0 }} polylines</span>
+                  </span>
+                </label>
+                @if (showTracks()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('tracks')"
+                         (input)="setLayerOpacity('tracks', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showAlerts()"
+                       [class.mode-incompatible]="!!layerModeWarning('alerts')"
+                       [title]="layerModeWarning('alerts')">
+                  <input type="checkbox" [checked]="showAlerts()" (change)="toggleVector('alerts')" />
+                  <span class="toggle-glyph">
+                    <span class="glyph-alert">⚠</span>
+                  </span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Alertes</span>
+                    <span class="toggle-count">{{ vectorCounts()['alerts'] ?? 0 }} actives</span>
+                  </span>
+                </label>
+                @if (showAlerts()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('alerts')"
+                         (input)="setLayerOpacity('alerts', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showBuoys()"
+                       [class.mode-incompatible]="!!layerModeWarning('buoys')"
+                       [title]="layerModeWarning('buoys')">
+                  <input type="checkbox" [checked]="showBuoys()" (change)="toggleVector('buoys')" />
+                  <span class="toggle-glyph">
+                    <span class="glyph-buoy">⚓</span>
+                  </span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Plateformes vagues</span>
+                    <span class="toggle-count">{{ vectorCounts()['buoys'] ?? 0 }} stations</span>
+                  </span>
+                </label>
+                @if (showBuoys()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('buoys')"
+                         (input)="setLayerOpacity('buoys', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!sstActive()">
+                  <input type="checkbox" [checked]="showSst()" (change)="toggleSst(!showSst())" />
+                  <span class="toggle-glyph">
+                    <span class="glyph-gradient"></span>
+                  </span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">SST</span>
+                    <span class="toggle-count">température mer (NOAA)</span>
+                  </span>
+                </label>
+                @if (showSst()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('sst')"
+                         (input)="setLayerOpacity('sst', +$any($event.target).value)" />
+                }
+                <!-- isolignes SST -->
+                <div class="contour-control">
+                  <label class="contour-toggle">
+                    <input type="checkbox" [checked]="showSstContours()" (change)="toggleSstContours(!showSstContours())" />
+                    <span>Isolignes</span>
+                  </label>
+                  @if (showSstContours()) {
+                    <input class="layer-opacity layer-opacity-contour" type="range" min="0" max="1" step="0.05" title="Opacité isolignes"
+                           [value]="getLayerOpacity('sstContours')"
+                           (input)="setLayerOpacity('sstContours', +$any($event.target).value)" />
+                  }
                 </div>
-              }
-              <div class="info subtle" style="margin-top:0.6em;">EUMETSAT / Radar (NRT)</div>
-              @for (p of CASCADE_PRODUCTS; track p.key) {
-                <div class="row">
-                  <button type="button" class="btn full"
-                          [class.active]="isSatActive(p.key)"
-                          (click)="toggleSatLayer(p.key, !isSatActive(p.key))">{{ p.label }}</button>
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showWavesForecast()">
+                  <input type="checkbox" [checked]="showWavesForecast()" (change)="toggleWavesForecast(!showWavesForecast())" />
+                  <span class="toggle-glyph">
+                    <span class="glyph-waves"></span>
+                  </span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Vagues</span>
+                    <span class="toggle-count">hauteur sig. (WW3)</span>
+                  </span>
+                </label>
+                @if (showWavesForecast()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('wavesForecast')"
+                         (input)="setLayerOpacity('wavesForecast', +$any($event.target).value)" />
+                }
+                <div class="contour-control">
+                  <label class="contour-toggle">
+                    <input type="checkbox" [checked]="showWaveContours()" (change)="toggleWaveContours(!showWaveContours())" />
+                    <span>Isolignes</span>
+                  </label>
+                  @if (showWaveContours()) {
+                    <input class="layer-opacity layer-opacity-contour" type="range" min="0" max="1" step="0.05" title="Opacité isolignes"
+                           [value]="getLayerOpacity('waveContours')"
+                           (input)="setLayerOpacity('waveContours', +$any($event.target).value)" />
+                  }
                 </div>
-              }
-              @if (currentSatAttribution()) {
-                <div class="info">{{ currentSatAttribution() }}</div>
-              }
-            </div>
-          }
-        </div>
-
-        <!-- ═══ Section RADAR (pluie, RainViewer) ═══════════════════════ -->
-        <div class="catalog-section" [class.is-open]="catalogSections().radar">
-          <button type="button" class="catalog-section-head"
-                  (click)="toggleCatalogSection('radar')"
-                  [attr.aria-expanded]="catalogSections().radar">
-            <span class="head-chevron">{{ catalogSections().radar ? '▼' : '▶' }}</span>
-            <span class="head-icon">📡</span>
-            <span class="head-name">Radar</span>
-            <span class="head-count">{{ catalogSectionCount('radar').active }}/{{ catalogSectionCount('radar').total }}</span>
-          </button>
-          @if (catalogSections().radar) {
-            <div class="catalog-section-body">
-              <div class="row">
-                <button type="button" class="btn full" [class.active]="showRain()"
-                  (click)="toggleRain(!showRain())" [disabled]="vectorLoading() === 'rain'">🌧 Pluie RainViewer</button>
               </div>
-              <div class="info subtle">DWD / KNMI / RainViewer IR → choisir dans la section Satellites</div>
-              @if (vectorCounts()['rain'] != null && showRain()) {
-                <div class="info">Pluie radar (snap au cursor)</div>
-              }
-            </div>
-          }
-        </div>
-
-        <!-- ═══ Section FORECAST (wind, waves, arrows) ══════════════════ -->
-        <div class="catalog-section" [class.is-open]="catalogSections().forecast">
-          <button type="button" class="catalog-section-head"
-                  (click)="toggleCatalogSection('forecast')"
-                  [attr.aria-expanded]="catalogSections().forecast">
-            <span class="head-chevron">{{ catalogSections().forecast ? '▼' : '▶' }}</span>
-            <span class="head-icon">🌤</span>
-            <span class="head-name">Forecast</span>
-            <span class="head-count">{{ catalogSectionCount('forecast').active }}/{{ catalogSectionCount('forecast').total }}</span>
-          </button>
-          @if (catalogSections().forecast) {
-            <div class="catalog-section-body">
-              <div class="row"><button type="button" class="btn full" [class.active]="showWindForecast()"
-                (click)="toggleWindForecast(!showWindForecast())">🌬 Vent (raster)</button></div>
-              @if (showWindForecast()) {
-                <div class="legend-graphic">
-                  <img [src]="legendGraphicUrl('windForecast')" alt="Palette vent" loading="lazy" />
-                </div>
-              }
-              <div class="row"><button type="button" class="btn full" [class.active]="showWindArrows()"
-                (click)="toggleWindArrows(!showWindArrows())">↗ Flèches vent</button></div>
-              <div class="row"><button type="button" class="btn full" [class.active]="showWindContours()"
-                (click)="toggleWindContours(!showWindContours())">📈 Isolines vent</button></div>
-              <div class="row"><button type="button" class="btn full" [class.active]="showWavesForecast()"
-                (click)="toggleWavesForecast(!showWavesForecast())">🌊 Vagues (raster)</button></div>
-              @if (showWavesForecast()) {
-                <div class="legend-graphic">
-                  <img [src]="legendGraphicUrl('wavesForecast')" alt="Palette vagues" loading="lazy" />
-                </div>
-              }
-              <div class="row"><button type="button" class="btn full" [class.active]="showWaveArrows()"
-                (click)="toggleWaveArrows(!showWaveArrows())">↗ Flèches vagues</button></div>
-              <div class="row"><button type="button" class="btn full" [class.active]="showWaveContours()"
-                (click)="toggleWaveContours(!showWaveContours())">📈 Isolines vagues</button></div>
-            </div>
-          }
-        </div>
-
-        <!-- ═══ Section DYNAMICS (SST + Wind particles) ═══════════════════ -->
-        <div class="catalog-section" [class.is-open]="catalogSections().dynamics">
-          <button type="button" class="catalog-section-head"
-                  (click)="toggleCatalogSection('dynamics')"
-                  [attr.aria-expanded]="catalogSections().dynamics">
-            <span class="head-chevron">{{ catalogSections().dynamics ? '▼' : '▶' }}</span>
-            <span class="head-icon">💨</span>
-            <span class="head-name">Dynamiques</span>
-            <span class="head-count">{{ catalogSectionCount('dynamics').active }}/{{ catalogSectionCount('dynamics').total }}</span>
-          </button>
-          @if (catalogSections().dynamics) {
-            <div class="catalog-section-body">
-              <div class="row">
-                <button type="button" class="btn" [class.active]="!showSst()" (click)="toggleSst(false)">SST off</button>
-                <button type="button" class="btn" [class.active]="showSst()"
-                        [class.mode-incompatible]="showSst() && modeIsFuture()"
-                        [title]="showSst() && modeIsFuture() ? 'SST pas dispo en future — recule la time-bar' : ''"
-                        (click)="toggleSst(true)">🌡 SST live</button>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showWaveArrows()">
+                  <input type="checkbox" [checked]="showWaveArrows()" (change)="toggleWaveArrows(!showWaveArrows())" />
+                  <span class="toggle-glyph">
+                    <span class="glyph-arrow glyph-arrow-wave">↑</span>
+                  </span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Vagues flèches</span>
+                    <span class="toggle-count">direction houle</span>
+                  </span>
+                </label>
+                @if (showWaveArrows()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('waveArrows')"
+                         (input)="setLayerOpacity('waveArrows', +$any($event.target).value)" />
+                }
               </div>
-              @if (showSst() && !modeIsFuture()) {
-                <div class="legend-graphic">
-                  <img [src]="legendGraphicUrl('sst')" alt="Palette SST" loading="lazy" />
-                </div>
-              }
-              <div class="row">
-                <button type="button" class="btn" [class.active]="!showWind()" (click)="toggleWind(false)">Vent off</button>
-                <button type="button" class="btn" [class.active]="showWind()" (click)="toggleWind(true)" [disabled]="windLoading()">🌬 Particules WebGL</button>
-              </div>
-              <div class="row">
-                <button type="button" class="btn full" [class.active]="showSstContours()"
-                        (click)="toggleSstContours(!showSstContours())">📈 Isolines SST</button>
-              </div>
-              @if (windLoading()) { <div class="info">Chargement grid vent…</div> }
-              @if (windError()) { <div class="info error">{{ windError() }}</div> }
-              @if (showWind() && !windLoading() && !windError()) {
-                <div class="info">GFS — {{ DEFAULT_WIND_PARTICLES }} particules</div>
-              }
             </div>
-          }
-        </div>
-
-        <!-- ═══ Section SOURCES (bathy, EEZ, MPA, EFAS) ═══════════════════ -->
-        <div class="catalog-section" [class.is-open]="catalogSections().sources">
-          <button type="button" class="catalog-section-head"
-                  (click)="toggleCatalogSection('sources')"
-                  [attr.aria-expanded]="catalogSections().sources">
-            <span class="head-chevron">{{ catalogSections().sources ? '▼' : '▶' }}</span>
-            <span class="head-icon">🗺</span>
-            <span class="head-name">Sources</span>
-            <span class="head-count">{{ catalogSectionCount('sources').active }}/{{ catalogSectionCount('sources').total }}</span>
-          </button>
-          @if (catalogSections().sources) {
-            <div class="catalog-section-body">
-              <div class="row"><button type="button" class="btn full" [class.active]="showBathy()"
-                (click)="toggleBathy(!showBathy())">🏔 Bathymétrie EMODnet</button></div>
-              <div class="row"><button type="button" class="btn full" [class.active]="showEez()"
-                (click)="toggleEez(!showEez())">🌐 EEZ Marine Regions</button></div>
-              <div class="row"><button type="button" class="btn full" [class.active]="showMpa()"
-                (click)="toggleMpa(!showMpa())">🛡 MPA EMODnet</button></div>
-              <div class="row"><button type="button" class="btn full" [class.active]="showEfas()"
-                (click)="toggleEfas(!showEfas())">🌊 EFAS forecast crues</button></div>
-            </div>
-          }
-        </div>
-
-        <!-- G11d (2026-05-22) — sliders opacité par layer active. -->
-        @if (activeOpacityKeys().length > 0) {
-          <div class="opacity-panel">
-            <div class="opacity-title">Opacités</div>
-            @for (k of activeOpacityKeys(); track k) {
-              <div class="opacity-row">
-                <span class="opacity-label">{{ layerHumanLabel(k) }}</span>
-                <input type="range" min="0" max="1" step="0.05"
-                       [value]="getLayerOpacity(k)"
-                       (input)="setLayerOpacity(k, +$any($event.target).value)" />
-                <span class="opacity-value">{{ (getLayerOpacity(k) * 100).toFixed(0) }}%</span>
-              </div>
             }
           </div>
-        }
-        @if (vectorCounts()['metar'] != null && showMetar()) {
-          <div class="info">METAR — {{ vectorCounts()['metar'] }} stations</div>
-        }
-        @if (vectorCounts()['hubeau'] != null && showHubeau()) {
-          <div class="info">Hub'eau — {{ vectorCounts()['hubeau'] }} stations</div>
-        }
-        @if (vectorCounts()['piezo'] != null && showPiezo()) {
-          <div class="info">Piezo — {{ vectorCounts()['piezo'] }} stations</div>
-        }
-        @if (vectorCounts()['quakes'] != null && showQuakes()) {
-          <div class="info">Séismes — {{ vectorCounts()['quakes'] }} events</div>
-        }
-        @if (vectorCounts()['firms'] != null && showFirms()) {
-          <div class="info">FIRMS — {{ vectorCounts()['firms'] }} hotspots</div>
-        }
-        @if (vectorCounts()['buoys'] != null && showBuoys()) {
-          <div class="info">Bouées — {{ vectorCounts()['buoys'] }} stations</div>
-        }
-        @if (vectorCounts()['tracks'] != null && showTracks()) {
-          <div class="info">Trajets — {{ vectorCounts()['tracks'] }} polylines</div>
-        }
-        @if (vectorCounts()['rain'] != null && showRain()) {
-          <div class="info">Pluie radar RainViewer (snap au cursor)</div>
-        }
 
-        <!-- G18 M14 — warning >5 layers actifs (parité /legacy-map cap5) -->
-        @if (cap5Warning(); as msg) {
-          <div class="cap5-inline" role="status">⚠ {{ msg }}</div>
-        }
+          <!-- ═══ Section OBSERVATION ════════════════════════════════ -->
+          <div class="catalog-section" [class.is-open]="catalogSections().observation">
+            <button type="button" class="catalog-section-head section-observation"
+                    (click)="toggleCatalogSection('observation')"
+                    [attr.aria-expanded]="catalogSections().observation">
+              <span class="head-chevron">{{ catalogSections().observation ? '▼' : '▶' }}</span>
+              <span class="head-icon">👁</span>
+              <span class="head-name">Observation</span>
+              <span class="head-count">{{ catalogSectionCount('observation').active }}/{{ catalogSectionCount('observation').total }}</span>
+            </button>
+            @if (catalogSections().observation) {
+            <div class="catalog-section-body">
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showLightning()"
+                       [class.mode-incompatible]="!!layerModeWarning('lightning')"
+                       [title]="layerModeWarning('lightning')">
+                  <input type="checkbox" [checked]="showLightning()" (change)="toggleVector('lightning')" />
+                  <span class="toggle-glyph">
+                    <span class="glyph-zap">⚡</span>
+                  </span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Foudre</span>
+                    <span class="toggle-count">{{ vectorCounts()['lightning'] ?? 0 }} strikes 30 min</span>
+                  </span>
+                </label>
+                @if (showLightning()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('lightning')"
+                         (input)="setLayerOpacity('lightning', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showMetar()"
+                       [class.mode-incompatible]="!!layerModeWarning('metar')"
+                       [title]="layerModeWarning('metar')">
+                  <input type="checkbox" [checked]="showMetar()" (change)="toggleVector('metar')" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🛬</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">METAR aéroports</span>
+                    <span class="toggle-count">{{ vectorCounts()['metar'] ?? 0 }} stations</span>
+                  </span>
+                </label>
+                @if (showMetar()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('metar')"
+                         (input)="setLayerOpacity('metar', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showQuakes()"
+                       [class.mode-incompatible]="!!layerModeWarning('quakes')"
+                       [title]="layerModeWarning('quakes')">
+                  <input type="checkbox" [checked]="showQuakes()" (change)="toggleVector('quakes')" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🌋</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Séismes USGS</span>
+                    <span class="toggle-count">{{ vectorCounts()['quakes'] ?? 0 }} events</span>
+                  </span>
+                </label>
+                @if (showQuakes()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('quakes')"
+                         (input)="setLayerOpacity('quakes', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row layer-soon">
+                <label class="layer-toggle dim">
+                  <input type="checkbox" disabled />
+                  <span class="toggle-glyph"><span class="glyph-icon">⚠</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">SIGMET / AIRMET <span class="soon-tag">à venir</span></span>
+                    <span class="toggle-count">avertissements aéro</span>
+                  </span>
+                </label>
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showFirms()"
+                       [class.mode-incompatible]="!!layerModeWarning('firms')"
+                       [title]="layerModeWarning('firms')">
+                  <input type="checkbox" [checked]="showFirms()" (change)="toggleVector('firms')" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🔥</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Feux NASA FIRMS</span>
+                    <span class="toggle-count">{{ vectorCounts()['firms'] ?? 0 }} hotspots</span>
+                  </span>
+                </label>
+                @if (showFirms()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('firms')"
+                         (input)="setLayerOpacity('firms', +$any($event.target).value)" />
+                }
+              </div>
+            </div>
+            }
+          </div>
 
-        <!-- G18 M6 — bouton reset prefs (parité /legacy-map) -->
-        <div class="reset-row">
-          <button type="button" class="layer-reset" (click)="resetLayerPrefs()"
-                  title="Restaure l'affichage par défaut (toutes layers OFF + opacités reset + clear localStorage)">
+          <!-- ═══ Section SATELLITES (NASA GIBS + EUMETSAT) ══════════ -->
+          <div class="catalog-section" [class.is-open]="catalogSections().satellites">
+            <button type="button" class="catalog-section-head section-satellites"
+                    (click)="toggleCatalogSection('satellites')"
+                    [attr.aria-expanded]="catalogSections().satellites">
+              <span class="head-chevron">{{ catalogSections().satellites ? '▼' : '▶' }}</span>
+              <span class="head-icon">🛰</span>
+              <span class="head-name">Satellites</span>
+              <span class="head-count">{{ catalogSectionCount('satellites').active }}/{{ catalogSectionCount('satellites').total }}</span>
+            </button>
+            @if (catalogSections().satellites) {
+            <div class="catalog-section-body">
+              <div class="sat-date-label" title="Date d'imagerie satellite — suit le cursor time-slider">
+                📅 Imagerie du {{ currentSatDate() }}
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showSatTrueColor()">
+                  <input type="checkbox" [checked]="showSatTrueColor()" (change)="toggleSatLayer('satTrueColor', !showSatTrueColor())" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🌍</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Vrai couleur MODIS</span>
+                    <span class="toggle-count">Terra · daily VIS</span>
+                  </span>
+                </label>
+                @if (showSatTrueColor()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('satTrueColor')"
+                         (input)="setLayerOpacity('satTrueColor', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showSatTrueColorVIIRS()">
+                  <input type="checkbox" [checked]="showSatTrueColorVIIRS()" (change)="toggleSatLayer('satTrueColorVIIRS', !showSatTrueColorVIIRS())" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🌐</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Vrai couleur VIIRS</span>
+                    <span class="toggle-count">SNPP · daily VIS HD</span>
+                  </span>
+                </label>
+                @if (showSatTrueColorVIIRS()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('satTrueColorVIIRS')"
+                         (input)="setLayerOpacity('satTrueColorVIIRS', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showSatIR()">
+                  <input type="checkbox" [checked]="showSatIR()" (change)="toggleSatLayer('satIR', !showSatIR())" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🔥</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Infrarouge thermique</span>
+                    <span class="toggle-count">MODIS · band 31 day</span>
+                  </span>
+                </label>
+                @if (showSatIR()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('satIR')"
+                         (input)="setLayerOpacity('satIR', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showSatWaterVapor()">
+                  <input type="checkbox" [checked]="showSatWaterVapor()" (change)="toggleSatLayer('satWaterVapor', !showSatWaterVapor())" />
+                  <span class="toggle-glyph"><span class="glyph-icon">💧</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Température air (proxy évap.)</span>
+                    <span class="toggle-count">AIRS · surface air temp</span>
+                  </span>
+                </label>
+                @if (showSatWaterVapor()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('satWaterVapor')"
+                         (input)="setLayerOpacity('satWaterVapor', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showSatCloudTop()">
+                  <input type="checkbox" [checked]="showSatCloudTop()" (change)="toggleSatLayer('satCloudTop', !showSatCloudTop())" />
+                  <span class="toggle-glyph"><span class="glyph-icon">☁</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Sommet des nuages</span>
+                    <span class="toggle-count">MODIS · pression top</span>
+                  </span>
+                </label>
+                @if (showSatCloudTop()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('satCloudTop')"
+                         (input)="setLayerOpacity('satCloudTop', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showSatAerosol()">
+                  <input type="checkbox" [checked]="showSatAerosol()" (change)="toggleSatLayer('satAerosol', !showSatAerosol())" />
+                  <span class="toggle-glyph"><span class="glyph-icon">💨</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Aérosols / poussières</span>
+                    <span class="toggle-count">MODIS · AOD combiné</span>
+                  </span>
+                </label>
+                @if (showSatAerosol()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('satAerosol')"
+                         (input)="setLayerOpacity('satAerosol', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showSatDayNight()">
+                  <input type="checkbox" [checked]="showSatDayNight()" (change)="toggleSatLayer('satDayNight', !showSatDayNight())" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🌙</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">VIIRS jour/nuit</span>
+                    <span class="toggle-count">lumières urbaines + navires</span>
+                  </span>
+                </label>
+                @if (showSatDayNight()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('satDayNight')"
+                         (input)="setLayerOpacity('satDayNight', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showSatRainviewer()">
+                  <input type="checkbox" [checked]="showSatRainviewer()" (change)="toggleSatLayer('satRainviewer', !showSatRainviewer())" />
+                  <span class="toggle-glyph"><span class="glyph-icon">☁</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Satellite IR (RainViewer)</span>
+                    <span class="toggle-count">global · NRT 10 min</span>
+                  </span>
+                </label>
+                @if (showSatRainviewer()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('satRainviewer')"
+                         (input)="setLayerOpacity('satRainviewer', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showSatEuIrRss()">
+                  <input type="checkbox" [checked]="showSatEuIrRss()" (change)="toggleSatLayer('satEuIrRss', !showSatEuIrRss())" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🌡</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">IR Europe (5 min)</span>
+                    <span class="toggle-count">EUMETSAT MSG RSS</span>
+                  </span>
+                </label>
+                @if (showSatEuIrRss()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('satEuIrRss')"
+                         (input)="setLayerOpacity('satEuIrRss', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showSatGlobalIrMtg()">
+                  <input type="checkbox" [checked]="showSatGlobalIrMtg()" (change)="toggleSatLayer('satGlobalIrMtg', !showSatGlobalIrMtg())" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🌐</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">IR global (10 min)</span>
+                    <span class="toggle-count">EUMETSAT MTG FCI</span>
+                  </span>
+                </label>
+                @if (showSatGlobalIrMtg()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('satGlobalIrMtg')"
+                         (input)="setLayerOpacity('satGlobalIrMtg', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showSatEuHrvRgb()">
+                  <input type="checkbox" [checked]="showSatEuHrvRgb()" (change)="toggleSatLayer('satEuHrvRgb', !showSatEuHrvRgb())" />
+                  <span class="toggle-glyph"><span class="glyph-icon">☀</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Visible HRV RGB Europe (15 min)</span>
+                    <span class="toggle-count">EUMETSAT MSG SEVIRI HRV</span>
+                  </span>
+                </label>
+                @if (showSatEuHrvRgb()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('satEuHrvRgb')"
+                         (input)="setLayerOpacity('satEuHrvRgb', +$any($event.target).value)" />
+                }
+              </div>
+              @if (currentSatAttribution()) {
+                <div class="legend-section-title" style="margin-top:0.6em;">{{ currentSatAttribution() }}</div>
+              }
+            </div>
+            }
+          </div>
+
+          <!-- ═══ Section RADAR ═══════════════════════════════════════ -->
+          <div class="catalog-section" [class.is-open]="catalogSections().radar">
+            <button type="button" class="catalog-section-head section-radar"
+                    (click)="toggleCatalogSection('radar')"
+                    [attr.aria-expanded]="catalogSections().radar">
+              <span class="head-chevron">{{ catalogSections().radar ? '▼' : '▶' }}</span>
+              <span class="head-icon">📡</span>
+              <span class="head-name">Radar</span>
+              <span class="head-count">{{ catalogSectionCount('radar').active }}/{{ catalogSectionCount('radar').total }}</span>
+            </button>
+            @if (catalogSections().radar) {
+            <div class="catalog-section-body">
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showRain()">
+                  <input type="checkbox" [checked]="showRain()" (change)="toggleRain(!showRain())" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🌧</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Précipitations RainViewer</span>
+                    <span class="toggle-count">radar global NRT</span>
+                  </span>
+                </label>
+                @if (showRain()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('rain')"
+                         (input)="setLayerOpacity('rain', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showRadarDwd()">
+                  <input type="checkbox" [checked]="showRadarDwd()" (change)="toggleSatLayer('radarDwd', !showRadarDwd())" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🇩🇪</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Radar Allemagne (5 min)</span>
+                    <span class="toggle-count">DWD Open Data</span>
+                  </span>
+                </label>
+                @if (showRadarDwd()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('radarDwd')"
+                         (input)="setLayerOpacity('radarDwd', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showRadarKnmi()">
+                  <input type="checkbox" [checked]="showRadarKnmi()" (change)="toggleSatLayer('radarKnmi', !showRadarKnmi())" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🇳🇱</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Radar Pays-Bas (5 min)</span>
+                    <span class="toggle-count">KNMI Open Geo</span>
+                  </span>
+                </label>
+                @if (showRadarKnmi()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('radarKnmi')"
+                         (input)="setLayerOpacity('radarKnmi', +$any($event.target).value)" />
+                }
+              </div>
+            </div>
+            }
+          </div>
+
+          <!-- ═══ Section FORECAST ═══════════════════════════════════ -->
+          <div class="catalog-section" [class.is-open]="catalogSections().forecast">
+            <button type="button" class="catalog-section-head section-forecast"
+                    (click)="toggleCatalogSection('forecast')"
+                    [attr.aria-expanded]="catalogSections().forecast">
+              <span class="head-chevron">{{ catalogSections().forecast ? '▼' : '▶' }}</span>
+              <span class="head-icon">🌤</span>
+              <span class="head-name">Forecast</span>
+              <span class="head-count">{{ catalogSectionCount('forecast').active }}/{{ catalogSectionCount('forecast').total }}</span>
+            </button>
+            @if (catalogSections().forecast) {
+            <div class="catalog-section-body">
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!windActive()">
+                  <input type="checkbox" [checked]="showWindForecast()" (change)="toggleWindForecast(!showWindForecast())" />
+                  <span class="toggle-glyph">
+                    <span class="glyph-wind"></span>
+                  </span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Vent</span>
+                    <span class="toggle-count">GFS · raster</span>
+                  </span>
+                </label>
+                @if (showWindForecast()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('windForecast')"
+                         (input)="setLayerOpacity('windForecast', +$any($event.target).value)" />
+                }
+                <div class="contour-control">
+                  <label class="contour-toggle">
+                    <input type="checkbox" [checked]="showWindContours()" (change)="toggleWindContours(!showWindContours())" />
+                    <span>Isolignes</span>
+                  </label>
+                  @if (showWindContours()) {
+                    <input class="layer-opacity layer-opacity-contour" type="range" min="0" max="1" step="0.05" title="Opacité isolignes"
+                           [value]="getLayerOpacity('windContours')"
+                           (input)="setLayerOpacity('windContours', +$any($event.target).value)" />
+                  }
+                </div>
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showWindArrows()">
+                  <input type="checkbox" [checked]="showWindArrows()" (change)="toggleWindArrows(!showWindArrows())" />
+                  <span class="toggle-glyph">
+                    <span class="glyph-arrow glyph-arrow-wind">↑</span>
+                  </span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Vent flèches</span>
+                    <span class="toggle-count">GFS · direction</span>
+                  </span>
+                </label>
+                @if (showWindArrows()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('windArrows')"
+                         (input)="setLayerOpacity('windArrows', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showWind()">
+                  <input type="checkbox" [checked]="showWind()" (change)="toggleWind(!showWind())" />
+                  <span class="toggle-glyph">
+                    <span class="glyph-particles">∿∿∿</span>
+                  </span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Vent particules</span>
+                    <span class="toggle-count">WebGL · {{ DEFAULT_WIND_PARTICLES }} pts</span>
+                  </span>
+                </label>
+                @if (showWind()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('windParticles')"
+                         (input)="setLayerOpacity('windParticles', +$any($event.target).value)" />
+                }
+              </div>
+              <!-- Placeholders V2 — paramètres météo classiques -->
+              <div class="layer-row layer-soon">
+                <label class="layer-toggle dim">
+                  <input type="checkbox" disabled />
+                  <span class="toggle-glyph"><span class="glyph-icon">🌡</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Température 2m <span class="soon-tag">à venir</span></span>
+                    <span class="toggle-count">GFS / ARPEGE</span>
+                  </span>
+                </label>
+              </div>
+              <div class="layer-row layer-soon">
+                <label class="layer-toggle dim">
+                  <input type="checkbox" disabled />
+                  <span class="toggle-glyph"><span class="glyph-icon">⊙</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Pression MSL <span class="soon-tag">à venir</span></span>
+                    <span class="toggle-count">isobares + dépressions</span>
+                  </span>
+                </label>
+              </div>
+              <div class="layer-row layer-soon">
+                <label class="layer-toggle dim">
+                  <input type="checkbox" disabled />
+                  <span class="toggle-glyph"><span class="glyph-icon">💧</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Humidité <span class="soon-tag">à venir</span></span>
+                    <span class="toggle-count">relative 2m</span>
+                  </span>
+                </label>
+              </div>
+              <div class="layer-row layer-soon">
+                <label class="layer-toggle dim">
+                  <input type="checkbox" disabled />
+                  <span class="toggle-glyph"><span class="glyph-icon">🌧</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Précipitations <span class="soon-tag">à venir</span></span>
+                    <span class="toggle-count">forecast cumul 6h</span>
+                  </span>
+                </label>
+              </div>
+              <div class="layer-row layer-soon">
+                <label class="layer-toggle dim">
+                  <input type="checkbox" disabled />
+                  <span class="toggle-glyph"><span class="glyph-icon">✈</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">TAF <span class="soon-tag">à venir</span></span>
+                    <span class="toggle-count">prévisions aéroports</span>
+                  </span>
+                </label>
+              </div>
+            </div>
+            }
+          </div>
+
+          <!-- ═══ Section HYDROLOGIE ═════════════════════════════════ -->
+          <div class="catalog-section" [class.is-open]="catalogSections().hydrology">
+            <button type="button" class="catalog-section-head section-hydrology"
+                    (click)="toggleCatalogSection('hydrology')"
+                    [attr.aria-expanded]="catalogSections().hydrology">
+              <span class="head-chevron">{{ catalogSections().hydrology ? '▼' : '▶' }}</span>
+              <span class="head-icon">💧</span>
+              <span class="head-name">Hydrologie</span>
+              <span class="head-count">{{ catalogSectionCount('hydrology').active }}/{{ catalogSectionCount('hydrology').total }}</span>
+            </button>
+            @if (catalogSections().hydrology) {
+            <div class="catalog-section-body">
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showHubeau()"
+                       [class.mode-incompatible]="!!layerModeWarning('hubeau')"
+                       [title]="layerModeWarning('hubeau')">
+                  <input type="checkbox" [checked]="showHubeau()" (change)="toggleVector('hubeau')" />
+                  <span class="toggle-glyph"><span class="glyph-icon">≈</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Débits rivières FR</span>
+                    <span class="toggle-count">{{ vectorCounts()['hubeau'] ?? 0 }} stations</span>
+                  </span>
+                </label>
+                @if (showHubeau()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('hubeau')"
+                         (input)="setLayerOpacity('hubeau', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showPiezo()"
+                       [class.mode-incompatible]="!!layerModeWarning('piezo')"
+                       [title]="layerModeWarning('piezo')">
+                  <input type="checkbox" [checked]="showPiezo()" (change)="toggleVector('piezo')" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🪣</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Niveaux piézo FR</span>
+                    <span class="toggle-count">{{ vectorCounts()['piezo'] ?? 0 }} stations</span>
+                  </span>
+                </label>
+                @if (showPiezo()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('piezo')"
+                         (input)="setLayerOpacity('piezo', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row layer-soon">
+                <label class="layer-toggle dim">
+                  <input type="checkbox" disabled />
+                  <span class="toggle-glyph"><span class="glyph-icon">⚠</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Prévisions crues <span class="soon-tag">accès limité</span></span>
+                    <span class="toggle-count">EFAS Copernicus (compte EMS requis)</span>
+                  </span>
+                </label>
+              </div>
+              <div class="layer-row layer-soon">
+                <label class="layer-toggle dim">
+                  <input type="checkbox" disabled />
+                  <span class="toggle-glyph"><span class="glyph-icon">⚗</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Qualité eau <span class="soon-tag">à venir</span></span>
+                    <span class="toggle-count">EEA WISE masses d'eau</span>
+                  </span>
+                </label>
+              </div>
+            </div>
+            }
+          </div>
+
+          <!-- ═══ Section SOURCES ════════════════════════════════════ -->
+          <div class="catalog-section" [class.is-open]="catalogSections().sources">
+            <button type="button" class="catalog-section-head section-sources"
+                    (click)="toggleCatalogSection('sources')"
+                    [attr.aria-expanded]="catalogSections().sources">
+              <span class="head-chevron">{{ catalogSections().sources ? '▼' : '▶' }}</span>
+              <span class="head-icon">🗺</span>
+              <span class="head-name">Sources</span>
+              <span class="head-count">{{ catalogSectionCount('sources').active }}/{{ catalogSectionCount('sources').total }}</span>
+            </button>
+            @if (catalogSections().sources) {
+            <div class="catalog-section-body">
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showBathy()">
+                  <input type="checkbox" [checked]="showBathy()" (change)="toggleBathy(!showBathy())" />
+                  <span class="toggle-glyph"><span class="glyph-icon">≋</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Bathymétrie</span>
+                    <span class="toggle-count">EMODnet mean atlas</span>
+                  </span>
+                </label>
+                @if (showBathy()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('bathy')"
+                         (input)="setLayerOpacity('bathy', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showEez()">
+                  <input type="checkbox" [checked]="showEez()" (change)="toggleEez(!showEez())" />
+                  <span class="toggle-glyph"><span class="glyph-icon">⛓</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">EEZ (zones éco. excl.)</span>
+                    <span class="toggle-count">Marine Regions VLIZ</span>
+                  </span>
+                </label>
+                @if (showEez()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('eez')"
+                         (input)="setLayerOpacity('eez', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showMpa()">
+                  <input type="checkbox" [checked]="showMpa()" (change)="toggleMpa(!showMpa())" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🦑</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">MPA (aires marines)</span>
+                    <span class="toggle-count">EMODnet Human Activities</span>
+                  </span>
+                </label>
+                @if (showMpa()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('mpa')"
+                         (input)="setLayerOpacity('mpa', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showEfas()">
+                  <input type="checkbox" [checked]="showEfas()" (change)="toggleEfas(!showEfas())" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🌊</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">EFAS forecast crues</span>
+                    <span class="toggle-count">Copernicus EMS</span>
+                  </span>
+                </label>
+                @if (showEfas()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('efas')"
+                         (input)="setLayerOpacity('efas', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row layer-soon">
+                <label class="layer-toggle dim">
+                  <input type="checkbox" disabled />
+                  <span class="toggle-glyph"><span class="glyph-icon">━</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Câbles sous-marins <span class="soon-tag">à venir</span></span>
+                    <span class="toggle-count">TeleGeography</span>
+                  </span>
+                </label>
+              </div>
+            </div>
+            }
+          </div>
+
+          <!-- Reset button : restaure les défauts visibility + opacity -->
+          <button type="button" class="layer-reset" (click)="resetLayerPrefs()" title="Restaure l'affichage par défaut">
             ↺ Réinitialiser l'affichage
           </button>
         </div>
 
-        <div class="info subtle">
-          MapLibre 5.24 + WebGL2 GPGPU. Bbox Europe [{{ WIND_BBOX.join(', ') }}].
+        <!-- 2026-05-19 — warning cap5 (>5 layers actifs) inline. -->
+        @if (cap5Warning(); as msg) {
+          <div class="cap5-inline" role="status">⚠ {{ msg }}</div>
+        }
+
+        <div class="legend-stats">
+          <div class="legend-mode"
+               [class.live]="modeIsLive()"
+               [class.future]="modeIsFuture()"
+               [title]="modeIsLive()
+                 ? 'Cursor sur le temps réel — données live'
+                 : modeIsFuture()
+                   ? 'Cursor dans le futur — affichage forecast (wind/wave)'
+                   : 'Cursor dans le passé — affichage archive (replay)'">
+            @if (modeIsLive()) { ● LIVE }
+            @else if (modeIsFuture()) { ◷ FORECAST }
+            @else { ◷ REPLAY }
+          </div>
+          @if (windError()) {
+            <div class="legend-error">{{ windError() }}</div>
+          }
         </div>
-        </div><!-- /.layer-toggles -->
-      </aside>
+      </div>
 
       <div class="fps" aria-label="frames per second">FPS {{ fps() }}</div>
 
@@ -644,128 +1169,559 @@ function gibsDailyDate(): string {
       top: 0; left: 0; right: 0; bottom: 0;
     }
 
-    .controls {
+    /* ═══════════════════════════════════════════════════════════════
+       G19 (2026-05-22) — Style panneau gauche porté à l'identique
+       depuis /legacy-map pour parité visuelle 100%. Glow neon cyan
+       OL-Companion + data-catalog accordion + glyphs colorés.
+       Les CSS vars (--bg-2, --fg, --accent, etc.) sont définies dans
+       styles.scss global.
+       ═══════════════════════════════════════════════════════════════ */
+    .legend {
       position: absolute;
-      top: 56px;
-      left: 14px;
+      top: 1em;
+      left: 1em;
+      background: rgb(15, 23, 42);
+      border: 1px solid hsl(224 85% 55% / 0.5);
+      border-radius: 8px;
+      padding: 1em 1.2em;
       z-index: 10;
-      width: 260px;
-      padding: 10px 12px;
-      background: rgba(20, 24, 38, 0.92);
-      border: 1px solid #2a3245;
-      border-radius: 8px;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
-      transition: transform .2s ease, opacity .2s ease;
+      min-width: 200px;
+      width: 320px;
+      max-height: calc(100vh - 2em);
+      overflow-y: auto;
+      /* Glow neon cyan, inspiré OL Companion sidebar */
+      box-shadow:
+        0 0 0 1px hsl(224 95% 60% / 0.2),
+        0 0 16px 1px hsl(224 95% 60% / 0.26),
+        0 0 40px 4px hsl(224 90% 55% / 0.13),
+        0 10px 30px -6px rgba(0, 0, 0, 0.7);
     }
-    /* G18 M12 — drawer collapse via legendOpen signal */
-    .controls.controls--closed {
-      transform: translateX(-110%);
-      opacity: 0;
-      pointer-events: none;
+    .legend.legend--closed {
+      display: none;
     }
-    .controls-reopen {
+
+    /* Bouton hamburger réouverture (legend collapsed). */
+    .legend-close-mobile {
+      display: none;
+    }
+    .legend-toggle {
+      display: none;
+      &.is-collapsed {
+        display: flex;
+      }
       position: absolute;
-      top: 56px;
-      left: 14px;
+      top: 1em;
+      left: 1em;
       z-index: 11;
-      width: 40px;
-      height: 40px;
-      background: rgba(20, 24, 38, 0.92);
-      color: #c9d6e8;
-      border: 1px solid #2a3245;
+      width: 44px;
+      height: 44px;
       border-radius: 8px;
-      font-size: 18px;
+      background: rgb(15, 23, 42);
+      border: 1px solid hsl(224 85% 55% / 0.5);
+      color: var(--accent-bright);
+      font-size: 1.4rem;
+      line-height: 1;
       cursor: pointer;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
-    }
-    .controls-reopen:hover { background: #2a3448; }
-    .controls-header {
-      display: flex;
-      justify-content: space-between;
       align-items: center;
-      margin-bottom: 8px;
+      justify-content: center;
+      transition: color 150ms, border-color 150ms;
+      box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.6);
+      &:hover, &:focus-visible {
+        color: var(--fg);
+        border-color: var(--accent-bright);
+      }
     }
-    .controls h2 {
-      margin: 0;
-      font-size: 12px;
-      color: #c9d6e8;
-      letter-spacing: .07em;
-      text-transform: uppercase;
-    }
-    .controls-close {
-      background: transparent;
-      color: #8a96a8;
-      border: none;
+
+    /* Hero logo header (clic = collapse). */
+    .data-catalog .catalog-header {
+      display: block;
+      width: calc(100% + 2.4em);
+      padding: 0;
+      border: 0;
       cursor: pointer;
-      font-size: 16px;
-      padding: 4px 8px;
-      border-radius: 4px;
+      background-color: transparent;
+      background-image: url(/AetherWX_logo_menu.png);
+      background-size: 100% 100%;
+      background-repeat: no-repeat;
+      aspect-ratio: 1176 / 709;
+      margin: -1em -1.2em 1em -1.2em;
+      border-bottom: 1px solid var(--border);
+      border-radius: 8px 8px 0 0;
+      transition: filter 150ms;
+      &:hover, &:focus-visible {
+        filter: brightness(1.1);
+        outline: none;
+      }
     }
-    .controls-close:hover {
-      background: #2a3448;
-      color: #fff;
-    }
-    .controls .row {
-      display: flex;
-      gap: 6px;
-      margin-bottom: 8px;
-      flex-wrap: wrap;
-    }
-    .controls .btn {
-      flex: 1;
-      background: #1c2333;
-      color: #e6ecf3;
-      border: 1px solid #3a4458;
-      padding: 6px 10px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 12px;
-      transition: background .15s, border-color .15s;
-    }
-    .controls .btn:hover:not(:disabled) { background: #2a3448; }
-    .controls .btn.active { background: #3b5bff; border-color: #5878ff; }
-    .controls .btn:disabled { opacity: .5; cursor: progress; }
-    .controls .btn.full { flex: 1 1 100%; }
-    /* G18 M3 — mode-aware : toggle activé mais cursor incompatible (ex: vessels
-       en mode future) → grisé + curseur not-allowed + tooltip natif via title. */
-    .controls .btn.mode-incompatible {
-      opacity: 0.4;
-      background: #1c2333;
-      border-style: dashed;
-      border-color: #6b4a4a;
-      color: #8a96a8;
-      cursor: help;
-    }
-    .controls .btn.mode-incompatible.active {
-      background: rgba(59, 91, 255, 0.25);
-      border-color: #6b4a8a;
-    }
-    /* G18 M14 — cap 5 layers actifs (parité /legacy-map). Inline warning
-       affiché en bas du drawer quand >5 layers visibles. */
+
+    /* cap5 warning inline */
     .cap5-inline {
-      margin-top: 12px;
-      padding: 8px 10px;
-      background: rgba(80, 30, 20, 0.75);
-      border: 1px solid #b91c1c;
+      background: rgba(220, 38, 38, 0.18);
+      border: 1px solid rgba(220, 38, 38, 0.55);
+      color: rgb(252, 165, 165);
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      padding: 0.45em 0.7em;
       border-radius: 6px;
-      color: #fecaca;
-      font-size: 11px;
-      line-height: 1.4;
-      animation: cap5-fade-in .25s ease-out;
+      letter-spacing: 0.03em;
+      margin: 0.6em 0;
+      line-height: 1.35;
+      animation: cap5-inline-in 200ms ease-out;
     }
-    @keyframes cap5-fade-in {
+    @keyframes cap5-inline-in {
       from { opacity: 0; transform: translateY(-4px); }
       to   { opacity: 1; transform: translateY(0); }
     }
 
-    /* G18 M13 — LegendGraphic inline (parité /legacy-map). Affichée
-       sous le toggle WMS quand la layer est active. Image PNG palette
-       servie par GeoServer GetLegendGraphic avec LEGEND_OPTIONS dark. */
+    /* ═══ Data catalog accordion ═══ */
+    .catalog-section {
+      display: flex;
+      flex-direction: column;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+    .catalog-section:last-of-type { border-bottom: 0; }
+    .catalog-section-head {
+      display: flex;
+      align-items: center;
+      gap: 0.5em;
+      width: 100%;
+      padding: 0.6em 0;
+      background: transparent;
+      border: 0;
+      cursor: pointer;
+      color: var(--fg);
+      font-size: 0.8rem;
+      font-family: inherit;
+      text-align: left;
+      position: relative;
+      transition: color 150ms ease;
+    }
+    .catalog-section-head:hover {
+      color: var(--accent-bright);
+    }
+    .catalog-section-head::before {
+      content: '';
+      position: absolute;
+      left: -1.2em;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 3px;
+      height: 18px;
+      border-radius: 0 2px 2px 0;
+      background: currentColor;
+      opacity: 0;
+      transition: opacity 200ms ease;
+    }
+    .catalog-section.is-open .catalog-section-head::before { opacity: 1; }
+    .catalog-section-head.section-maritime    { color: #60a5fa; }
+    .catalog-section-head.section-observation { color: #a78bfa; }
+    .catalog-section-head.section-satellites  { color: #fbbf24; }
+    .catalog-section-head.section-forecast    { color: #fb923c; }
+    .catalog-section-head.section-hydrology   { color: #22d3ee; }
+    .catalog-section-head.section-sources     { color: #94a3b8; }
+    .catalog-section-head.section-radar       { color: #3b82f6; }
+    .sat-date-label {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--fg-muted);
+      padding: 0.25em 0.5em 0.4em 0.5em;
+      letter-spacing: 0.05em;
+    }
+    .catalog-section-head .head-chevron {
+      font-size: 0.55rem;
+      width: 0.8em;
+      color: var(--fg-dim);
+      transition: transform 200ms ease;
+    }
+    .catalog-section-head .head-icon {
+      font-size: 0.95rem;
+      filter: drop-shadow(0 0 6px currentColor);
+    }
+    .catalog-section-head .head-name {
+      flex: 1;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: var(--fg);
+    }
+    .catalog-section.is-open .catalog-section-head .head-name {
+      color: inherit;
+    }
+    .catalog-section-head .head-count {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      color: var(--fg-dim);
+      background: rgba(255,255,255,0.06);
+      padding: 0.1em 0.55em;
+      border-radius: 999px;
+      letter-spacing: 0.02em;
+    }
+    .catalog-section.is-open .catalog-section-head .head-count {
+      color: currentColor;
+      background: color-mix(in srgb, currentColor 18%, transparent);
+    }
+    .catalog-section-body {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4em;
+      padding: 0.3em 0 0.8em 0.4em;
+      animation: catalogSlideIn 180ms ease-out;
+    }
+    @keyframes catalogSlideIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Projection switch (Globe/Mercator) — hors sections */
+    .projection-row {
+      padding-bottom: 0.4em;
+      margin-bottom: 0.3em;
+      border-bottom: 1px dashed rgba(255,255,255,0.06);
+    }
+    .proj-buttons { display: flex; gap: 0.4em; }
+    .proj-btn {
+      flex: 1;
+      background: var(--bg-3);
+      color: var(--fg);
+      border: 1px solid var(--border);
+      padding: 0.35em 0.5em;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.72rem;
+      font-family: var(--font-mono);
+      letter-spacing: 0.05em;
+      transition: background 150ms, border-color 150ms;
+    }
+    .proj-btn:hover { background: hsl(224 30% 18%); }
+    .proj-btn.active {
+      background: hsl(224 85% 30% / 0.45);
+      border-color: var(--accent-bright);
+      color: var(--accent-bright);
+    }
+
+    /* isolignes sous-toggle */
+    .contour-control {
+      display: flex;
+      align-items: center;
+      gap: 0.5em;
+      margin-left: 1.6em;
+      margin-top: 0.3em;
+      font-size: 0.7rem;
+      color: var(--fg-muted);
+    }
+    .contour-toggle {
+      display: flex;
+      align-items: center;
+      gap: 0.3em;
+      cursor: pointer;
+      input {
+        accent-color: var(--accent);
+        width: 12px;
+        height: 12px;
+      }
+    }
+    .contour-control input[type="range"] {
+      flex: 1;
+      max-width: 90px;
+      height: 3px;
+      appearance: none;
+      background: var(--bg-3);
+      border-radius: 2px;
+      accent-color: var(--accent);
+    }
+    .layer-opacity-contour {
+      max-width: 60px;
+    }
+    /* Placeholder rows = "à venir" */
+    .layer-row.layer-soon {
+      opacity: 0.45;
+      pointer-events: none;
+      cursor: default;
+    }
+    .layer-row.layer-soon .toggle-glyph .glyph-icon {
+      display: inline-block;
+      font-size: 0.95rem;
+      width: 1.4em;
+      text-align: center;
+      opacity: 0.7;
+    }
+    .layer-row.layer-soon .soon-tag {
+      font-size: 0.55rem;
+      letter-spacing: 0.12em;
+      margin-left: 0.4em;
+      text-transform: uppercase;
+      color: var(--fg-dim);
+      vertical-align: 0.05em;
+    }
+    .layer-toggles {
+      display: flex;
+      flex-direction: column;
+      gap: 0.7em;
+      margin: 0.4em 0 1em;
+      padding-bottom: 0.8em;
+      border-bottom: 1px solid var(--border);
+    }
+    .layer-row {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15em;
+    }
+    .layer-opacity {
+      width: 100%;
+      height: 4px;
+      appearance: none;
+      background: var(--bg-3);
+      border-radius: 2px;
+      cursor: pointer;
+      margin-left: 1.6em;
+      width: calc(100% - 1.6em);
+      accent-color: var(--accent);
+      &::-webkit-slider-thumb {
+        appearance: none;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--accent-bright);
+        cursor: ew-resize;
+        border: 0;
+      }
+      &::-moz-range-thumb {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--accent-bright);
+        cursor: ew-resize;
+        border: 0;
+      }
+    }
+    .layer-reset {
+      margin-top: 0.6em;
+      padding: 0.4em 0.7em;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--fg-muted);
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 0.7rem;
+      font-family: var(--font-mono);
+      letter-spacing: 0.05em;
+      transition: color 150ms, border-color 150ms;
+      &:hover {
+        color: var(--accent-bright);
+        border-color: var(--accent);
+      }
+    }
+    .layer-toggle {
+      display: flex;
+      align-items: center;
+      gap: 0.6em;
+      font-size: 0.8rem;
+      color: var(--fg);
+      cursor: pointer;
+      input {
+        accent-color: var(--accent);
+        cursor: pointer;
+        flex-shrink: 0;
+        width: 16px;
+        height: 16px;
+      }
+      &.dim {
+        .toggle-glyph, .toggle-text { opacity: 0.4; transition: opacity 200ms; }
+      }
+      &.mode-incompatible {
+        .toggle-glyph, .toggle-text { opacity: 0.45; }
+        position: relative;
+      }
+      &.mode-incompatible::after {
+        content: '⏱';
+        position: absolute;
+        right: 0;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 0.65rem;
+        color: hsl(45 95% 60%);
+        opacity: 0.85;
+      }
+    }
+    .toggle-glyph {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      width: 38px;
+      flex-shrink: 0;
+    }
+    .glyph-dot {
+      display: inline-block;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      border: 1px solid;
+    }
+    .glyph-gradient {
+      display: inline-block;
+      width: 36px;
+      height: 8px;
+      border-radius: 2px;
+      background: linear-gradient(to right, #1e3a8a 0%, #06b6d4 30%, #fde047 60%, #ef4444 100%);
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    .glyph-rain {
+      display: inline-block;
+      width: 36px;
+      height: 8px;
+      border-radius: 2px;
+      background: linear-gradient(to right, rgba(255,255,255,0.05) 0%, #38bdf8 25%, #4ade80 50%, #fbbf24 75%, #ef4444 100%);
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    .glyph-wind {
+      display: inline-block;
+      width: 36px;
+      height: 8px;
+      border-radius: 2px;
+      background: linear-gradient(to right, #cbd5e1 0%, #38bdf8 35%, #fbbf24 70%, #dc2626 100%);
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    .glyph-waves {
+      display: inline-block;
+      width: 36px;
+      height: 8px;
+      border-radius: 2px;
+      background: linear-gradient(to right, #1e3a8a 0%, #06b6d4 30%, #fbbf24 70%, #ef4444 100%);
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    .glyph-arrow {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 16px;
+      border-radius: 2px;
+      font-size: 0.95rem;
+      line-height: 1;
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    .glyph-arrow-wind {
+      background: linear-gradient(to right, rgba(56,189,248,0.25), rgba(220,38,38,0.45));
+      color: #fde047;
+    }
+    .glyph-arrow-wave {
+      background: linear-gradient(to right, rgba(14,165,233,0.25), rgba(239,68,68,0.45));
+      color: #06b6d4;
+    }
+    .glyph-zap {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 16px;
+      border-radius: 2px;
+      font-size: 0.95rem;
+      line-height: 1;
+      border: 1px solid rgba(253,224,71,0.4);
+      background: linear-gradient(to right, rgba(15,23,42,0.6), rgba(253,224,71,0.25));
+      color: #fde047;
+      text-shadow: 0 0 4px rgba(253,224,71,0.6);
+    }
+    .glyph-alert {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 16px;
+      border-radius: 2px;
+      font-size: 0.95rem;
+      line-height: 1;
+      border: 1px solid rgba(251,146,60,0.45);
+      background: linear-gradient(to right, rgba(251,146,60,0.18), rgba(220,38,38,0.32));
+      color: #fbbf24;
+    }
+    .glyph-buoy {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 16px;
+      border-radius: 2px;
+      font-size: 0.95rem;
+      line-height: 1;
+      border: 1px solid rgba(56,189,248,0.4);
+      background: linear-gradient(to right, rgba(15,23,42,0.6), rgba(56,189,248,0.25));
+      color: #38bdf8;
+    }
+    .glyph-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 16px;
+      font-size: 0.95rem;
+      line-height: 1;
+    }
+    .glyph-particles {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 16px;
+      border-radius: 2px;
+      font-size: 0.65rem;
+      letter-spacing: -0.1em;
+      line-height: 1;
+      border: 1px solid rgba(34,197,94,0.4);
+      background: linear-gradient(to right, rgba(56,189,248,0.2), rgba(34,197,94,0.3), rgba(253,224,71,0.3));
+      color: var(--accent-bright);
+      text-shadow: 0 0 3px rgba(94,234,212,0.6);
+    }
+
+    .toggle-text {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.15;
+    }
+    .toggle-name {
+      color: var(--fg);
+      font-weight: 500;
+    }
+    .toggle-count {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      color: var(--fg-dim);
+      margin-top: 1px;
+    }
+
+    .legend-section-title {
+      font-family: var(--font-mono);
+      font-size: 0.6rem;
+      letter-spacing: 0.15em;
+      color: var(--fg-dim);
+      text-transform: uppercase;
+      margin: 0 0 0.3em;
+    }
+    .legend-stats {
+      margin-top: 0.8em;
+      padding-top: 0.8em;
+      border-top: 1px solid var(--border);
+      font-size: 0.75rem;
+      color: var(--fg-muted);
+    }
+    .legend-mode {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      letter-spacing: 0.15em;
+      color: var(--fg-muted);
+      &.live { color: var(--accent-bright); }
+      &.future { color: var(--warning); }
+    }
+    .legend-error {
+      color: var(--negative);
+      font-size: 0.7rem;
+      margin-top: 0.4em;
+    }
+
+    /* G18 M13 — LegendGraphic inline (parité /legacy-map). */
     .legend-graphic {
       margin-top: 6px;
       padding: 4px 6px;
       background: rgba(15, 23, 42, 0.7);
-      border: 1px solid #2a3245;
+      border: 1px solid hsl(224 85% 55% / 0.25);
       border-radius: 4px;
       display: flex;
       justify-content: center;
@@ -777,220 +1733,137 @@ function gibsDailyDate(): string {
       max-width: 100%;
     }
 
-    /* G18 M6 — reset prefs button */
-    .reset-row { margin-top: 16px; }
-    .layer-reset {
-      width: 100%;
-      padding: 8px 10px;
-      background: #2a2333;
-      color: #d8c5e8;
-      border: 1px solid #5a4068;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 12px;
-      transition: background .15s, border-color .15s;
-    }
-    .layer-reset:hover {
-      background: #3a2d48;
-      border-color: #7a5b94;
-      color: #fff;
-    }
-    .controls .info {
-      font-size: 11px;
-      color: #8a96a8;
-      margin-top: 6px;
-      line-height: 1.4;
-    }
-    .controls .info.subtle { opacity: .7; margin-top: 10px; }
-    .controls .info.error { color: #f87171; }
-
-    /* G15 (2026-05-22) — Sections accordéon menu gauche, calquées sur /map.
-       Pattern : header cliquable avec chevron + icon + name + count, body
-       collapsible. Animation slide-in 180ms à l'ouverture. */
-    .catalog-section {
-      border-top: 1px solid #1c2333;
-      margin-top: 0.4em;
-      padding-top: 0.3em;
-    }
-    .catalog-section:first-of-type {
-      border-top: 0;
-      margin-top: 0.6em;
-    }
-    .catalog-section-head {
-      display: flex;
-      align-items: center;
-      gap: 0.5em;
-      width: 100%;
-      background: transparent;
-      border: 0;
-      padding: 0.4em 0.2em;
-      cursor: pointer;
-      color: #c9d6e8;
-      font-family: inherit;
-      font-size: 0.8rem;
-      border-radius: 6px;
-      transition: background 120ms, color 120ms;
-    }
-    .catalog-section-head:hover {
-      background: rgba(255, 255, 255, 0.04);
-    }
-    .catalog-section.is-open .catalog-section-head {
-      color: hsl(160 80% 70%);
-    }
-    .head-chevron {
-      width: 1em;
-      font-size: 0.7rem;
-      opacity: 0.7;
-    }
-    .head-icon {
-      font-size: 0.95rem;
-    }
-    .head-name {
-      flex: 1;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-      text-align: left;
-    }
-    .head-count {
-      font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
-      font-size: 0.65rem;
-      color: #8a96a8;
-      background: rgba(255, 255, 255, 0.06);
-      padding: 0.1em 0.55em;
-      border-radius: 999px;
-      letter-spacing: 0.02em;
-    }
-    .catalog-section.is-open .head-count {
-      color: hsl(160 80% 70%);
-      background: hsl(160 70% 18% / 0.6);
-    }
-    .catalog-section-body {
-      display: flex;
-      flex-direction: column;
-      gap: 0.3em;
-      padding: 0.3em 0 0.4em 0.2em;
-      animation: globeAccordionSlideIn 180ms ease-out;
-    }
-    @keyframes globeAccordionSlideIn {
-      from { opacity: 0; transform: translateY(-4px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-    .projection-row {
-      padding-bottom: 0.5em;
-      border-bottom: 1px solid #1c2333;
-    }
-
-    /* G11d (2026-05-22) — panneau sliders opacité par layer active. */
-    .opacity-panel {
-      margin-top: 10px;
-      padding: 8px 10px;
-      background: rgba(20, 28, 44, 0.6);
-      border: 1px solid #1c2333;
-      border-radius: 6px;
-    }
-    .opacity-title {
-      font-size: 11px;
-      font-weight: 600;
-      color: #8a96a8;
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
-      margin-bottom: 6px;
-    }
-    .opacity-row {
-      display: grid;
-      grid-template-columns: 6em 1fr 2.2em;
-      align-items: center;
-      gap: 6px;
-      padding: 2px 0;
-      font-size: 11px;
-    }
-    .opacity-label { color: #c9d6e8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .opacity-row input[type="range"] { width: 100%; accent-color: hsl(160 70% 50%); }
-    .opacity-value { color: #6b7895; text-align: right; font-variant-numeric: tabular-nums; }
-
-    .sat-label {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      margin-top: 10px;
-      margin-bottom: 4px;
-    }
-    .sat-title {
-      font-size: 11px;
-      color: #c9d6e8;
-      letter-spacing: .03em;
-    }
-    .sat-select {
-      background: #1c2333;
-      color: #e6ecf3;
-      border: 1px solid #3a4458;
-      padding: 6px 8px;
-      border-radius: 4px;
-      font-size: 12px;
-      font-family: inherit;
-      cursor: pointer;
-    }
-    .sat-select:hover { background: #2a3448; }
-    .sat-select:focus-visible {
-      outline: 2px solid #5878ff;
-      outline-offset: 1px;
-    }
-
-    /* G18 M10 — mobile simple mode (parité /legacy-map). Desktop = caché.
-       ≤ 760px : .mobile-mode-bar visible, .essential-grid 2×3, layer-toggles masqués
-       sur opt-in (toggle "Vue simple" → mobileSimpleMode true). */
+    /* mobile mode bar / essential layers — default desktop hidden. */
     .mobile-mode-bar { display: none; }
     .essential-layers { display: none; }
+    .layer-toggles-hidden {
+      /* desktop : ignore le flag, l'UI complète reste visible */
+    }
+
+    /* ── Responsive mobile (≤ 760px) ── */
     @media (max-width: 760px) {
-      .controls {
-        max-width: calc(100vw - 28px);
-        max-height: 60vh;
+      .legend-toggle {
+        display: flex;
+      }
+      .legend {
+        top: 0.7em;
+        left: 0.7em;
+        right: 0.7em;
+        max-width: none;
+        width: calc(100vw - 1.4em);
+        max-height: 78vh;
         overflow-y: auto;
+        padding: 1em 1em 1em 3.6em;
+        z-index: 10;
+        &.legend--closed {
+          display: none;
+        }
       }
-      .mobile-mode-bar { display: flex; justify-content: flex-end; padding: 0 0 8px 0; }
-      .mobile-mode-toggle {
-        background: hsl(224 85% 30% / 0.4);
-        color: #d8e0f0;
-        border: 1px solid hsl(224 85% 55% / 0.6);
-        padding: 5px 10px;
-        border-radius: 6px;
-        font-size: 11px;
-        font-family: ui-monospace, monospace;
+      .data-catalog .catalog-header,
+      .catalog-header {
+        display: none;
+      }
+      .legend-close-mobile {
+        display: block;
+        position: absolute;
+        top: 0.5em;
+        right: 0.5em;
+        z-index: 12;
+        width: 32px;
+        height: 32px;
+        border: 1px solid hsl(224 30% 30%);
+        background: hsl(224 30% 12%);
+        color: hsl(224 95% 75%);
+        border-radius: 50%;
+        font-size: 0.9rem;
         cursor: pointer;
+        padding: 0;
+        line-height: 30px;
       }
-      .mobile-mode-toggle:hover { background: hsl(224 85% 40% / 0.6); }
-      .essential-layers { display: block; }
+      .legend-close-mobile:hover {
+        background: hsl(224 85% 55% / 0.25);
+      }
+      .layer-toggle input[type="checkbox"] {
+        width: 22px;
+        height: 22px;
+      }
+      .mobile-mode-bar {
+        display: flex;
+        justify-content: flex-end;
+        padding: 0.4em 0 0.6em 0;
+      }
+      .mobile-mode-toggle {
+        background: hsl(224 30% 12%);
+        border: 1px solid hsl(224 85% 55% / 0.4);
+        color: hsl(224 95% 75%);
+        padding: 0.4em 0.9em;
+        border-radius: 16px;
+        font-size: 0.72rem;
+        font-family: var(--font-mono);
+        cursor: pointer;
+        letter-spacing: 0.05em;
+      }
+      .mobile-mode-toggle:hover {
+        background: hsl(224 85% 55% / 0.2);
+      }
+      .essential-layers {
+        display: block;
+      }
+      .essential-layers-title {
+        font-size: 0.62rem;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: hsl(224 25% 65%);
+        margin-bottom: 0.5em;
+      }
       .essential-grid {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
-        gap: 8px;
+        gap: 0.5em;
       }
       .essential-toggle {
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 4px;
-        min-height: 72px;
-        padding: 8px 6px;
-        background: rgba(28, 35, 51, 0.95);
-        color: #d8e0f0;
-        border: 1px solid #3a4458;
+        padding: 0.8em 0.4em;
+        background: hsl(224 30% 12%);
+        border: 1px solid hsl(224 30% 22%);
         border-radius: 8px;
         cursor: pointer;
-        transition: background .15s, border-color .15s;
-      }
-      .essential-toggle:hover:not(:disabled) {
-        background: rgba(42, 52, 72, 0.95);
+        gap: 0.3em;
+        min-height: 72px;
+        transition: background 150ms, border-color 150ms;
+        input {
+          position: absolute;
+          opacity: 0;
+          pointer-events: none;
+        }
       }
       .essential-toggle.active {
-        background: hsl(224 85% 30% / 0.55);
+        background: hsl(224 85% 30% / 0.35);
         border-color: hsl(224 85% 60%);
       }
-      .essential-toggle:disabled { opacity: 0.5; cursor: progress; }
-      .ess-icon { font-size: 22px; line-height: 1; }
-      .ess-label { font-size: 11px; line-height: 1; }
-      .layer-toggles-hidden { display: none; }
+      .essential-toggle.mode-incompatible {
+        opacity: 0.5;
+      }
+      .essential-icon {
+        font-size: 1.4rem;
+        line-height: 1;
+      }
+      .essential-label {
+        font-size: 0.7rem;
+        color: hsl(224 15% 90%);
+      }
+      .essential-hint {
+        margin-top: 0.8em;
+        font-size: 0.62rem;
+        color: hsl(224 25% 55%);
+        font-style: italic;
+      }
+      .layer-toggles-hidden {
+        display: none;
+      }
     }
 
     .fps {
