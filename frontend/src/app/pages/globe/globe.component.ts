@@ -106,7 +106,8 @@ function gibsDailyDate(): string {
     <div class="globe-root">
       <header class="globe-header">
         <div class="brand">
-          <span class="brand-icon">🌍</span>
+          <!-- G23 — favicon tap logo dans le header (replace globe emoji) -->
+          <img src="/AetherWX_logo_tap.png" alt="AetherWX" class="brand-icon-img" />
           <span class="brand-title">AetherWX</span>
           <span class="brand-mode">— Globe 3D <span class="brand-mode-pill">spike</span></span>
         </div>
@@ -1145,8 +1146,14 @@ function gibsDailyDate(): string {
       border-bottom: 1px solid #1c2333;
       backdrop-filter: blur(6px);
     }
-    .brand { display: flex; align-items: baseline; gap: 8px; font-size: 14px; }
+    .brand { display: flex; align-items: center; gap: 8px; font-size: 14px; }
     .brand-icon { font-size: 18px; }
+    .brand-icon-img {
+      width: 24px;
+      height: 24px;
+      object-fit: contain;
+      border-radius: 4px;
+    }
     .brand-title { font-weight: 600; color: #c9d6e8; letter-spacing: .04em; }
     .brand-mode { color: #8a96a8; font-size: 12px; }
     .brand-mode-pill {
@@ -1205,7 +1212,9 @@ function gibsDailyDate(): string {
        ═══════════════════════════════════════════════════════════════ */
     .legend {
       position: absolute;
-      top: 1em;
+      /* G23 — top 56px pour éviter overlap avec header bar full-width.
+         (Avant : top 1em → header z-index 100 cachait wordmark logo.) */
+      top: 60px;
       left: 1em;
       background: rgb(15, 23, 42);
       border: 1px solid hsl(224 85% 55% / 0.5);
@@ -1214,7 +1223,7 @@ function gibsDailyDate(): string {
       z-index: 10;
       min-width: 200px;
       width: 320px;
-      max-height: calc(100vh - 2em);
+      max-height: calc(100vh - 80px);
       overflow-y: auto;
       /* Glow neon cyan, inspiré OL Companion sidebar */
       box-shadow:
@@ -1913,6 +1922,11 @@ function gibsDailyDate(): string {
     }
     .fps:hover { opacity: 1; }
 
+    /* G23 — décale les controls top-right MapLibre sous le header (56px). */
+    ::ng-deep .maplibregl-ctrl-top-right {
+      top: 56px !important;
+    }
+
     /* G22 — Style MapLibre controls cohérent avec le reste du UI. */
     ::ng-deep .maplibregl-ctrl-group {
       background: rgba(20, 24, 38, 0.92) !important;
@@ -1935,7 +1949,12 @@ function gibsDailyDate(): string {
     }
     /* Inverse les icônes SVG par defaut blanches sur fond dark */
     ::ng-deep .maplibregl-ctrl-icon { filter: invert(0.85); }
-    /* G22 — Attribution : fond dark + couleurs cohérentes */
+    /* G22 — Attribution : fond dark + couleurs cohérentes.
+       G23 — bottom-right offset + max-width pour ne pas déborder time-bar. */
+    ::ng-deep .maplibregl-ctrl-bottom-right {
+      bottom: 120px !important; /* au-dessus de la time-bar */
+      max-width: 360px;
+    }
     ::ng-deep .maplibregl-ctrl-attrib {
       background: rgba(20, 24, 38, 0.85) !important;
       color: #8a96a8 !important;
@@ -1944,6 +1963,13 @@ function gibsDailyDate(): string {
       font-family: ui-monospace, monospace;
       font-size: 10px;
       padding: 3px 8px !important;
+      max-width: 360px;
+      white-space: normal !important;
+      word-wrap: break-word;
+      line-height: 1.45;
+    }
+    ::ng-deep .maplibregl-ctrl-attrib-inner {
+      white-space: normal !important;
     }
     ::ng-deep .maplibregl-ctrl-attrib a { color: #5878ff !important; text-decoration: none; }
     ::ng-deep .maplibregl-ctrl-attrib a:hover { text-decoration: underline; }
@@ -2369,6 +2395,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   private currentAttributionControl?: maplibregl.AttributionControl;
   computeCustomAttribution(): string[] {
     const out: string[] = [];
+    // G23 — toujours visible (basemap)
+    out.push('© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors');
+    out.push('© <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>');
     if (this.showSst()) out.push('SST NOAA');
     if (this.showWindForecast() || this.showWindArrows() || this.showWind()) out.push('Vent NOAA GFS');
     if (this.showWavesForecast() || this.showWaveArrows()) out.push('Vagues NOAA WW3');
@@ -4250,11 +4279,11 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     const container = this.mapContainer().nativeElement;
     const map = new maplibregl.Map({
       container,
+      // G23 — disable default AttributionControl, on gère via refreshAttribution
+      // custom qui inclut OSM/CARTO + layers actives + mention Claude.
+      attributionControl: false,
       style: {
         version: 8,
-        // Glyphs URL nécessaire pour les symbol text layers (count cluster
-        // vessels). Source publique OpenMapTiles fonts. Sans ça, ajouter
-        // une layer type=symbol crash MapLibre.
         glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
         sources: {
           'carto-dark': {
@@ -4266,7 +4295,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
               'https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
             ],
             tileSize: 256,
-            attribution: '© OpenStreetMap contributors, © CARTO',
+            // Pas d'attribution ici → AttributionControl::compact() en wrap.
           },
         },
         layers: [{ id: 'carto-dark', type: 'raster', source: 'carto-dark' }],
