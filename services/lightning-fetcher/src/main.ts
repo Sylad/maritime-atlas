@@ -101,7 +101,26 @@ async function setupRmq(): Promise<void> {
   if (!RABBITMQ_URL) return;
   try {
     const conn = await amqp.connect(RABBITMQ_URL);
+    // 2026-05-22 — handlers error/close pour eviter une stale connection
+    // silencieuse après un rolling restart broker. Pattern identique à
+    // alerts-engine (cf bug observé bump RMQ 4.3.0).
+    conn.on('error', (err) => {
+      console.error('[lightning] amqp connection error — exiting for restart:', err.message);
+      process.exit(1);
+    });
+    conn.on('close', () => {
+      console.error('[lightning] amqp connection closed — exiting for restart');
+      process.exit(1);
+    });
     rmqChannel = await conn.createChannel();
+    rmqChannel.on('error', (err) => {
+      console.error('[lightning] amqp channel error — exiting for restart:', err.message);
+      process.exit(1);
+    });
+    rmqChannel.on('close', () => {
+      console.error('[lightning] amqp channel closed — exiting for restart');
+      process.exit(1);
+    });
     await rmqChannel.assertExchange('lightning.strike', 'topic', { durable: true });
     console.log('[lightning] RMQ connected');
   } catch (err) {
