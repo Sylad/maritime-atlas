@@ -2051,16 +2051,25 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
           },
         });
       } else if (kind === 'lightning') {
+        // G18 M7 (2026-05-22) — symbol emoji ⚡ pour différencier de METAR
+        // (cercle jaune similaire) et boat (cluster). Halo noir pour
+        // lisibilité sur tous les fonds (sat IR clair, ocean sombre).
         map.addLayer({
           id: 'vec-lightning',
-          type: 'circle',
+          type: 'symbol',
           source: sourceId,
+          layout: {
+            'text-field': '⚡',
+            'text-font': ['Open Sans Regular'],
+            'text-size': 18,
+            'text-allow-overlap': true,
+            'text-ignore-placement': true,
+          },
           paint: {
-            'circle-radius': 4,
-            'circle-color': '#fde047',
-            'circle-stroke-width': 1,
-            'circle-stroke-color': '#fbbf24',
-            'circle-opacity': 0.85,
+            'text-color': '#fde047',
+            'text-halo-color': 'rgba(0, 0, 0, 0.85)',
+            'text-halo-width': 1.5,
+            'text-opacity': 0.95,
           },
         });
       } else if (kind === 'alerts') {
