@@ -3402,10 +3402,11 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
 
     // G9 — forecast wind/waves + arrows + G18 M4 contours
+    // G22 — STYLES=raster pour wind/wave (SLDs rainbow.sld manquants)
     const iso = t.toISOString().split('.')[0] + 'Z';
     const forecastLayers: Array<{ active: boolean; layerId: string; gsName: string; style?: string; interpolations?: string }> = [
-      { active: this.showWindForecast(),  layerId: 'wind-forecast-wms',  gsName: 'aetherwx:wind-speed' },
-      { active: this.showWavesForecast(), layerId: 'waves-forecast-wms', gsName: 'aetherwx:wave-hs' },
+      { active: this.showWindForecast(),  layerId: 'wind-forecast-wms',  gsName: 'aetherwx:wind-speed', style: 'raster' },
+      { active: this.showWavesForecast(), layerId: 'waves-forecast-wms', gsName: 'aetherwx:wave-hs',    style: 'raster' },
       { active: this.showWindArrows(),    layerId: 'wind-arrows-wms',    gsName: 'aetherwx:wind-speed', style: 'aetherwx:wind-arrows' },
       { active: this.showWaveArrows(),    layerId: 'wave-arrows-wms',    gsName: 'aetherwx:wave-dir',   style: 'aetherwx:wave-arrows' },
       { active: this.showWindContours(),  layerId: 'wind-contours-wms',  gsName: 'aetherwx:wind-speed', style: 'aetherwx:wind-speed-contours-only', interpolations: 'bicubic' },
@@ -3983,10 +3984,13 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   }
 
   toggleWindForecast(on: boolean): void {
-    this.toggleForecastLayer({ key: 'windForecast', layerId: 'wind-forecast-wms', gsName: 'aetherwx:wind-speed', opacity: 0.7, on });
+    // G22 (2026-05-23) — force STYLES=raster pour bypass le default SLD
+    // wind-speed-rainbow.sld qui n'est pas déployé (404 GS).
+    this.toggleForecastLayer({ key: 'windForecast', layerId: 'wind-forecast-wms', gsName: 'aetherwx:wind-speed', style: 'raster', opacity: 0.7, on });
   }
   toggleWavesForecast(on: boolean): void {
-    this.toggleForecastLayer({ key: 'wavesForecast', layerId: 'waves-forecast-wms', gsName: 'aetherwx:wave-hs', opacity: 0.7, on });
+    // G22 — idem wave-hs-rainbow.sld manquant.
+    this.toggleForecastLayer({ key: 'wavesForecast', layerId: 'waves-forecast-wms', gsName: 'aetherwx:wave-hs', style: 'raster', opacity: 0.7, on });
   }
   toggleWindArrows(on: boolean): void {
     this.toggleForecastLayer({ key: 'windArrows', layerId: 'wind-arrows-wms', gsName: 'aetherwx:wind-speed', style: 'aetherwx:wind-arrows', opacity: 0.9, on });
