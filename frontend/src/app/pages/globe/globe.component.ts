@@ -2358,6 +2358,23 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   readonly firmsActive    = computed(() => this.showFirms()    && this.modeIsLive());
   readonly buoysActive    = computed(() => this.showBuoys()    && this.modeIsLive());
   readonly sstActive      = computed(() => this.showSst()      && !this.modeIsFuture());
+  /** G19 — wind (raster forecast) active = toggle ON. Pas de restriction mode
+   *  pour le forecast (peut être past/live/future selon disponibilité GFS). */
+  readonly windActive     = computed(() => this.showWindForecast());
+
+  /** G19 (2026-05-22) — date d'imagerie satellite affichée dans le header
+   *  de la section Satellites. NASA GIBS lag ~24h donc cap à J-1. Pour le
+   *  globe on garde simple : toujours J-1 (le scrub time-bar par sat sera
+   *  ajouté plus tard). Format `mer. 20 mai 2026`. */
+  currentSatDate(): string {
+    try {
+      return new Date(Date.now() - 24 * 3_600_000).toLocaleDateString('fr-FR', {
+        weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+      });
+    } catch {
+      return gibsDailyDate();
+    }
+  }
 
   /** G15 (2026-05-22) — sections accordéon du menu gauche, calquées sur /map.
    *  6 sections regroupant les 22+ layers globe. Default = Maritime+Sources
