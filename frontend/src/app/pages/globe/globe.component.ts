@@ -38,7 +38,9 @@ import { firstValueFrom } from 'rxjs';
 
 import { ArrowsService } from '../../services/arrows.service';
 import { AlertsService } from '../../services/alerts.service';
+import { AuthService } from '../../services/auth.service';
 import { LightningService } from '../../services/lightning.service';
+import { PreferencesSyncService } from '../../services/preferences-sync.service';
 import { RainviewerService } from '../../services/rainviewer.service';
 import { VesselsService } from '../../services/vessels.service';
 import {
@@ -568,6 +570,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   private readonly lightningService = inject(LightningService);
   private readonly vesselsService = inject(VesselsService);
   private readonly rainviewerService = inject(RainviewerService);
+  private readonly auth = inject(AuthService);
+  private readonly prefsSync = inject(PreferencesSyncService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -858,7 +862,48 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
    *  masterLayerKey). À chaque toggle de layer ou changement, le caller
    *  appelle `persistGlobePrefs()`. Le DB sync cross-device viendra plus
    *  tard (refacto prefsSync pour englober les keys /globe). */
+  /** G11f (2026-05-22) — collecte le batch des prefs globe (visible+opacity)
+   *  pour push DB cross-device via PreferencesSyncService. Keys identiques à
+   *  /map (sst, lightning, alerts, vessels, metar, hubeau, piezo, quakes,
+   *  firms, buoys, tracks, rain, wind, waves, windArrows, waveArrows, bathy,
+   *  eez, mpa, efas) → sync transparent /map ↔ /globe.
+   *
+   *  Skip : `wind` (= particules WebGL sur globe vs raster sur /map, sémantique
+   *  différente), `activeSat` (radio select, pas un booléen). */
+  private collectGlobeBatch(): Array<{ layerKind: string; visible: boolean; opacity: number }> {
+    const batch: Array<{ layerKind: string; visible: boolean; opacity: number }> = [];
+    const add = (key: string, visible: boolean) => {
+      batch.push({ layerKind: key, visible, opacity: this.getLayerOpacity(key) });
+    };
+    add('sst',       this.showSst());
+    add('lightning', this.showLightning());
+    add('alerts',    this.showAlerts());
+    add('vessels',   this.showVessels());
+    add('metar',     this.showMetar());
+    add('hubeau',    this.showHubeau());
+    add('piezo',     this.showPiezo());
+    add('quakes',    this.showQuakes());
+    add('firms',     this.showFirms());
+    add('buoys',     this.showBuoys());
+    add('tracks',    this.showTracks());
+    add('rain',      this.showRain());
+    add('windArrows', this.showWindArrows());
+    add('waveArrows', this.showWaveArrows());
+    add('bathy',     this.showBathy());
+    add('eez',       this.showEez());
+    add('mpa',       this.showMpa());
+    add('efas',      this.showEfas());
+    // wind/waves raster match /map keys 'wind'/'waves' (sémantique identique).
+    add('wind',  this.showWindForecast());
+    add('waves', this.showWavesForecast());
+    return batch;
+  }
+
   private persistGlobePrefs(): void {
+    // Push debounced DB sync (cross-device) si user auth — silent fail si offline.
+    if (this.auth.isAuthenticated()) {
+      this.prefsSync.schedulePushBatch(this.collectGlobeBatch());
+    }
     try {
       const state = {
         showSst: this.showSst(),
@@ -914,6 +959,29 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     } catch { /* JSON malformed — silence */ }
   }
   private _pendingRestore?: Record<string, boolean | string>;
+
+  /** G11f — fetch les prefs DB user et merge avec le state /globe.
+   *  Appelé après auth dans ngAfterViewInit. Si DB a une opacité ou visibility
+   *  différente du localStorage, DB gagne (cohérent /map). */
+  private async mergeGlobePrefsFromDb(): Promise<void> {
+    if (!this.auth.isAuthenticated()) return;
+    const dbPrefs = await this.prefsSync.fetchMyPrefs();
+    if (dbPrefs.length === 0) return;
+    // Init pendingRestore si pas déjà rempli par localStorage (DB-only user).
+    if (!this._pendingRestore) this._pendingRestore = {};
+    for (const p of dbPrefs) {
+      if (typeof p.opacity === 'number') {
+        this.layerOpacities.update((o) => ({ ...o, [p.layerKind]: p.opacity! }));
+      }
+      if (typeof p.visible === 'boolean') {
+        // Map layerKind DB → key show* /globe (inverse de collectGlobeBatch).
+        const restoreKey = p.layerKind === 'wind' ? 'showWindForecast'
+          : p.layerKind === 'waves' ? 'showWavesForecast'
+          : `show${p.layerKind.charAt(0).toUpperCase()}${p.layerKind.slice(1)}`;
+        this._pendingRestore[restoreKey] = p.visible;
+      }
+    }
+  }
 
   /** G11e — appelé après _initMap pour appliquer les toggles persistés. */
   private applyPendingRestore(): void {
@@ -1232,6 +1300,11 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   ngAfterViewInit(): void {
     this.restoreLayerOpacities();
     this.restoreGlobePrefs();
+    // G11f — merge DB prefs over localStorage si user auth. Fire-and-forget :
+    // si DB répond après map.on('load'), pendingRestore est vide donc applyP*
+    // ne touche pas l'état déjà initialisé via localStorage. C'est OK pour la
+    // 1ère session — au prochain reload, localStorage aura le dernier push DB.
+    void this.mergeGlobePrefsFromDb();
     this._initMap();
     this._startFpsLoop();
   }
@@ -1239,6 +1312,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   ngOnDestroy(): void {
     if (this.rafHandle !== undefined) cancelAnimationFrame(this.rafHandle);
     if (this.animTimer) clearInterval(this.animTimer);
+    this.prefsSync.cancel();
     this.windEngine = undefined;
     this.windLayer = undefined;
     this.map?.remove();
