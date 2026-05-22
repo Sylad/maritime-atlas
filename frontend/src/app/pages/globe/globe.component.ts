@@ -89,9 +89,11 @@ const SAT_PRODUCTS: SatProduct[] = [
   { key: 'radarKnmi',         label: 'Radar Pays-Bas (KNMI)',      gsName: 'radar-knmi-nl',         kind: 'cascade-realtime', attribution: 'KNMI Open Geo Radar' },
 ];
 
-/** Date du jour J-1 capped pour NASA GIBS (lag ~24h). Format YYYY-MM-DD UTC. */
+/** Date du jour J-2 capped pour NASA GIBS (lag ~24-48h selon ingest GS).
+ *  2026-05-22 — J-1 ne marche pas sur certains produits ("Could not find
+ *  a match for time"). On utilise J-2 par sécurité. Format YYYY-MM-DD UTC. */
 function gibsDailyDate(): string {
-  const eff = new Date(Date.now() - 24 * 3_600_000);
+  const eff = new Date(Date.now() - 48 * 3_600_000);
   return `${eff.getUTCFullYear()}-${String(eff.getUTCMonth() + 1).padStart(2, '0')}-${String(eff.getUTCDate()).padStart(2, '0')}`;
 }
 
@@ -1257,7 +1259,9 @@ function gibsDailyDate(): string {
       }
     }
 
-    /* Hero logo header (clic = collapse). */
+    /* G22 (2026-05-22) — Hero logo header réduit : utilise le logo "tap"
+       déjà cropé (wordmark AETHERWX). User feedback : "logo ridiculement
+       grand, utiliser juste la partie supérieure". */
     .data-catalog .catalog-header {
       display: block;
       width: calc(100% + 2.4em);
@@ -1265,11 +1269,12 @@ function gibsDailyDate(): string {
       border: 0;
       cursor: pointer;
       background-color: transparent;
-      background-image: url(/AetherWX_logo_menu.png);
-      background-size: 100% 100%;
+      background-image: url(/AetherWX_logo_tap.png);
+      background-size: contain;
+      background-position: center;
       background-repeat: no-repeat;
-      aspect-ratio: 1176 / 709;
-      margin: -1em -1.2em 1em -1.2em;
+      height: 56px;
+      margin: -0.6em -1.2em 0.8em -1.2em;
       border-bottom: 1px solid var(--border);
       border-radius: 8px 8px 0 0;
       transition: filter 150ms;
@@ -1891,17 +1896,65 @@ function gibsDailyDate(): string {
       }
     }
 
+    /* G22 — FPS déplacé en bottom-right pour éviter overlap avec
+       NavigationControl MapLibre (zoom +/- + boussole). */
     .fps {
       position: absolute;
-      top: 56px;
+      bottom: 100px;
       right: 14px;
       z-index: 10;
-      padding: 6px 10px;
-      background: rgba(20, 24, 38, 0.92);
+      padding: 4px 8px;
+      background: rgba(20, 24, 38, 0.85);
       border: 1px solid #2a3245;
-      border-radius: 8px;
+      border-radius: 6px;
       font-family: ui-monospace, monospace;
-      font-size: 12px;
+      font-size: 11px;
+      opacity: 0.7;
+    }
+    .fps:hover { opacity: 1; }
+
+    /* G22 — Style MapLibre controls cohérent avec le reste du UI. */
+    ::ng-deep .maplibregl-ctrl-group {
+      background: rgba(20, 24, 38, 0.92) !important;
+      border: 1px solid #2a3245 !important;
+      border-radius: 8px !important;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+      overflow: hidden;
+    }
+    ::ng-deep .maplibregl-ctrl-group button {
+      background: transparent !important;
+      color: #c9d6e8 !important;
+      border-bottom: 1px solid #2a3245 !important;
+      transition: background 150ms;
+    }
+    ::ng-deep .maplibregl-ctrl-group button:last-child { border-bottom: none !important; }
+    ::ng-deep .maplibregl-ctrl-group button:hover { background: rgba(59, 91, 255, 0.18) !important; }
+    ::ng-deep .maplibregl-ctrl-group button:focus-visible {
+      outline: 2px solid #5878ff !important;
+      outline-offset: 1px;
+    }
+    /* Inverse les icônes SVG par defaut blanches sur fond dark */
+    ::ng-deep .maplibregl-ctrl-icon { filter: invert(0.85); }
+    /* G22 — Attribution : fond dark + couleurs cohérentes */
+    ::ng-deep .maplibregl-ctrl-attrib {
+      background: rgba(20, 24, 38, 0.85) !important;
+      color: #8a96a8 !important;
+      border: 1px solid #2a3245 !important;
+      border-radius: 6px 0 0 0 !important;
+      font-family: ui-monospace, monospace;
+      font-size: 10px;
+      padding: 3px 8px !important;
+    }
+    ::ng-deep .maplibregl-ctrl-attrib a { color: #5878ff !important; text-decoration: none; }
+    ::ng-deep .maplibregl-ctrl-attrib a:hover { text-decoration: underline; }
+    /* Scale */
+    ::ng-deep .maplibregl-ctrl-scale {
+      background: rgba(20, 24, 38, 0.85) !important;
+      color: #c9d6e8 !important;
+      border: 1px solid #2a3245 !important;
+      border-top: none !important;
+      font-family: ui-monospace, monospace;
+      font-size: 10px;
     }
 
     /* G18 M5 — alerts feed panel (parité /legacy-map). Position top-right
@@ -1975,9 +2028,21 @@ function gibsDailyDate(): string {
       border-left-color: rgba(20, 24, 38, 0.95) !important;
       border-right-color: rgba(20, 24, 38, 0.95) !important;
     }
-    /* PAS d'override sur .maplibregl-popup-close-button — le default MapLibre
-       le positionne correctement via son propre CSS. Mes overrides
-       (position: absolute) sans parent relative coupable peuvent perturber. */
+    /* G22 — popup close button visible (user feedback "invisible") :
+       le default est text-color noir sur fond white, ici fond dark donc
+       texte noir = invisible. Override color + bg + size pour cohérence. */
+    ::ng-deep .maplibregl-popup-close-button {
+      color: #c9d6e8 !important;
+      font-size: 18px !important;
+      line-height: 1 !important;
+      padding: 4px 8px !important;
+      border-radius: 4px;
+      transition: background 150ms;
+    }
+    ::ng-deep .maplibregl-popup-close-button:hover {
+      background: rgba(220, 38, 38, 0.4) !important;
+      color: #fff !important;
+    }
   `,
 })
 export class GlobeComponent implements AfterViewInit, OnDestroy {
@@ -2064,6 +2129,42 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // IMPORTANT : lire TOUS les *Active() AVANT le early return sur this.map,
     // sinon le 1er run (constructor, map undefined) court-circuite les reads
     // et l'effect ne se subscribe jamais aux signaux. Bug vécu 2026-05-22.
+    // G22 (2026-05-23) — refresh attribution custom quand layers changent.
+    effect(() => {
+      void this.showSst(); void this.showWindForecast(); void this.showWavesForecast();
+      void this.showWindArrows(); void this.showWaveArrows();
+      void this.showVessels(); void this.showTracks();
+      void this.showAlerts(); void this.showLightning();
+      void this.showMetar(); void this.showHubeau(); void this.showPiezo();
+      void this.showQuakes(); void this.showFirms(); void this.showBuoys();
+      void this.showRain(); void this.showRadarDwd(); void this.showRadarKnmi();
+      for (const sig of Object.values(this.satShowSignals())) { void sig(); }
+      const map = this.map;
+      if (map) this.refreshAttribution(map);
+    });
+
+    // G22 (2026-05-23) — auto-close popup quand la layer source est désactivée.
+    effect(() => {
+      const showMap: Record<string, boolean> = {
+        vessels: this.showVessels(),
+        tracks: this.showTracks(),
+        alerts: this.showAlerts(),
+        lightning: this.showLightning(),
+        metar: this.showMetar(),
+        hubeau: this.showHubeau(),
+        piezo: this.showPiezo(),
+        quakes: this.showQuakes(),
+        firms: this.showFirms(),
+        buoys: this.showBuoys(),
+      };
+      const key = this.activePopupLayerKey;
+      if (key && key in showMap && !showMap[key]) {
+        this.activePopup?.remove();
+        this.activePopup = undefined;
+        this.activePopupLayerKey = undefined;
+      }
+    });
+
     effect(() => {
       // Capture state via reads — subscribe meme si map undefined au 1er run.
       // Couvre vector (9) + raster SST (no-future) + line tracks (past-only).
@@ -2219,6 +2320,11 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   /** G18 M11 (2026-05-22) — cache MMSI → vessel name pour le popup tracks.
    *  Peuplé à chaque fetch vessels via _fetchVectorFc('vessels'). */
   private vesselNameCache = new Map<number, string>();
+
+  /** G22 (2026-05-23) — popup actif + sa layer source pour auto-close.
+   *  Quand la layer source est désactivée, le popup doit se fermer. */
+  private activePopup?: maplibregl.Popup;
+  private activePopupLayerKey?: string;
   vesselNameLookup(mmsi: number): string | null {
     return this.vesselNameCache.get(mmsi) ?? null;
   }
@@ -2257,6 +2363,47 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
     return null;
   });
+
+  /** G22 (2026-05-23) — attribution custom selon layers actives + mention
+   *  Claude (user feedback "on se cache pas nous"). */
+  private currentAttributionControl?: maplibregl.AttributionControl;
+  computeCustomAttribution(): string[] {
+    const out: string[] = [];
+    if (this.showSst()) out.push('SST NOAA');
+    if (this.showWindForecast() || this.showWindArrows() || this.showWind()) out.push('Vent NOAA GFS');
+    if (this.showWavesForecast() || this.showWaveArrows()) out.push('Vagues NOAA WW3');
+    if (this.showVessels() || this.showTracks()) out.push('AIS aishub');
+    if (this.showLightning()) out.push('Blitzortung');
+    if (this.showMetar()) out.push('METAR NOAA AWC');
+    if (this.showHubeau() || this.showPiezo()) out.push('Hub\'eau');
+    if (this.showQuakes()) out.push('USGS');
+    if (this.showFirms()) out.push('NASA FIRMS');
+    if (this.showBuoys()) out.push('EMODnet');
+    if (this.showRain()) out.push('RainViewer');
+    if (this.showRadarDwd()) out.push('DWD');
+    if (this.showRadarKnmi()) out.push('KNMI');
+    let satAttr = false;
+    for (const [k, sig] of Object.entries(this.satShowSignals())) {
+      if (!sig()) continue;
+      const product = SAT_PRODUCTS.find((p) => p.key === k);
+      if (product?.kind === 'gibs-daily' && !out.includes('NASA GIBS')) out.push('NASA GIBS');
+      else if (product?.kind === 'cascade-realtime' && !out.includes('EUMETSAT')) out.push('EUMETSAT');
+      satAttr = true;
+    }
+    // Toujours visible : conception + crédits map base
+    out.push('<a href="https://github.com/Sylad/maritime-atlas" target="_blank" rel="noopener">AetherWX</a> — conçu avec <a href="https://claude.com" target="_blank" rel="noopener">Claude</a> Code par <b>Sylvain Ladoire</b>');
+    return out;
+  }
+  private refreshAttribution(map: MapLibreMap): void {
+    if (this.currentAttributionControl) {
+      try { map.removeControl(this.currentAttributionControl); } catch { /* déjà removed */ }
+    }
+    this.currentAttributionControl = new maplibregl.AttributionControl({
+      compact: true,
+      customAttribution: this.computeCustomAttribution(),
+    });
+    map.addControl(this.currentAttributionControl);
+  }
 
   /** G18 M13 (2026-05-22) — URL GetLegendGraphic pour les WMS time-enabled.
    *  Render côté GeoServer un PNG palette 20×120 du SLD courant. Inclus en
@@ -2429,7 +2576,17 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   });
 
   toggleCatalogSection(key: keyof ReturnType<typeof this.catalogSections>): void {
-    this.catalogSections.update((s) => ({ ...s, [key]: !s[key] }));
+    // G22 (2026-05-22) — mutex single section open (parité /map ligne 4115).
+    // Évite que le menu gauche devienne trop long quand plusieurs sont ouvertes.
+    this.catalogSections.update((s) => {
+      const wasOpen = s[key];
+      const next: typeof s = {
+        maritime: false, observation: false, satellites: false, radar: false,
+        forecast: false, dynamics: false, hydrology: false, sources: false,
+      };
+      next[key] = !wasOpen;
+      return next;
+    });
   }
 
   /** G19 — Compteur "X actives / Y totales" par section, calqué identique
@@ -3270,14 +3427,23 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
 
     // G16 — refresh TOUS les sat layers actifs (stacking multi-sat)
+    // G22 (2026-05-22) — pour gibs-daily, snap à J-2 par sécurité (GIBS lag).
+    // Cf bug user "Could not find a match for time '2026-05-21'".
     for (const [satKey, sig] of Object.entries(this.satShowSignals())) {
       if (!sig()) continue;
       const product = SAT_PRODUCTS.find((p) => p.key === satKey);
       const src = map.getSource(`sat-${satKey}`);
       if (!product || !src) continue;
-      const timeParam = product.kind === 'gibs-daily'
-        ? `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`
-        : t.toISOString().split('.')[0] + 'Z';
+      let timeParam: string;
+      if (product.kind === 'gibs-daily') {
+        // Snap au jour J-2 max depuis t (le cursor peut être maintenant
+        // mais GIBS n'a souvent pas ingéré encore les ~48h les plus récentes).
+        const cap = Math.min(t.getTime(), Date.now() - 48 * 3_600_000);
+        const effDate = new Date(cap);
+        timeParam = `${effDate.getUTCFullYear()}-${String(effDate.getUTCMonth() + 1).padStart(2, '0')}-${String(effDate.getUTCDate()).padStart(2, '0')}`;
+      } else {
+        timeParam = t.toISOString().split('.')[0] + 'Z';
+      }
       const url = this.buildWmsTileUrl(`aetherwx:${product.gsName}`, timeParam);
       (src as maplibregl.RasterTileSource).setTiles([url]);
     }
@@ -4111,6 +4277,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }));
     map.addControl(new maplibregl.ScaleControl({ unit: 'nautical' }));
 
+    // G22 (2026-05-23) — Custom attribution avec mention Claude + layers actives.
+    // L'attribution se re-build à chaque changement de layer via effect.
+    this.refreshAttribution(map);
+
     const onMoveStart = () => this.windEngine?.setMoving(true);
     const onMoveEnd = () => this.windEngine?.setMoving(false);
     for (const ev of ['movestart', 'zoomstart', 'pitchstart', 'rotatestart']) {
@@ -4169,10 +4339,13 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
               ${rowOuter('Jour', day)}
               ${rowOuter('Points AIS', pointsN)}
             </div>`;
-          new maplibregl.Popup({ closeButton: true, maxWidth: '260px', offset: 12 })
+          this.activePopup?.remove();
+          this.activePopup = new maplibregl.Popup({ closeButton: true, maxWidth: '260px', offset: 12 })
             .setLngLat(e.lngLat)
             .setHTML(html)
             .addTo(map);
+          this.activePopupLayerKey = 'tracks';
+          this.activePopup.on('close', () => { if (this.activePopupLayerKey === 'tracks') this.activePopupLayerKey = undefined; });
           return;
         }
       }
@@ -4396,11 +4569,25 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         // L'ancien bug 'popup en bas hors map' venait de mon CSS override
         // qui mettait position: relative sur .maplibregl-popup-content,
         // ce qui cassait le transform du wrapper .maplibregl-popup parent.
+        // G22 — track activePopup + sa layer pour auto-close lors deactivation.
         const coords = (f.geometry as GeoJSON.Point).coordinates as [number, number];
-        new maplibregl.Popup({ closeButton: true, maxWidth: '280px', offset: 12 })
+        this.activePopup?.remove();
+        const popupLayerKey =
+          layerId === 'vec-vessels-points' ? 'vessels' :
+          layerId === 'vec-lightning' ? 'lightning' :
+          layerId === 'vec-alerts' ? 'alerts' :
+          layerId === 'vec-metar' ? 'metar' :
+          layerId === 'vec-hubeau' ? 'hubeau' :
+          layerId === 'vec-piezo' ? 'piezo' :
+          layerId === 'vec-quakes' ? 'quakes' :
+          layerId === 'vec-firms' ? 'firms' :
+          layerId === 'vec-buoys' ? 'buoys' : 'other';
+        this.activePopup = new maplibregl.Popup({ closeButton: true, maxWidth: '280px', offset: 12 })
           .setLngLat(coords)
           .setHTML(html)
           .addTo(map);
+        this.activePopupLayerKey = popupLayerKey;
+        this.activePopup.on('close', () => { if (this.activePopupLayerKey === popupLayerKey) this.activePopupLayerKey = undefined; });
       }
     });
 
