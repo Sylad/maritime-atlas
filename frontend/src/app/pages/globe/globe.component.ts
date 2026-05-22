@@ -124,16 +124,16 @@ function gibsDailyDate(): string {
         </div>
 
         <!-- ═══ Section MARITIME (vessels, tracks, alerts, lightning) ═════ -->
-        <div class="catalog-section" [class.is-open]="globeSections().maritime">
+        <div class="catalog-section" [class.is-open]="catalogSections().maritime">
           <button type="button" class="catalog-section-head"
-                  (click)="toggleGlobeSection('maritime')"
-                  [attr.aria-expanded]="globeSections().maritime">
-            <span class="head-chevron">{{ globeSections().maritime ? '▼' : '▶' }}</span>
+                  (click)="toggleCatalogSection('maritime')"
+                  [attr.aria-expanded]="catalogSections().maritime">
+            <span class="head-chevron">{{ catalogSections().maritime ? '▼' : '▶' }}</span>
             <span class="head-icon">🌊</span>
             <span class="head-name">Maritime</span>
-            <span class="head-count">{{ globeSectionCount('maritime').active }}/{{ globeSectionCount('maritime').total }}</span>
+            <span class="head-count">{{ catalogSectionCount('maritime').active }}/{{ catalogSectionCount('maritime').total }}</span>
           </button>
-          @if (globeSections().maritime) {
+          @if (catalogSections().maritime) {
             <div class="catalog-section-body">
               <div class="row">
                 <button type="button" class="btn full" [class.active]="showVessels()"
@@ -168,16 +168,16 @@ function gibsDailyDate(): string {
         </div>
 
         <!-- ═══ Section OBSERVATION (metar, hubeau, piezo, quakes, firms, buoys) ═══ -->
-        <div class="catalog-section" [class.is-open]="globeSections().observation">
+        <div class="catalog-section" [class.is-open]="catalogSections().observation">
           <button type="button" class="catalog-section-head"
-                  (click)="toggleGlobeSection('observation')"
-                  [attr.aria-expanded]="globeSections().observation">
-            <span class="head-chevron">{{ globeSections().observation ? '▼' : '▶' }}</span>
+                  (click)="toggleCatalogSection('observation')"
+                  [attr.aria-expanded]="catalogSections().observation">
+            <span class="head-chevron">{{ catalogSections().observation ? '▼' : '▶' }}</span>
             <span class="head-icon">👁</span>
             <span class="head-name">Observation</span>
-            <span class="head-count">{{ globeSectionCount('observation').active }}/{{ globeSectionCount('observation').total }}</span>
+            <span class="head-count">{{ catalogSectionCount('observation').active }}/{{ catalogSectionCount('observation').total }}</span>
           </button>
-          @if (globeSections().observation) {
+          @if (catalogSections().observation) {
             <div class="catalog-section-body">
               <div class="row"><button type="button" class="btn full" [class.active]="showMetar()"
                 (click)="toggleVector('metar')" [disabled]="vectorLoading() === 'metar'">🌡 METAR</button></div>
@@ -202,16 +202,16 @@ function gibsDailyDate(): string {
         </div>
 
         <!-- ═══ Section SATELLITES (NASA GIBS + EUMETSAT) ═══════════════ -->
-        <div class="catalog-section" [class.is-open]="globeSections().satellites">
+        <div class="catalog-section" [class.is-open]="catalogSections().satellites">
           <button type="button" class="catalog-section-head"
-                  (click)="toggleGlobeSection('satellites')"
-                  [attr.aria-expanded]="globeSections().satellites">
-            <span class="head-chevron">{{ globeSections().satellites ? '▼' : '▶' }}</span>
+                  (click)="toggleCatalogSection('satellites')"
+                  [attr.aria-expanded]="catalogSections().satellites">
+            <span class="head-chevron">{{ catalogSections().satellites ? '▼' : '▶' }}</span>
             <span class="head-icon">🛰</span>
             <span class="head-name">Satellites</span>
-            <span class="head-count">{{ globeSectionCount('satellites').active }}/{{ globeSectionCount('satellites').total }}</span>
+            <span class="head-count">{{ catalogSectionCount('satellites').active }}/{{ catalogSectionCount('satellites').total }}</span>
           </button>
-          @if (globeSections().satellites) {
+          @if (catalogSections().satellites) {
             <div class="catalog-section-body">
               <div class="info subtle">NASA GIBS (journalier J-1) — stack possible</div>
               @for (p of GIBS_PRODUCTS; track p.key) {
@@ -237,16 +237,16 @@ function gibsDailyDate(): string {
         </div>
 
         <!-- ═══ Section RADAR (pluie, RainViewer) ═══════════════════════ -->
-        <div class="catalog-section" [class.is-open]="globeSections().radar">
+        <div class="catalog-section" [class.is-open]="catalogSections().radar">
           <button type="button" class="catalog-section-head"
-                  (click)="toggleGlobeSection('radar')"
-                  [attr.aria-expanded]="globeSections().radar">
-            <span class="head-chevron">{{ globeSections().radar ? '▼' : '▶' }}</span>
+                  (click)="toggleCatalogSection('radar')"
+                  [attr.aria-expanded]="catalogSections().radar">
+            <span class="head-chevron">{{ catalogSections().radar ? '▼' : '▶' }}</span>
             <span class="head-icon">📡</span>
             <span class="head-name">Radar</span>
-            <span class="head-count">{{ globeSectionCount('radar').active }}/{{ globeSectionCount('radar').total }}</span>
+            <span class="head-count">{{ catalogSectionCount('radar').active }}/{{ catalogSectionCount('radar').total }}</span>
           </button>
-          @if (globeSections().radar) {
+          @if (catalogSections().radar) {
             <div class="catalog-section-body">
               <div class="row">
                 <button type="button" class="btn full" [class.active]="showRain()"
@@ -261,16 +261,16 @@ function gibsDailyDate(): string {
         </div>
 
         <!-- ═══ Section FORECAST (wind, waves, arrows) ══════════════════ -->
-        <div class="catalog-section" [class.is-open]="globeSections().forecast">
+        <div class="catalog-section" [class.is-open]="catalogSections().forecast">
           <button type="button" class="catalog-section-head"
-                  (click)="toggleGlobeSection('forecast')"
-                  [attr.aria-expanded]="globeSections().forecast">
-            <span class="head-chevron">{{ globeSections().forecast ? '▼' : '▶' }}</span>
+                  (click)="toggleCatalogSection('forecast')"
+                  [attr.aria-expanded]="catalogSections().forecast">
+            <span class="head-chevron">{{ catalogSections().forecast ? '▼' : '▶' }}</span>
             <span class="head-icon">🌤</span>
             <span class="head-name">Forecast</span>
-            <span class="head-count">{{ globeSectionCount('forecast').active }}/{{ globeSectionCount('forecast').total }}</span>
+            <span class="head-count">{{ catalogSectionCount('forecast').active }}/{{ catalogSectionCount('forecast').total }}</span>
           </button>
-          @if (globeSections().forecast) {
+          @if (catalogSections().forecast) {
             <div class="catalog-section-body">
               <div class="row"><button type="button" class="btn full" [class.active]="showWindForecast()"
                 (click)="toggleWindForecast(!showWindForecast())">🌬 Vent (raster)</button></div>
@@ -285,16 +285,16 @@ function gibsDailyDate(): string {
         </div>
 
         <!-- ═══ Section DYNAMICS (SST + Wind particles) ═══════════════════ -->
-        <div class="catalog-section" [class.is-open]="globeSections().dynamics">
+        <div class="catalog-section" [class.is-open]="catalogSections().dynamics">
           <button type="button" class="catalog-section-head"
-                  (click)="toggleGlobeSection('dynamics')"
-                  [attr.aria-expanded]="globeSections().dynamics">
-            <span class="head-chevron">{{ globeSections().dynamics ? '▼' : '▶' }}</span>
+                  (click)="toggleCatalogSection('dynamics')"
+                  [attr.aria-expanded]="catalogSections().dynamics">
+            <span class="head-chevron">{{ catalogSections().dynamics ? '▼' : '▶' }}</span>
             <span class="head-icon">💨</span>
             <span class="head-name">Dynamiques</span>
-            <span class="head-count">{{ globeSectionCount('dynamics').active }}/{{ globeSectionCount('dynamics').total }}</span>
+            <span class="head-count">{{ catalogSectionCount('dynamics').active }}/{{ catalogSectionCount('dynamics').total }}</span>
           </button>
-          @if (globeSections().dynamics) {
+          @if (catalogSections().dynamics) {
             <div class="catalog-section-body">
               <div class="row">
                 <button type="button" class="btn" [class.active]="!showSst()" (click)="toggleSst(false)">SST off</button>
@@ -314,16 +314,16 @@ function gibsDailyDate(): string {
         </div>
 
         <!-- ═══ Section SOURCES (bathy, EEZ, MPA, EFAS) ═══════════════════ -->
-        <div class="catalog-section" [class.is-open]="globeSections().sources">
+        <div class="catalog-section" [class.is-open]="catalogSections().sources">
           <button type="button" class="catalog-section-head"
-                  (click)="toggleGlobeSection('sources')"
-                  [attr.aria-expanded]="globeSections().sources">
-            <span class="head-chevron">{{ globeSections().sources ? '▼' : '▶' }}</span>
+                  (click)="toggleCatalogSection('sources')"
+                  [attr.aria-expanded]="catalogSections().sources">
+            <span class="head-chevron">{{ catalogSections().sources ? '▼' : '▶' }}</span>
             <span class="head-icon">🗺</span>
             <span class="head-name">Sources</span>
-            <span class="head-count">{{ globeSectionCount('sources').active }}/{{ globeSectionCount('sources').total }}</span>
+            <span class="head-count">{{ catalogSectionCount('sources').active }}/{{ catalogSectionCount('sources').total }}</span>
           </button>
-          @if (globeSections().sources) {
+          @if (catalogSections().sources) {
             <div class="catalog-section-body">
               <div class="row"><button type="button" class="btn full" [class.active]="showBathy()"
                 (click)="toggleBathy(!showBathy())">🏔 Bathymétrie EMODnet</button></div>
@@ -836,10 +836,20 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
    *  (sat cascade, sst, etc.) via setSource() au changement. */
   readonly currentTime = signal<Date>(new Date());
 
+  /** G18 (2026-05-22) — drawer legend collapsible (parite /legacy-map).
+   *  Default true = ouvert. Mobile : collapse via bouton close. */
+  readonly legendOpen = signal<boolean>(true);
+
+  /** G18 — attribution box collapsible (en bas du drawer, parite /map). */
+  readonly attrOpen = signal<boolean>(false);
+
+  toggleLegend(): void { this.legendOpen.update((v) => !v); }
+  toggleAttrCollapsed(): void { this.attrOpen.update((v) => !v); }
+
   /** G15 (2026-05-22) — sections accordéon du menu gauche, calquées sur /map.
    *  6 sections regroupant les 22+ layers globe. Default = Maritime+Sources
    *  ouvertes, autres fermées (UX scan rapide). */
-  readonly globeSections = signal<{
+  readonly catalogSections = signal<{
     maritime: boolean;
     observation: boolean;
     satellites: boolean;
@@ -857,12 +867,12 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     sources: false,
   });
 
-  toggleGlobeSection(key: keyof ReturnType<typeof this.globeSections>): void {
-    this.globeSections.update((s) => ({ ...s, [key]: !s[key] }));
+  toggleCatalogSection(key: keyof ReturnType<typeof this.catalogSections>): void {
+    this.catalogSections.update((s) => ({ ...s, [key]: !s[key] }));
   }
 
   /** Compteur "X actives / Y totales" par section, affiché dans le header. */
-  globeSectionCount(key: keyof ReturnType<typeof this.globeSections>): { active: number; total: number } {
+  catalogSectionCount(key: keyof ReturnType<typeof this.catalogSections>): { active: number; total: number } {
     switch (key) {
       case 'maritime':
         return {
