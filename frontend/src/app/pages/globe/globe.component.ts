@@ -292,6 +292,22 @@ function gibsDailyDate(): string {
           <button type="button" class="btn full" [class.active]="showEfas()"
                   (click)="toggleEfas(!showEfas())">🌊 EFAS forecast crues</button>
         </div>
+
+        <!-- G11d (2026-05-22) — sliders opacité par layer active. -->
+        @if (activeOpacityKeys().length > 0) {
+          <div class="opacity-panel">
+            <div class="opacity-title">Opacités</div>
+            @for (k of activeOpacityKeys(); track k) {
+              <div class="opacity-row">
+                <span class="opacity-label">{{ layerHumanLabel(k) }}</span>
+                <input type="range" min="0" max="1" step="0.05"
+                       [value]="getLayerOpacity(k)"
+                       (input)="setLayerOpacity(k, +$any($event.target).value)" />
+                <span class="opacity-value">{{ (getLayerOpacity(k) * 100).toFixed(0) }}%</span>
+              </div>
+            }
+          </div>
+        }
         @if (vectorCounts()['metar'] != null && showMetar()) {
           <div class="info">METAR — {{ vectorCounts()['metar'] }} stations</div>
         }
@@ -445,6 +461,34 @@ function gibsDailyDate(): string {
     }
     .controls .info.subtle { opacity: .7; margin-top: 10px; }
     .controls .info.error { color: #f87171; }
+
+    /* G11d (2026-05-22) — panneau sliders opacité par layer active. */
+    .opacity-panel {
+      margin-top: 10px;
+      padding: 8px 10px;
+      background: rgba(20, 28, 44, 0.6);
+      border: 1px solid #1c2333;
+      border-radius: 6px;
+    }
+    .opacity-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: #8a96a8;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .opacity-row {
+      display: grid;
+      grid-template-columns: 6em 1fr 2.2em;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 0;
+      font-size: 11px;
+    }
+    .opacity-label { color: #c9d6e8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .opacity-row input[type="range"] { width: 100%; accent-color: hsl(160 70% 50%); }
+    .opacity-value { color: #6b7895; text-align: right; font-variant-numeric: tabular-nums; }
 
     .sat-label {
       display: flex;
@@ -612,6 +656,18 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   readonly playing = signal<boolean>(false);
   private animTimer?: ReturnType<typeof setInterval>;
 
+  /** G11d (2026-05-22) — opacité par layer key. Défauts cohérents /map :
+   *  raster forecast/sst = 0.7 (blend lisible), sat = 0.85, sources stat
+   *  = 0.6, vector = 1, animations = 0.9. Persisté localStorage.
+   *  Slider 0-1 step 0.05 dans la sidebar. */
+  private readonly LAYER_OPACITY_DEFAULTS: Record<string, number> = {
+    sst: 0.7, windForecast: 0.7, wavesForecast: 0.7,
+    windArrows: 0.9, waveArrows: 0.9,
+    bathy: 0.7, eez: 0.6, mpa: 0.6, efas: 0.7,
+    rain: 0.75,
+  };
+  readonly layerOpacities = signal<Record<string, number>>({ ...this.LAYER_OPACITY_DEFAULTS });
+
   /** G7 (2026-05-22) — porté depuis /map Sprint Z. Rank sémantique pour
    *  l'ordre Z auto : sat (0, fond images larges) → raster sst (1) → radar
    *  (2) → WFS (4, points/lignes) → animations (5, particules au sommet). */
@@ -736,6 +792,86 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   /** G7 — handler ★ click du slider. Set le master du temps explicite. */
   setMasterLayer(key: string): void {
     this.masterLayerKey.set(key);
+  }
+
+  /** G11d — opacité courante d'une layer (avec fallback default). */
+  getLayerOpacity(key: string): number {
+    return this.layerOpacities()[key] ?? this.LAYER_OPACITY_DEFAULTS[key] ?? 1;
+  }
+
+  /** G11d — handler slider opacité. Update signal + applique au layer
+   *  MapLibre via setPaintProperty (raster-opacity ou line-opacity selon type).
+   *  Persiste localStorage. */
+  setLayerOpacity(key: string, value: number): void {
+    const v = Math.max(0, Math.min(1, value));
+    this.layerOpacities.update((o) => ({ ...o, [key]: v }));
+    const map = this.map;
+    if (!map) return;
+    for (const id of this.mapLibreLayerIds(key)) {
+      if (!map.getLayer(id)) continue;
+      // Détecte le type pour choisir la bonne paint-property.
+      const layerType = map.getLayer(id)!.type;
+      if (layerType === 'raster') {
+        map.setPaintProperty(id, 'raster-opacity', v);
+      } else if (layerType === 'line') {
+        map.setPaintProperty(id, 'line-opacity', v);
+      } else if (layerType === 'circle') {
+        map.setPaintProperty(id, 'circle-opacity', v);
+      } else if (layerType === 'symbol') {
+        map.setPaintProperty(id, 'text-opacity', v);
+      }
+    }
+    this.persistLayerOpacities();
+  }
+
+  private persistLayerOpacities(): void {
+    try {
+      localStorage.setItem('globe.layer-opacities-v1', JSON.stringify(this.layerOpacities()));
+    } catch { /* quota dépassé — ignore */ }
+  }
+
+  private restoreLayerOpacities(): void {
+    try {
+      const raw = localStorage.getItem('globe.layer-opacities-v1');
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Record<string, number>;
+      this.layerOpacities.set({ ...this.LAYER_OPACITY_DEFAULTS, ...parsed });
+    } catch { /* JSON malformed — ignore */ }
+  }
+
+  /** G11d — keys des layers actives qui ont un slider opacité utile. */
+  readonly activeOpacityKeys = computed<string[]>(() => {
+    const keys: string[] = [];
+    if (this.showSst()) keys.push('sst');
+    if (this.activeSat() !== 'none') keys.push(this.activeSat());
+    if (this.showWindForecast())  keys.push('windForecast');
+    if (this.showWavesForecast()) keys.push('wavesForecast');
+    if (this.showWindArrows())    keys.push('windArrows');
+    if (this.showWaveArrows())    keys.push('waveArrows');
+    if (this.showRain())          keys.push('rain');
+    if (this.showBathy()) keys.push('bathy');
+    if (this.showEez())   keys.push('eez');
+    if (this.showMpa())   keys.push('mpa');
+    if (this.showEfas())  keys.push('efas');
+    return keys;
+  });
+
+  /** G11d — label humain pour le slider d'opacité. */
+  layerHumanLabel(key: string): string {
+    if (key === 'sst') return 'SST';
+    if (key === 'windForecast')  return 'Vent';
+    if (key === 'wavesForecast') return 'Vagues';
+    if (key === 'windArrows')    return 'Flèches vent';
+    if (key === 'waveArrows')    return 'Flèches vagues';
+    if (key === 'rain')   return 'Pluie';
+    if (key === 'bathy')  return 'Bathy';
+    if (key === 'eez')    return 'EEZ';
+    if (key === 'mpa')    return 'MPA';
+    if (key === 'efas')   return 'EFAS';
+    if (key.startsWith('sat')) {
+      return SAT_PRODUCTS.find((p) => p.key === key)?.label ?? key;
+    }
+    return key;
   }
 
   /** G11c — handler play/pause du slider. Toggle l'animation +6h/s. */
@@ -989,6 +1125,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   private moveHandlers: Array<{ event: string; handler: () => void }> = [];
 
   ngAfterViewInit(): void {
+    this.restoreLayerOpacities();
     this._initMap();
     this._startFpsLoop();
   }
