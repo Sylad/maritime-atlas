@@ -333,7 +333,10 @@ function gibsDailyDate(): string {
             <div class="catalog-section-body">
               <div class="row">
                 <button type="button" class="btn" [class.active]="!showSst()" (click)="toggleSst(false)">SST off</button>
-                <button type="button" class="btn" [class.active]="showSst()" (click)="toggleSst(true)">🌡 SST live</button>
+                <button type="button" class="btn" [class.active]="showSst()"
+                        [class.mode-incompatible]="showSst() && modeIsFuture()"
+                        [title]="showSst() && modeIsFuture() ? 'SST pas dispo en future — recule la time-bar' : ''"
+                        (click)="toggleSst(true)">🌡 SST live</button>
               </div>
               <div class="row">
                 <button type="button" class="btn" [class.active]="!showWind()" (click)="toggleWind(false)">Vent off</button>
@@ -912,7 +915,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // sinon le 1er run (constructor, map undefined) court-circuite les reads
     // et l'effect ne se subscribe jamais aux signaux. Bug vécu 2026-05-22.
     effect(() => {
-      // Capture state via reads — subscribe meme si map undefined au 1er run
+      // Capture state via reads — subscribe meme si map undefined au 1er run.
+      // Couvre vector (9) + raster SST (no-future) + line tracks (past-only).
+      // Contours SST = no-future comme le raster parent (cohérence).
       const states: Array<[boolean, string[]]> = [
         [this.vesselsActive(),   ['vec-vessels-clusters', 'vec-vessels-cluster-count', 'vec-vessels-points']],
         [this.alertsActive(),    ['vec-alerts']],
@@ -923,6 +928,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         [this.quakesActive(),    ['vec-quakes']],
         [this.firmsActive(),     ['vec-firms']],
         [this.buoysActive(),     ['vec-buoys']],
+        [this.sstActive(),       ['sst-wms']],
+        [this.tracksActive(),    ['vec-tracks']],
+        // SST contours suit la même logique que SST raster (no-future)
+        [this.showSstContours() && !this.modeIsFuture(), ['sst-contours-wms']],
       ];
       const map = this.map;
       if (!map) return;
