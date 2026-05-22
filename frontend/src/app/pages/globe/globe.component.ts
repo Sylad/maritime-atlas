@@ -360,12 +360,22 @@ function gibsDailyDate(): string {
             <div class="catalog-section-body">
               <div class="row"><button type="button" class="btn full" [class.active]="showWindForecast()"
                 (click)="toggleWindForecast(!showWindForecast())">🌬 Vent (raster)</button></div>
+              @if (showWindForecast()) {
+                <div class="legend-graphic">
+                  <img [src]="legendGraphicUrl('windForecast')" alt="Palette vent" loading="lazy" />
+                </div>
+              }
               <div class="row"><button type="button" class="btn full" [class.active]="showWindArrows()"
                 (click)="toggleWindArrows(!showWindArrows())">↗ Flèches vent</button></div>
               <div class="row"><button type="button" class="btn full" [class.active]="showWindContours()"
                 (click)="toggleWindContours(!showWindContours())">📈 Isolines vent</button></div>
               <div class="row"><button type="button" class="btn full" [class.active]="showWavesForecast()"
                 (click)="toggleWavesForecast(!showWavesForecast())">🌊 Vagues (raster)</button></div>
+              @if (showWavesForecast()) {
+                <div class="legend-graphic">
+                  <img [src]="legendGraphicUrl('wavesForecast')" alt="Palette vagues" loading="lazy" />
+                </div>
+              }
               <div class="row"><button type="button" class="btn full" [class.active]="showWaveArrows()"
                 (click)="toggleWaveArrows(!showWaveArrows())">↗ Flèches vagues</button></div>
               <div class="row"><button type="button" class="btn full" [class.active]="showWaveContours()"
@@ -393,6 +403,11 @@ function gibsDailyDate(): string {
                         [title]="showSst() && modeIsFuture() ? 'SST pas dispo en future — recule la time-bar' : ''"
                         (click)="toggleSst(true)">🌡 SST live</button>
               </div>
+              @if (showSst() && !modeIsFuture()) {
+                <div class="legend-graphic">
+                  <img [src]="legendGraphicUrl('sst')" alt="Palette SST" loading="lazy" />
+                </div>
+              }
               <div class="row">
                 <button type="button" class="btn" [class.active]="!showWind()" (click)="toggleWind(false)">Vent off</button>
                 <button type="button" class="btn" [class.active]="showWind()" (click)="toggleWind(true)" [disabled]="windLoading()">🌬 Particules WebGL</button>
@@ -684,6 +699,25 @@ function gibsDailyDate(): string {
       background: rgba(59, 91, 255, 0.25);
       border-color: #6b4a8a;
     }
+    /* G18 M13 — LegendGraphic inline (parité /legacy-map). Affichée
+       sous le toggle WMS quand la layer est active. Image PNG palette
+       servie par GeoServer GetLegendGraphic avec LEGEND_OPTIONS dark. */
+    .legend-graphic {
+      margin-top: 6px;
+      padding: 4px 6px;
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid #2a3245;
+      border-radius: 4px;
+      display: flex;
+      justify-content: center;
+    }
+    .legend-graphic img {
+      display: block;
+      height: 120px;
+      width: auto;
+      max-width: 100%;
+    }
+
     /* G18 M6 — reset prefs button */
     .reset-row { margin-top: 16px; }
     .layer-reset {
@@ -1222,6 +1256,30 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   private vesselNameCache = new Map<number, string>();
   vesselNameLookup(mmsi: number): string | null {
     return this.vesselNameCache.get(mmsi) ?? null;
+  }
+
+  /** G18 M13 (2026-05-22) — URL GetLegendGraphic pour les WMS time-enabled.
+   *  Render côté GeoServer un PNG palette 20×120 du SLD courant. Inclus en
+   *  inline <img> dans le drawer quand layer actif. Parité /legacy-map. */
+  legendGraphicUrl(layerKey: string): string | null {
+    const gsName = this.gsLayerNameForKey(layerKey);
+    if (!gsName) return null;
+    return '/geoserver/aetherwx/wms' +
+      '?REQUEST=GetLegendGraphic&VERSION=1.0.0&FORMAT=image/png' +
+      '&WIDTH=20&HEIGHT=120' +
+      '&LEGEND_OPTIONS=fontColor:0xffffff;fontAntiAliasing:true;bgColor:0x0f172a;dpi:96' +
+      `&LAYER=${encodeURIComponent(gsName)}`;
+  }
+  private gsLayerNameForKey(key: string): string | null {
+    if (key === 'sst')           return 'aetherwx:sst-daily';
+    if (key === 'windForecast')  return 'aetherwx:wind-speed';
+    if (key === 'wavesForecast') return 'aetherwx:wave-hs';
+    // Sat keys : préfixe 'aetherwx:' + gsName du catalogue
+    if (key.startsWith('sat')) {
+      const product = SAT_PRODUCTS.find((p) => p.key === key);
+      return product ? `aetherwx:${product.gsName}` : null;
+    }
+    return null;
   }
 
   /** G18 M5 (2026-05-22) — alerts feed exposé du AlertsService.
