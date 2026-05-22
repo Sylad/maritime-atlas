@@ -2696,7 +2696,12 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // détecte la layer source, build HTML avec props feature, ouvre Popup.
     // Cluster vessels → zoom-in au lieu de popup (comme /map OL prod).
     map.on('click', (e) => {
-      const allLayers = ['vec-vessels-clusters', 'vec-vessels-points', 'vec-lightning', 'vec-alerts'];
+      const allLayers = [
+        'vec-vessels-clusters', 'vec-vessels-points',
+        'vec-lightning', 'vec-alerts',
+        'vec-metar', 'vec-hubeau', 'vec-piezo',
+        'vec-quakes', 'vec-firms', 'vec-buoys',
+      ];
       const existing = allLayers.filter((id) => map.getLayer(id));
       if (existing.length === 0) return;
 
@@ -2781,9 +2786,127 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         const color = colorMap[severity] ?? '#94a3b8';
         html = `
           <div>
-            <div style="font-size:13px;font-weight:600;color:${color};border-bottom:1px solid #2a3245;padding-bottom:6px;margin-bottom:4px">⚠ ${kind ?? 'Alerte'} <span style="font-size:10px;text-transform:uppercase;opacity:.8">(${severity})</span></div>
+            <div style="font-size:13px;font-weight:600;color:${color};border-bottom:1px solid #2a3245;padding-bottom:6px;margin-bottom:4px">⚠ ${this.alertKindLabel(kind ?? 'Alerte')} <span style="font-size:10px;text-transform:uppercase;opacity:.8">(${severity})</span></div>
             ${row('Cible', target)}
             ${row('Heure', fmtRelTime(ts))}
+          </div>`;
+      } else if (layerId === 'vec-metar') {
+        // METAR — station météo aviation (NOAA AWC).
+        const name = (p['station_name'] || p['icao'] || 'Station') as string;
+        const icao = p['icao'] as string | undefined;
+        const ts = p['ts'] as string | undefined;
+        const temp = p['temp_c'] as number | undefined;
+        const dewp = p['dewp_c'] as number | undefined;
+        const windKt = p['wind_speed_kt'] as number | undefined;
+        const windDir = p['wind_dir_deg'] as number | undefined;
+        const windGust = p['wind_gust_kt'] as number | undefined;
+        const qnh = p['altimeter_hpa'] as number | undefined;
+        const weather = p['weather_str'] as string | undefined;
+        const windStr = windKt != null
+          ? `${windDir != null ? `${Math.round(windDir).toString().padStart(3, '0')}° ` : ''}${Math.round(windKt)} kn${windGust != null ? ` (G ${Math.round(windGust)})` : ''}`
+          : null;
+        html = `
+          <div>
+            <div style="font-size:13px;font-weight:600;color:#fbbf24;border-bottom:1px solid #2a3245;padding-bottom:6px;margin-bottom:4px">🛬 ${name}${icao && icao !== name ? ` <span style="font-size:10px;opacity:.7">${icao}</span>` : ''}</div>
+            ${row('Heure', fmtRelTime(ts))}
+            ${row('Température', temp != null ? temp.toFixed(1) : null, ' °C')}
+            ${row('Point de rosée', dewp != null ? dewp.toFixed(1) : null, ' °C')}
+            ${row('Vent', windStr)}
+            ${row('QNH', qnh != null ? Math.round(qnh) : null, ' hPa')}
+            ${row('Conditions', weather)}
+          </div>`;
+      } else if (layerId === 'vec-hubeau') {
+        // Hub'eau débits — stations hydrologie FR.
+        const code = p['code_station'] as string | undefined;
+        const ts = p['ts'] as string | undefined;
+        const debit = p['debit_m3_s'] as number | undefined;
+        const debitL = p['debit_l_s'] as number | undefined;
+        const qualif = p['qualif'] as string | undefined;
+        html = `
+          <div>
+            <div style="font-size:13px;font-weight:600;color:#06b6d4;border-bottom:1px solid #2a3245;padding-bottom:6px;margin-bottom:4px">💧 Station ${code ?? '?'}</div>
+            ${row('Mesure', fmtRelTime(ts))}
+            ${row('Débit', debit != null ? `${debit.toFixed(2)} m³/s${debitL != null ? ` (${Math.round(debitL)} L/s)` : ''}` : null)}
+            ${row('Qualif', qualif)}
+            ${code ? `<div style="margin-top:6px;font-size:10px"><a href="https://www.hydro.eaufrance.fr/stationhydro/${code}/synthese" target="_blank" rel="noopener" style="color:#06b6d4">hydro.eaufrance.fr ↗</a></div>` : ''}
+          </div>`;
+      } else if (layerId === 'vec-piezo') {
+        // Piézomètres FR — Hub'eau ades.
+        const bss = p['code_bss'] as string | undefined;
+        const ts = p['ts'] as string | undefined;
+        const profondeur = p['profondeur_nappe'] as number | undefined;
+        const ngf = p['niveau_eau_ngf'] as number | undefined;
+        const alt = p['altitude_station'] as number | undefined;
+        html = `
+          <div>
+            <div style="font-size:13px;font-weight:600;color:#8b5cf6;border-bottom:1px solid #2a3245;padding-bottom:6px;margin-bottom:4px">🩸 Piézo ${bss ?? '?'}</div>
+            ${row('Mesure', fmtRelTime(ts))}
+            ${row('Profondeur nappe', profondeur != null ? profondeur.toFixed(2) : null, ' m')}
+            ${row('Niveau NGF', ngf != null ? ngf.toFixed(2) : null, ' m')}
+            ${row('Altitude station', alt != null ? alt.toFixed(0) : null, ' m')}
+            ${bss ? `<div style="margin-top:6px;font-size:10px"><a href="https://ades.eaufrance.fr/Fiche/PointEau?code=${bss}" target="_blank" rel="noopener" style="color:#8b5cf6">ades.eaufrance.fr ↗</a></div>` : ''}
+          </div>`;
+      } else if (layerId === 'vec-quakes') {
+        // Séismes USGS — magnitude + place + tsunami.
+        const place = p['place'] as string | undefined;
+        const time = p['time'] as string | undefined;
+        const mag = p['mag'] as number | undefined;
+        const depth = p['depth_km'] as number | undefined;
+        const sig = p['sig'] as number | undefined;
+        const tsunami = p['tsunami'] as number | boolean | undefined;
+        const alert = p['alert'] as string | undefined;
+        const url = p['url'] as string | undefined;
+        const magColor = mag == null ? '#94a3b8' : mag >= 6 ? '#dc2626' : mag >= 5 ? '#ea580c' : mag >= 4 ? '#fbbf24' : '#84cc16';
+        html = `
+          <div>
+            <div style="font-size:13px;font-weight:600;color:${magColor};border-bottom:1px solid #2a3245;padding-bottom:6px;margin-bottom:4px">🌋 ${place ?? 'Séisme'}<span style="font-size:11px;float:right;background:${magColor};color:#fff;padding:2px 6px;border-radius:4px">M ${mag != null ? mag.toFixed(1) : '?'}</span></div>
+            ${row('Heure', fmtRelTime(time))}
+            ${row('Profondeur', depth != null ? depth.toFixed(1) : null, ' km')}
+            ${row('Significance', sig != null ? `${sig}/1000` : null)}
+            ${tsunami ? `<div style="color:#dc2626;font-weight:600;margin-top:4px">⚠ Tsunami</div>` : ''}
+            ${alert ? `<div style="text-transform:uppercase;color:${alert === 'red' ? '#dc2626' : alert === 'orange' ? '#ea580c' : alert === 'yellow' ? '#fbbf24' : '#84cc16'};margin-top:4px;font-size:11px">Alert: ${alert}</div>` : ''}
+            ${url ? `<div style="margin-top:6px;font-size:10px"><a href="${url}" target="_blank" rel="noopener" style="color:#06b6d4">earthquake.usgs.gov ↗</a></div>` : ''}
+          </div>`;
+      } else if (layerId === 'vec-firms') {
+        // FIRMS feux — NASA hotspots MODIS/VIIRS.
+        const ts = p['ts'] as string | undefined;
+        const frp = p['frp'] as number | undefined;
+        const brightness = p['brightness'] as number | undefined;
+        const confidence = p['confidence'] as number | string | undefined;
+        const satellite = p['satellite'] as string | undefined;
+        const daynight = p['daynight'] as string | undefined;
+        const frpColor = frp == null ? '#94a3b8' : frp >= 200 ? '#b91c1c' : frp >= 50 ? '#dc2626' : frp >= 10 ? '#f97316' : '#fbbf24';
+        const satName = satellite === 'T' ? 'Terra' : satellite === 'A' ? 'Aqua' : satellite ?? '?';
+        const dnLabel = daynight === 'D' ? 'jour' : daynight === 'N' ? 'nuit' : '';
+        html = `
+          <div>
+            <div style="font-size:13px;font-weight:600;color:${frpColor};border-bottom:1px solid #2a3245;padding-bottom:6px;margin-bottom:4px">🔥 Hotspot feu<span style="font-size:11px;float:right;background:${frpColor};color:#fff;padding:2px 6px;border-radius:4px">${frp != null ? frp.toFixed(1) : '?'} MW</span></div>
+            ${row('Acquisition', fmtRelTime(ts))}
+            ${row('Brightness', brightness != null ? brightness.toFixed(1) : null, ' K')}
+            ${row('Confiance', confidence != null ? `${confidence}/100` : null)}
+            ${row('Satellite', satellite ? `${satName}${dnLabel ? ` (${dnLabel})` : ''}` : null)}
+          </div>`;
+      } else if (layerId === 'vec-buoys') {
+        // Bouées EMODnet — réseau in-situ.
+        const name = (p['name'] || p['candhis_id'] || 'Bouée') as string;
+        const candhis = p['candhis_id'] as string | undefined;
+        const wmo = p['wmo'] as string | undefined;
+        const platformType = p['platform_type'] as string | undefined;
+        const buoyType = p['buoy_type'] as string | undefined;
+        const owner = p['owner'] as string | undefined;
+        const country = p['country'] as string | undefined;
+        const lastObs = p['last_obs_at'] as string | undefined;
+        const params = p['parameters_group'] as string | undefined;
+        html = `
+          <div>
+            <div style="font-size:13px;font-weight:600;color:#10b981;border-bottom:1px solid #2a3245;padding-bottom:6px;margin-bottom:4px">⚓ ${name}</div>
+            ${row('CANDHIS', candhis)}
+            ${row('WMO', wmo)}
+            ${row('Type', platformType ?? buoyType)}
+            ${row('Owner', owner)}
+            ${row('Pays', country)}
+            ${row('Dernière obs', fmtRelTime(lastObs))}
+            ${row('Paramètres', params)}
           </div>`;
       }
 
