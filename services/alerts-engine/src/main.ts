@@ -250,7 +250,33 @@ async function main(): Promise<void> {
   setInterval(reloadWindGrid, 30 * 60_000);
 
   const conn = await amqp.connect(RABBITMQ_URL);
+  // 2026-05-22 — bug observé après bump RMQ 4.2.6→4.3.0 : connexion AMQP
+  // perdue silencieusement pendant le rolling restart du broker, le pod
+  // continue de log les stats mais ne consomme plus rien (queues
+  // `alerts-engine.ais.positions` accumulaient 7k+ msg, 0 consumer côté
+  // broker). Sans error/close handler, amqplib n'auto-reconnect pas.
+  //
+  // Fix : on log + on `process.exit(1)` au moindre incident → K8s redémarre
+  // le pod et reprend une connexion fraîche (durée d'indisponibilité = ~30s,
+  // bien meilleure que la stale connection silencieuse). Idempotent côté
+  // queues (durable, x-message-ttl 60s absorbe le gap).
+  conn.on('error', (err) => {
+    console.error('[alerts] amqp connection error — exiting for restart:', err.message);
+    process.exit(1);
+  });
+  conn.on('close', () => {
+    console.error('[alerts] amqp connection closed — exiting for restart');
+    process.exit(1);
+  });
   const ch = await conn.createChannel();
+  ch.on('error', (err) => {
+    console.error('[alerts] amqp channel error — exiting for restart:', err.message);
+    process.exit(1);
+  });
+  ch.on('close', () => {
+    console.error('[alerts] amqp channel closed — exiting for restart');
+    process.exit(1);
+  });
   publishChannel = ch;
 
   // Outbound exchange
