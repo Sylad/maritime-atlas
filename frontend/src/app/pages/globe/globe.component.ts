@@ -802,24 +802,31 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // via setLayoutProperty visibility='none' sans toucher au showX signal
     // (donc le toggle reste "actif" + grisé pour rappeler que la layer est
     // toggled on mais hidden par contexte temporel). Reverse au retour live.
+    //
+    // IMPORTANT : lire TOUS les *Active() AVANT le early return sur this.map,
+    // sinon le 1er run (constructor, map undefined) court-circuite les reads
+    // et l'effect ne se subscribe jamais aux signaux. Bug vécu 2026-05-22.
     effect(() => {
+      // Capture state via reads — subscribe meme si map undefined au 1er run
+      const states: Array<[boolean, string[]]> = [
+        [this.vesselsActive(),   ['vec-vessels-clusters', 'vec-vessels-cluster-count', 'vec-vessels-points']],
+        [this.alertsActive(),    ['vec-alerts']],
+        [this.lightningActive(), ['vec-lightning']],
+        [this.metarActive(),     ['vec-metar']],
+        [this.hubeauActive(),    ['vec-hubeau']],
+        [this.piezoActive(),     ['vec-piezo']],
+        [this.quakesActive(),    ['vec-quakes']],
+        [this.firmsActive(),     ['vec-firms']],
+        [this.buoysActive(),     ['vec-buoys']],
+      ];
       const map = this.map;
       if (!map) return;
-      const apply = (active: boolean, layerIds: string[]) => {
+      for (const [active, layerIds] of states) {
         for (const lid of layerIds) {
           if (!map.getLayer(lid)) continue;
           map.setLayoutProperty(lid, 'visibility', active ? 'visible' : 'none');
         }
-      };
-      apply(this.vesselsActive(),   ['vec-vessels-clusters', 'vec-vessels-cluster-count', 'vec-vessels-points']);
-      apply(this.alertsActive(),    ['vec-alerts']);
-      apply(this.lightningActive(), ['vec-lightning']);
-      apply(this.metarActive(),     ['vec-metar']);
-      apply(this.hubeauActive(),    ['vec-hubeau']);
-      apply(this.piezoActive(),     ['vec-piezo']);
-      apply(this.quakesActive(),    ['vec-quakes']);
-      apply(this.firmsActive(),     ['vec-firms']);
-      apply(this.buoysActive(),     ['vec-buoys']);
+      }
     });
   }
 
