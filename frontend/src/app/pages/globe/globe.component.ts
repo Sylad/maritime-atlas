@@ -307,10 +307,14 @@ function gibsDailyDate(): string {
                 (click)="toggleWindForecast(!showWindForecast())">🌬 Vent (raster)</button></div>
               <div class="row"><button type="button" class="btn full" [class.active]="showWindArrows()"
                 (click)="toggleWindArrows(!showWindArrows())">↗ Flèches vent</button></div>
+              <div class="row"><button type="button" class="btn full" [class.active]="showWindContours()"
+                (click)="toggleWindContours(!showWindContours())">📈 Isolines vent</button></div>
               <div class="row"><button type="button" class="btn full" [class.active]="showWavesForecast()"
                 (click)="toggleWavesForecast(!showWavesForecast())">🌊 Vagues (raster)</button></div>
               <div class="row"><button type="button" class="btn full" [class.active]="showWaveArrows()"
                 (click)="toggleWaveArrows(!showWaveArrows())">↗ Flèches vagues</button></div>
+              <div class="row"><button type="button" class="btn full" [class.active]="showWaveContours()"
+                (click)="toggleWaveContours(!showWaveContours())">📈 Isolines vagues</button></div>
             </div>
           }
         </div>
@@ -334,6 +338,10 @@ function gibsDailyDate(): string {
               <div class="row">
                 <button type="button" class="btn" [class.active]="!showWind()" (click)="toggleWind(false)">Vent off</button>
                 <button type="button" class="btn" [class.active]="showWind()" (click)="toggleWind(true)" [disabled]="windLoading()">🌬 Particules WebGL</button>
+              </div>
+              <div class="row">
+                <button type="button" class="btn full" [class.active]="showSstContours()"
+                        (click)="toggleSstContours(!showSstContours())">📈 Isolines SST</button>
               </div>
               @if (windLoading()) { <div class="info">Chargement grid vent…</div> }
               @if (windError()) { <div class="info error">{{ windError() }}</div> }
@@ -792,6 +800,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       void this.showTracks(); void this.showRain();
       void this.showWindForecast(); void this.showWavesForecast();
       void this.showWindArrows(); void this.showWaveArrows();
+      void this.showSstContours(); void this.showWindContours(); void this.showWaveContours();
       void this.showBathy(); void this.showEez(); void this.showMpa(); void this.showEfas();
       void this.autoZIndexEnabled(); void this.masterLayerKey(); void this.projection();
       this.persistGlobePrefs();
@@ -899,6 +908,12 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   readonly showWavesForecast = signal(false);
   readonly showWindArrows = signal(false);
   readonly showWaveArrows = signal(false);
+  /** G18 M4 (2026-05-22) — isolines contour overlays (SLDs déjà côté GS).
+   *  WMS GetMap avec STYLES dédié + INTERPOLATIONS=bicubic pour alignement
+   *  avec le raster sous-jacent. Cf /legacy-map sstContoursLayer. */
+  readonly showSstContours = signal(false);
+  readonly showWindContours = signal(false);
+  readonly showWaveContours = signal(false);
   /** G11b (2026-05-22) — 4 layers statiques sources sciencé (EMODnet/Marine
    *  Regions/EFAS) via proxy nginx maritime. */
   readonly showBathy = signal(false);
@@ -1032,13 +1047,13 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         };
       case 'forecast':
         return {
-          active: [this.showWindForecast(), this.showWavesForecast(), this.showWindArrows(), this.showWaveArrows()].filter(Boolean).length,
-          total: 4,
+          active: [this.showWindForecast(), this.showWavesForecast(), this.showWindArrows(), this.showWaveArrows(), this.showWindContours(), this.showWaveContours()].filter(Boolean).length,
+          total: 6,
         };
       case 'dynamics':
         return {
-          active: [this.showSst(), this.showWind()].filter(Boolean).length,
-          total: 2,
+          active: [this.showSst(), this.showWind(), this.showSstContours()].filter(Boolean).length,
+          total: 3,
         };
       case 'sources':
         return {
@@ -1314,6 +1329,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         showWavesForecast: this.showWavesForecast(),
         showWindArrows: this.showWindArrows(),
         showWaveArrows: this.showWaveArrows(),
+        showSstContours: this.showSstContours(),
+        showWindContours: this.showWindContours(),
+        showWaveContours: this.showWaveContours(),
         showBathy: this.showBathy(),
         showEez: this.showEez(),
         showMpa: this.showMpa(),
@@ -1344,6 +1362,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         showTracks: !!data?.showTracks, showRain: !!data?.showRain,
         showWindForecast: !!data?.showWindForecast, showWavesForecast: !!data?.showWavesForecast,
         showWindArrows: !!data?.showWindArrows, showWaveArrows: !!data?.showWaveArrows,
+        showSstContours: !!data?.showSstContours, showWindContours: !!data?.showWindContours, showWaveContours: !!data?.showWaveContours,
         showBathy: !!data?.showBathy, showEez: !!data?.showEez, showMpa: !!data?.showMpa, showEfas: !!data?.showEfas,
       };
       // G16 — restore les 13 sat signals multi-toggle. Compat ascendante avec
@@ -1416,6 +1435,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (p['showWavesForecast']) this.toggleWavesForecast(true);
     if (p['showWindArrows'])    this.toggleWindArrows(true);
     if (p['showWaveArrows'])    this.toggleWaveArrows(true);
+    if (p['showSstContours'])   this.toggleSstContours(true);
+    if (p['showWindContours'])  this.toggleWindContours(true);
+    if (p['showWaveContours'])  this.toggleWaveContours(true);
     if (p['showBathy']) this.toggleBathy(true);
     if (p['showEez'])   this.toggleEez(true);
     if (p['showMpa'])   this.toggleMpa(true);
@@ -1641,19 +1663,30 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     const t = this.currentTime();
 
     // SST — daily, format YYYY-MM-DD UTC
+    const sstDate = `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`;
     if (this.showSst() && map.getSource('sst-wms')) {
-      const date = `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`;
-      const url = this.buildWmsTileUrl('aetherwx:sst-daily', date, { interpolations: 'bicubic' });
+      const url = this.buildWmsTileUrl('aetherwx:sst-daily', sstDate, { interpolations: 'bicubic' });
       (map.getSource('sst-wms') as maplibregl.RasterTileSource).setTiles([url]);
     }
+    // G18 M4 — SST contours snap au TIME daily du SST raster
+    if (this.showSstContours() && map.getSource('sst-contours-wms')) {
+      const url = '/geoserver/aetherwx/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
+        '&LAYERS=aetherwx%3Asst-daily&STYLES=aetherwx%3Asst-contours-only' +
+        '&FORMAT=image/png&TRANSPARENT=true&INTERPOLATIONS=bicubic' +
+        `&TIME=${encodeURIComponent(sstDate)}` +
+        '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256';
+      (map.getSource('sst-contours-wms') as maplibregl.RasterTileSource).setTiles([url]);
+    }
 
-    // G9 — forecast wind/waves + arrows
+    // G9 — forecast wind/waves + arrows + G18 M4 contours
     const iso = t.toISOString().split('.')[0] + 'Z';
-    const forecastLayers: Array<{ active: boolean; layerId: string; gsName: string; style?: string }> = [
+    const forecastLayers: Array<{ active: boolean; layerId: string; gsName: string; style?: string; interpolations?: string }> = [
       { active: this.showWindForecast(),  layerId: 'wind-forecast-wms',  gsName: 'aetherwx:wind-speed' },
       { active: this.showWavesForecast(), layerId: 'waves-forecast-wms', gsName: 'aetherwx:wave-hs' },
       { active: this.showWindArrows(),    layerId: 'wind-arrows-wms',    gsName: 'aetherwx:wind-speed', style: 'aetherwx:wind-arrows' },
       { active: this.showWaveArrows(),    layerId: 'wave-arrows-wms',    gsName: 'aetherwx:wave-dir',   style: 'aetherwx:wave-arrows' },
+      { active: this.showWindContours(),  layerId: 'wind-contours-wms',  gsName: 'aetherwx:wind-speed', style: 'aetherwx:wind-speed-contours-only', interpolations: 'bicubic' },
+      { active: this.showWaveContours(),  layerId: 'wave-contours-wms',  gsName: 'aetherwx:wave-hs',    style: 'aetherwx:wave-hs-contours-only',    interpolations: 'bicubic' },
     ];
     for (const fl of forecastLayers) {
       if (!fl.active) continue;
@@ -1664,6 +1697,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         `&LAYERS=${encodeURIComponent(fl.gsName)}` +
         `&STYLES=${fl.style ? encodeURIComponent(fl.style) : ''}` +
         '&FORMAT=image/png&TRANSPARENT=true' +
+        (fl.interpolations ? `&INTERPOLATIONS=${fl.interpolations}` : '') +
         `&TIME=${encodeURIComponent(iso)}` +
         '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256';
       (src as maplibregl.RasterTileSource).setTiles([url]);
@@ -1997,6 +2031,88 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       `&STYLES=${opts.style ? encodeURIComponent(opts.style) : ''}` +
       '&FORMAT=image/png&TRANSPARENT=true' +
       `&TIME=${encodeURIComponent(iso)}` +
+      '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256';
+    if (map.getSource(opts.layerId)) map.removeSource(opts.layerId);
+    map.addSource(opts.layerId, { type: 'raster', tiles: [url], tileSize: 256 });
+    map.addLayer({
+      id: opts.layerId,
+      type: 'raster',
+      source: opts.layerId,
+      paint: { 'raster-opacity': opts.opacity },
+    });
+  }
+
+  /** G18 M4 — toggle générique isolines contour WMS (SLD côté GS).
+   *  Pattern identique à toggleForecastLayer mais avec STYLES dédié et
+   *  INTERPOLATIONS=bicubic pour matcher le raster sous-jacent. */
+  toggleSstContours(on: boolean): void {
+    this.toggleContourLayer({
+      key: 'sstContours',
+      layerId: 'sst-contours-wms',
+      gsName: 'aetherwx:sst-daily',
+      style: 'aetherwx:sst-contours-only',
+      kind: 'daily',
+      opacity: 0.9,
+      on,
+    });
+  }
+  toggleWindContours(on: boolean): void {
+    this.toggleContourLayer({
+      key: 'windContours',
+      layerId: 'wind-contours-wms',
+      gsName: 'aetherwx:wind-speed',
+      style: 'aetherwx:wind-speed-contours-only',
+      kind: 'iso',
+      opacity: 0.9,
+      on,
+    });
+  }
+  toggleWaveContours(on: boolean): void {
+    this.toggleContourLayer({
+      key: 'waveContours',
+      layerId: 'wave-contours-wms',
+      gsName: 'aetherwx:wave-hs',
+      style: 'aetherwx:wave-hs-contours-only',
+      kind: 'iso',
+      opacity: 0.9,
+      on,
+    });
+  }
+
+  private toggleContourLayer(opts: {
+    key: 'sstContours' | 'windContours' | 'waveContours';
+    layerId: string;
+    gsName: string;
+    style: string;
+    kind: 'daily' | 'iso';
+    opacity: number;
+    on: boolean;
+  }): void {
+    const sigMap = {
+      sstContours: this.showSstContours,
+      windContours: this.showWindContours,
+      waveContours: this.showWaveContours,
+    } as const;
+    const sig = sigMap[opts.key];
+    if (sig() === opts.on) return;
+    sig.set(opts.on);
+    const map = this.map;
+    if (!map) return;
+    if (!opts.on) {
+      if (map.getLayer(opts.layerId)) map.removeLayer(opts.layerId);
+      if (map.getSource(opts.layerId)) map.removeSource(opts.layerId);
+      return;
+    }
+    const t = this.currentTime();
+    const timeParam = opts.kind === 'daily'
+      ? `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`
+      : t.toISOString().split('.')[0] + 'Z';
+    const url = '/geoserver/aetherwx/wms' +
+      '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
+      `&LAYERS=${encodeURIComponent(opts.gsName)}` +
+      `&STYLES=${encodeURIComponent(opts.style)}` +
+      '&FORMAT=image/png&TRANSPARENT=true&INTERPOLATIONS=bicubic' +
+      `&TIME=${encodeURIComponent(timeParam)}` +
       '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256';
     if (map.getSource(opts.layerId)) map.removeSource(opts.layerId);
     map.addSource(opts.layerId, { type: 'raster', tiles: [url], tileSize: 256 });
