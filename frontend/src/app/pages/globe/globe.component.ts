@@ -211,14 +211,58 @@ function gibsDailyDate(): string {
             [disabled]="vectorLoading() === 'vessels'"
           >🚢 Navires AIS (cluster)</button>
         </div>
-        @if (vectorCounts().lightning != null && showLightning()) {
-          <div class="info">Foudre 30 min — {{ vectorCounts().lightning }} strikes</div>
+        @if (vectorCounts()['lightning'] != null && showLightning()) {
+          <div class="info">Foudre 30 min — {{ vectorCounts()['lightning'] }} strikes</div>
         }
-        @if (vectorCounts().alerts != null && showAlerts()) {
-          <div class="info">Alertes 1h — {{ vectorCounts().alerts }} actives</div>
+        @if (vectorCounts()['alerts'] != null && showAlerts()) {
+          <div class="info">Alertes 1h — {{ vectorCounts()['alerts'] }} actives</div>
         }
-        @if (vectorCounts().vessels != null && showVessels()) {
-          <div class="info">Navires live — {{ vectorCounts().vessels }} positions</div>
+        @if (vectorCounts()['vessels'] != null && showVessels()) {
+          <div class="info">Navires live — {{ vectorCounts()['vessels'] }} positions</div>
+        }
+
+        <!-- G8 (2026-05-22) — 6 layers vector portées depuis /map. -->
+        <div class="row">
+          <button type="button" class="btn full" [class.active]="showMetar()"
+                  (click)="toggleVector('metar')" [disabled]="vectorLoading() === 'metar'">🌡 METAR</button>
+        </div>
+        <div class="row">
+          <button type="button" class="btn full" [class.active]="showHubeau()"
+                  (click)="toggleVector('hubeau')" [disabled]="vectorLoading() === 'hubeau'">💧 Hub'eau débits</button>
+        </div>
+        <div class="row">
+          <button type="button" class="btn full" [class.active]="showPiezo()"
+                  (click)="toggleVector('piezo')" [disabled]="vectorLoading() === 'piezo'">🩸 Piezo nappes</button>
+        </div>
+        <div class="row">
+          <button type="button" class="btn full" [class.active]="showQuakes()"
+                  (click)="toggleVector('quakes')" [disabled]="vectorLoading() === 'quakes'">🌐 Séismes</button>
+        </div>
+        <div class="row">
+          <button type="button" class="btn full" [class.active]="showFirms()"
+                  (click)="toggleVector('firms')" [disabled]="vectorLoading() === 'firms'">🔥 FIRMS feux</button>
+        </div>
+        <div class="row">
+          <button type="button" class="btn full" [class.active]="showBuoys()"
+                  (click)="toggleVector('buoys')" [disabled]="vectorLoading() === 'buoys'">⚓ Bouées</button>
+        </div>
+        @if (vectorCounts()['metar'] != null && showMetar()) {
+          <div class="info">METAR — {{ vectorCounts()['metar'] }} stations</div>
+        }
+        @if (vectorCounts()['hubeau'] != null && showHubeau()) {
+          <div class="info">Hub'eau — {{ vectorCounts()['hubeau'] }} stations</div>
+        }
+        @if (vectorCounts()['piezo'] != null && showPiezo()) {
+          <div class="info">Piezo — {{ vectorCounts()['piezo'] }} stations</div>
+        }
+        @if (vectorCounts()['quakes'] != null && showQuakes()) {
+          <div class="info">Séismes — {{ vectorCounts()['quakes'] }} events</div>
+        }
+        @if (vectorCounts()['firms'] != null && showFirms()) {
+          <div class="info">FIRMS — {{ vectorCounts()['firms'] }} hotspots</div>
+        }
+        @if (vectorCounts()['buoys'] != null && showBuoys()) {
+          <div class="info">Bouées — {{ vectorCounts()['buoys'] }} stations</div>
         }
 
         <div class="info subtle">
@@ -443,6 +487,12 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       void this.showLightning();
       void this.showAlerts();
       void this.showVessels();
+      void this.showMetar();
+      void this.showHubeau();
+      void this.showPiezo();
+      void this.showQuakes();
+      void this.showFirms();
+      void this.showBuoys();
       if (!enabled) return;
       const auto = this.computeAutoZIndexOrder();
       if (auto.length === 0) return;
@@ -464,8 +514,15 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   readonly showLightning = signal(false);
   readonly showAlerts = signal(false);
   readonly showVessels = signal(false);
+  /** G8 (2026-05-22) — 6 layers vector portées depuis /map. */
+  readonly showMetar = signal(false);
+  readonly showHubeau = signal(false);
+  readonly showPiezo = signal(false);
+  readonly showQuakes = signal(false);
+  readonly showFirms = signal(false);
+  readonly showBuoys = signal(false);
   readonly vectorLoading = signal<string | null>(null);
-  readonly vectorCounts = signal<{ lightning?: number; alerts?: number; vessels?: number }>({});
+  readonly vectorCounts = signal<Record<string, number | undefined>>({});
 
   /** G6 (2026-05-22) — temps courant du globe, drive l'overlay time-bar.
    *  Default = maintenant. Future G6b : drive les WMS time-enabled
@@ -482,6 +539,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     sst: 1,
     radarDwd: 2, radarKnmi: 2,
     lightning: 4, alerts: 4, vessels: 4,
+    metar: 4, hubeau: 4, piezo: 4, quakes: 4, firms: 4, buoys: 4,
     windParticles: 5,
   };
   private readonly DEFAULT_LAYER_RANK = 3;
@@ -528,6 +586,12 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     push(this.showLightning(), 'lightning', 'lightning', '#facc15', 1, 0);
     push(this.showAlerts(),    'alerts',    'alerts',    '#ef4444', 1, 0);
     push(this.showVessels(),   'vessels',   'vessels',   '#06b6d4', 24, 0);
+    push(this.showMetar(),     'metar',     'metar',     '#fbbf24', 6, 0);
+    push(this.showHubeau(),    'hubeau',    'hubeau',    '#06b6d4', 24, 0);
+    push(this.showPiezo(),     'piezo',     'piezo',     '#8b5cf6', 24, 0);
+    push(this.showQuakes(),    'quakes',    'quakes',    '#ef4444', 24, 0);
+    push(this.showFirms(),     'firms',     'firms',     '#f97316', 24, 0);
+    push(this.showBuoys(),     'buoys',     'buoys',     '#10b981', 24, 0);
     if (this.activeSat() !== 'none') {
       const sat = SAT_PRODUCTS.find((p) => p.key === this.activeSat());
       if (sat) push(true, sat.key, sat.gsName, '#a855f7', 168, 0);
@@ -605,7 +669,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  /** G7 — calcule l'ordre Z auto des layers actives selon LAYER_CATEGORY. */
+  /** G7/G8 — calcule l'ordre Z auto des layers actives selon LAYER_CATEGORY. */
   private computeAutoZIndexOrder(): string[] {
     const active: string[] = [];
     if (this.activeSat() !== 'none') active.push(this.activeSat());
@@ -614,6 +678,12 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (this.showLightning()) active.push('lightning');
     if (this.showAlerts()) active.push('alerts');
     if (this.showVessels()) active.push('vessels');
+    if (this.showMetar()) active.push('metar');
+    if (this.showHubeau()) active.push('hubeau');
+    if (this.showPiezo()) active.push('piezo');
+    if (this.showQuakes()) active.push('quakes');
+    if (this.showFirms()) active.push('firms');
+    if (this.showBuoys()) active.push('buoys');
     return [...active].sort((a, b) => {
       const rA = this.LAYER_CATEGORY[a] ?? this.DEFAULT_LAYER_RANK;
       const rB = this.LAYER_CATEGORY[b] ?? this.DEFAULT_LAYER_RANK;
@@ -631,6 +701,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (key === 'lightning') return ['vec-lightning'];
     if (key === 'alerts') return ['vec-alerts'];
     if (key === 'vessels') return ['vec-vessels-clusters', 'vec-vessels-cluster-count', 'vec-vessels-points'];
+    if (key === 'metar' || key === 'hubeau' || key === 'piezo' || key === 'quakes' || key === 'firms' || key === 'buoys') {
+      return [`vec-${key}`];
+    }
     if (key.startsWith('sat')) return [`sat-${key}`];
     return [];
   }
@@ -798,11 +871,17 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  async toggleVector(kind: 'lightning' | 'alerts' | 'vessels') {
+  async toggleVector(kind: 'lightning' | 'alerts' | 'vessels' | 'metar' | 'hubeau' | 'piezo' | 'quakes' | 'firms' | 'buoys') {
     const sigMap = {
       lightning: this.showLightning,
       alerts: this.showAlerts,
       vessels: this.showVessels,
+      metar: this.showMetar,
+      hubeau: this.showHubeau,
+      piezo: this.showPiezo,
+      quakes: this.showQuakes,
+      firms: this.showFirms,
+      buoys: this.showBuoys,
     } as const;
     const showSig = sigMap[kind];
     const turningOn = !showSig();
@@ -817,6 +896,12 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       // 2026-05-21 — glyphs URL ajouté au style MapLibre (cf style.glyphs)
       // → symbol text layer fonctionne maintenant. Count visible sur cluster.
       vessels: ['vec-vessels-clusters', 'vec-vessels-cluster-count', 'vec-vessels-points'],
+      metar: ['vec-metar'],
+      hubeau: ['vec-hubeau'],
+      piezo: ['vec-piezo'],
+      quakes: ['vec-quakes'],
+      firms: ['vec-firms'],
+      buoys: ['vec-buoys'],
     };
 
     // Toggle off : retire les layers + source
@@ -843,7 +928,30 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         clusterMaxZoom: 12,
       } as any);
 
-      if (kind === 'lightning') {
+      // G8 — 6 layers points simples : circle paint factorisé via config.
+      const SIMPLE_POINT_PAINT: Partial<Record<typeof kind, { color: string; radius: number; stroke: string }>> = {
+        metar:  { color: '#fbbf24', radius: 4, stroke: '#92400e' },
+        hubeau: { color: '#06b6d4', radius: 5, stroke: '#0e7490' },
+        piezo:  { color: '#8b5cf6', radius: 5, stroke: '#6d28d9' },
+        quakes: { color: '#ef4444', radius: 5, stroke: '#7f1d1d' },
+        firms:  { color: '#f97316', radius: 4, stroke: '#7c2d12' },
+        buoys:  { color: '#10b981', radius: 5, stroke: '#064e3b' },
+      };
+      if (SIMPLE_POINT_PAINT[kind]) {
+        const p = SIMPLE_POINT_PAINT[kind]!;
+        map.addLayer({
+          id: `vec-${kind}`,
+          type: 'circle',
+          source: sourceId,
+          paint: {
+            'circle-radius': p.radius,
+            'circle-color': p.color,
+            'circle-stroke-width': 1,
+            'circle-stroke-color': p.stroke,
+            'circle-opacity': 0.85,
+          },
+        });
+      } else if (kind === 'lightning') {
         map.addLayer({
           id: 'vec-lightning',
           type: 'circle',
@@ -943,14 +1051,24 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  private async _fetchVectorFc(kind: 'lightning' | 'alerts' | 'vessels'): Promise<{ features: any[] }> {
+  private async _fetchVectorFc(kind: 'lightning' | 'alerts' | 'vessels' | 'metar' | 'hubeau' | 'piezo' | 'quakes' | 'firms' | 'buoys'): Promise<{ features: any[] }> {
     if (kind === 'lightning') {
       return await firstValueFrom(this.lightningService.fetchRecent(new Date(), 1800));
     }
     if (kind === 'alerts') {
       return await this.alertsService.refresh(new Date(), 3600);
     }
-    return await firstValueFrom(this.vesselsService.fetchLiveVessels(new Date(), 900));
+    if (kind === 'vessels') {
+      return await firstValueFrom(this.vesselsService.fetchLiveVessels(new Date(), 900));
+    }
+    // G8 — fetch REST direct pour 6 layers vector (metar/hubeau/piezo/quakes/firms/buoys).
+    // Endpoints standardisés sur /api/<kind>/recent côté NestJS api.
+    const at = new Date().toISOString();
+    const resp = await fetch(`/api/${kind}/recent?at=${encodeURIComponent(at)}`);
+    if (!resp.ok) {
+      throw new Error(`/api/${kind}/recent → HTTP ${resp.status}`);
+    }
+    return await resp.json();
   }
 
   onSatChange(key: string) {
