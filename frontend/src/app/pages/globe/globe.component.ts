@@ -107,8 +107,9 @@ function gibsDailyDate(): string {
     <div class="globe-root">
       <header class="globe-header">
         <div class="brand">
-          <!-- G24 — logo image full (wordmark) adapté à la hauteur barre (56px). -->
-          <img src="/AetherWX_logo_menu.png" alt="AetherWX" class="brand-logo-img" />
+          <!-- G26 — combo : icon tap (globe) + wordmark text séparé. -->
+          <img src="/AetherWX_logo_tap.png" alt="" class="brand-icon-img" aria-hidden="true" />
+          <img src="/AetherWX_logo_text.png" alt="AetherWX" class="brand-text-img" />
           <span class="brand-mode">— Globe 3D <span class="brand-mode-pill">spike</span></span>
         </div>
         <nav class="nav-links">
@@ -150,14 +151,11 @@ function gibsDailyDate(): string {
            /legacy-map (template + CSS) pour parité visuelle 100%. Bindings
            adaptés au modèle globe (showSst au lieu de showSST, etc.). -->
       <div class="legend data-catalog" [class.legend--closed]="!legendOpen()">
-        <!-- G24 — header drawer minimal : titre "Couches" + bouton close.
-             Le wordmark AETHERWX est maintenant dans le header bar du site. -->
-        <div class="catalog-header-bar">
-          <h2 class="catalog-title">Couches</h2>
-          <button type="button" class="catalog-close-btn"
-                  (click)="toggleLegend()"
-                  title="Réduire le panneau" aria-label="Réduire le panneau">✕</button>
-        </div>
+        <!-- G26 — bouton close minimal flottant top-right du drawer
+             (sans titre "Couches" : redondant avec le contenu visible). -->
+        <button type="button" class="catalog-close-btn"
+                (click)="toggleLegend()"
+                title="Réduire le panneau" aria-label="Réduire le panneau">✕</button>
         <!-- 2026-05-20 — Bouton ✕ close mobile : logo header caché donc plus
              de surface pour fermer le panneau. Visible uniquement ≤ 760px. -->
         <button type="button" class="legend-close-mobile"
@@ -1144,14 +1142,25 @@ function gibsDailyDate(): string {
       justify-content: space-between;
       padding: 8px 14px;
       background: rgba(10, 14, 26, 0.78);
-      border-bottom: 1px solid #1c2333;
+      /* G26 — cyan glow (parité drawer + nav buttons) */
+      border-bottom: 1px solid hsl(224 85% 55% / 0.5);
+      box-shadow:
+        0 0 0 1px hsl(224 95% 60% / 0.12),
+        0 6px 16px -2px hsl(224 95% 60% / 0.22),
+        0 0 30px -4px hsl(224 90% 55% / 0.18);
       backdrop-filter: blur(6px);
     }
     .brand { display: flex; align-items: center; gap: 10px; font-size: 14px; }
     .brand-icon { font-size: 18px; }
-    /* G24 — logo image dans header (vs texte "AetherWX") */
-    .brand-logo-img {
-      height: 44px;
+    /* G26 — duo icon (globe) + wordmark text adapté hauteur barre */
+    .brand-icon-img {
+      height: 36px;
+      width: 36px;
+      object-fit: contain;
+      display: block;
+    }
+    .brand-text-img {
+      height: 24px;
       width: auto;
       object-fit: contain;
       display: block;
@@ -1275,8 +1284,9 @@ function gibsDailyDate(): string {
         display: flex;
       }
       position: absolute;
-      top: 1em;
-      left: 1em;
+      /* G26 — décalé sous header bar (était caché derrière). */
+      top: 70px;
+      left: 14px;
       z-index: 11;
       width: 44px;
       height: 44px;
@@ -1297,25 +1307,11 @@ function gibsDailyDate(): string {
       }
     }
 
-    /* G24 — Drawer header minimal : titre Couches + bouton close.
-       Le wordmark logo est dans le header bar du site. */
-    .data-catalog .catalog-header-bar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin: -0.4em -0.4em 0.6em -0.4em;
-      padding-bottom: 0.4em;
-      border-bottom: 1px solid hsl(224 50% 30% / 0.5);
-    }
-    .data-catalog .catalog-title {
-      margin: 0;
-      font-size: 11px;
-      color: #c9d6e8;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      font-weight: 600;
-    }
+    /* G26 — bouton close minimal flottant top-right du drawer */
     .data-catalog .catalog-close-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
       background: transparent;
       color: #8a96a8;
       border: 1px solid hsl(224 50% 35% / 0.6);
@@ -1324,6 +1320,7 @@ function gibsDailyDate(): string {
       cursor: pointer;
       font-size: 13px;
       line-height: 1;
+      z-index: 2;
       transition: background 150ms, color 150ms, border-color 150ms;
     }
     .data-catalog .catalog-close-btn:hover {
