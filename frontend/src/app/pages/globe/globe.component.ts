@@ -48,6 +48,7 @@ import { LightningService } from '../../services/lightning.service';
 import { PreferencesSyncService } from '../../services/preferences-sync.service';
 import { RainviewerService } from '../../services/rainviewer.service';
 import { VesselsService } from '../../services/vessels.service';
+import { BuoysService } from '../../services/buoys.service';
 import {
   buildWindTexture,
   speedDirToUv,
@@ -2021,15 +2022,16 @@ function gibsDailyDate(): string {
       font-size: 10px;
     }
 
-    /* G18 M5 — alerts feed panel (parité /legacy-map). Position top-right
-       sous le FPS, scroll si > 10 items, severity-aware borders. */
+    /* G18 M5 — alerts feed panel (parité /legacy-map).
+       G24 — top: 240px pour passer SOUS les controls MapLibre top-right
+       (zoom + reset bearing prennent ~100px depuis top: 56px). */
     .alerts-panel {
       position: absolute;
-      top: 100px;
+      top: 240px;
       right: 14px;
       z-index: 10;
       width: 260px;
-      max-height: 50vh;
+      max-height: calc(100vh - 380px);
       overflow-y: auto;
       background: rgba(20, 24, 38, 0.95);
       border: 1px solid #2a3245;
@@ -2114,6 +2116,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   private readonly alertsService = inject(AlertsService);
   private readonly lightningService = inject(LightningService);
   private readonly vesselsService = inject(VesselsService);
+  /** G24 — BuoysService injecté pour fetchReferential WFS (vs ancien /api/buoys/recent 404). */
+  private readonly buoysService = inject(BuoysService);
   private readonly rainviewerService = inject(RainviewerService);
   private readonly auth = inject(AuthService);
   /** G18 M15 (2026-05-22) — auth corner (parité /legacy-map) */
@@ -3518,14 +3522,16 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   }
 
   private buildWmsTileUrl(layerName: string, time: string, opts?: { interpolations?: string; style?: string }): string {
-    // G22 — pour SST, force STYLES=raster (le default GS sst-with-contours
-    // affiche les contours sans demande). Override via opts.style si besoin.
-    const styleParam = opts?.style ?? (layerName === 'aetherwx:sst-daily' ? 'raster' : '');
+    // G24 — pour SST, STYLES=sst-with-contours + env=contourInterval:50
+    // (seul SLD publié sur GS, env big interval = pas de contours rendus).
+    const styleParam = opts?.style ?? (layerName === 'aetherwx:sst-daily' ? 'sst-with-contours' : '');
+    const envParam = layerName === 'aetherwx:sst-daily' ? '&env=contourInterval:50' : '';
     return '/geoserver/aetherwx/wms' +
       '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
       `&LAYERS=${encodeURIComponent(layerName)}&STYLES=${encodeURIComponent(styleParam)}&FORMAT=image/png&TRANSPARENT=true` +
       `&TIME=${encodeURIComponent(time)}` +
       (opts?.interpolations ? `&INTERPOLATIONS=${opts.interpolations}` : '') +
+      envParam +
       '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256';
   }
 
@@ -3604,13 +3610,13 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
           tiles: [
             '/geoserver/aetherwx/wms' +
               '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
-              // G22 (2026-05-23) — STYLES=raster explicite pour éviter le
-              // default GS sst-with-contours qui affiche les contours sans
-              // que l'user les ait demandés (cf bug report 2026-05-22).
-              '&LAYERS=aetherwx:sst-daily&STYLES=raster&FORMAT=image/png&TRANSPARENT=true' +
-              // 2026-05-21 — INTERPOLATIONS=bicubic param GS vendor pour
-              // interpolation raster côté serveur (anti-pixellisation). Match
-              // ce que la /map prod fait. Cf [[geoserver_wms_interpolations_param]].
+              // G24 (2026-05-23) — STYLES=sst-with-contours (seul SLD pub
+              // publié) + env=contourInterval:50 pour masquer les contours
+              // (SST 0-30°C donc interval 50 = aucun contour rendu, juste
+              // la palette rainbow). User feedback "plus de palette" avec
+              // STYLES=raster (greyscale only).
+              '&LAYERS=aetherwx:sst-daily&STYLES=sst-with-contours&FORMAT=image/png&TRANSPARENT=true' +
+              '&env=contourInterval:50' +
               '&INTERPOLATIONS=bicubic' +
               '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256',
           ],
@@ -4161,11 +4167,15 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       }
       return fc;
     }
-    // G8 — fetch REST direct pour 6 layers vector. Mapping endpoint :
+    // G8 — fetch REST direct pour layers vector. Mapping endpoint :
     //  - piezo  → /api/hubeau/piezo/recent (path nested sous hubeau)
     //  - quakes → /api/earthquakes/recent  (controller earthquakes.controller)
-    //  - buoys  → WFS (BuoysService), pas /recent — TODO endpoint /api/buoys
+    //  - buoys  → WFS BuoysService.fetchReferential() (G24, pas /api endpoint)
     //  - autres → /api/<kind>/recent
+    if (kind === 'buoys') {
+      // G24 — fetch via WFS (pas d'endpoint /api/buoys/recent côté API)
+      return await firstValueFrom(this.buoysService.fetchReferential());
+    }
     const at = new Date().toISOString();
     const endpoint = kind === 'piezo'  ? '/api/hubeau/piezo/recent'
                    : kind === 'quakes' ? '/api/earthquakes/recent'
