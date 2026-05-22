@@ -256,6 +256,24 @@ function gibsDailyDate(): string {
           <button type="button" class="btn full" [class.active]="showRain()"
                   (click)="toggleRain(!showRain())" [disabled]="vectorLoading() === 'rain'">🌧 Pluie RainViewer</button>
         </div>
+
+        <!-- G9 (2026-05-22) — forecast wind/waves + arrows (WMS GS time-enabled). -->
+        <div class="row">
+          <button type="button" class="btn full" [class.active]="showWindForecast()"
+                  (click)="toggleWindForecast(!showWindForecast())">🌬 Vent (raster)</button>
+        </div>
+        <div class="row">
+          <button type="button" class="btn full" [class.active]="showWindArrows()"
+                  (click)="toggleWindArrows(!showWindArrows())">↗ Flèches vent</button>
+        </div>
+        <div class="row">
+          <button type="button" class="btn full" [class.active]="showWavesForecast()"
+                  (click)="toggleWavesForecast(!showWavesForecast())">🌊 Vagues (raster)</button>
+        </div>
+        <div class="row">
+          <button type="button" class="btn full" [class.active]="showWaveArrows()"
+                  (click)="toggleWaveArrows(!showWaveArrows())">↗ Flèches vagues</button>
+        </div>
         @if (vectorCounts()['metar'] != null && showMetar()) {
           <div class="info">METAR — {{ vectorCounts()['metar'] }} stations</div>
         }
@@ -512,6 +530,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       void this.showBuoys();
       void this.showTracks();
       void this.showRain();
+      void this.showWindForecast();
+      void this.showWavesForecast();
+      void this.showWindArrows();
+      void this.showWaveArrows();
       if (!enabled) return;
       const auto = this.computeAutoZIndexOrder();
       if (auto.length === 0) return;
@@ -542,6 +564,11 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   readonly showBuoys = signal(false);
   readonly showTracks = signal(false);
   readonly showRain = signal(false);
+  /** G9 (2026-05-22) — 4 layers forecast portées depuis /map. */
+  readonly showWindForecast = signal(false);
+  readonly showWavesForecast = signal(false);
+  readonly showWindArrows = signal(false);
+  readonly showWaveArrows = signal(false);
   readonly vectorLoading = signal<string | null>(null);
   readonly vectorCounts = signal<Record<string, number | undefined>>({});
 
@@ -557,13 +584,13 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     satTrueColor: 0, satTrueColorVIIRS: 0, satIR: 0, satWaterVapor: 0,
     satCloudTop: 0, satAerosol: 0, satDayNight: 0,
     satEuIrRss: 0, satGlobalIrMtg: 0, satEuHrvRgb: 0,
-    sst: 1,
+    sst: 1, windForecast: 1, wavesForecast: 1,
     radarDwd: 2, radarKnmi: 2,
     lightning: 4, alerts: 4, vessels: 4,
     metar: 4, hubeau: 4, piezo: 4, quakes: 4, firms: 4, buoys: 4,
     tracks: 4,
     rain: 2,
-    windParticles: 5,
+    windArrows: 5, waveArrows: 5, windParticles: 5,
   };
   private readonly DEFAULT_LAYER_RANK = 3;
 
@@ -590,12 +617,13 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     return new Date(this.currentTime().getTime() + 6 * 3_600_000);
   });
 
-  /** G6/G7 — couverture des layers actifs sur la time-bar. 1 rangée par layer
-   *  actif. canBeMaster = WMS time-enabled (sat/sst). isMaster = la layer
-   *  active maître du temps. Ordre dérivé de layerZIndexOrder (Sprint Z porté). */
+  /** G6/G7/G9 — couverture des layers actifs sur la time-bar. 1 rangée par layer
+   *  actif. canBeMaster = WMS time-enabled (sat/sst/forecast). isMaster = la
+   *  layer active maître du temps. Ordre dérivé de layerZIndexOrder. */
   readonly sliderLayerCoverage = computed<TimeSliderLayerCoverage[]>(() => {
     const out: TimeSliderLayerCoverage[] = [];
-    const isWmsTime = (k: string) => k === 'sst' || k.startsWith('sat');
+    const isWmsTime = (k: string) => k === 'sst' || k.startsWith('sat') ||
+      k === 'windForecast' || k === 'wavesForecast' || k === 'windArrows' || k === 'waveArrows';
     const master = this.effectiveMasterLayerKey();
     const push = (active: boolean, key: string, name: string, color: string, pastH: number, futureH: number) => {
       if (active) out.push({
@@ -617,6 +645,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     push(this.showBuoys(),     'buoys',     'buoys',     '#10b981', 24, 0);
     push(this.showTracks(),    'tracks',    'tracks',    '#22c55e', 24, 0);
     push(this.showRain(),      'rain',      'rain',      '#22d3ee', 2, 0);
+    push(this.showWindForecast(),  'windForecast',  'wind',         '#22c55e', 0, 168);
+    push(this.showWavesForecast(), 'wavesForecast', 'waves',        '#3b82f6', 0, 168);
+    push(this.showWindArrows(),    'windArrows',    'wind-arrows',  '#22c55e', 0, 168);
+    push(this.showWaveArrows(),    'waveArrows',    'wave-arrows',  '#3b82f6', 0, 168);
     if (this.activeSat() !== 'none') {
       const sat = SAT_PRODUCTS.find((p) => p.key === this.activeSat());
       if (sat) push(true, sat.key, sat.gsName, '#a855f7', 168, 0);
@@ -637,17 +669,24 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     return out;
   });
 
-  /** G7 — masterLayerKey effectif. Si user a pick explicite → c'est lui.
-   *  Sinon fallback : 1er WMS time-enabled actif (sat > sst). */
+  /** G7/G9 — masterLayerKey effectif. Si user a pick explicite → c'est lui.
+   *  Sinon fallback : 1er WMS time-enabled actif (sat > sst > forecast). */
   private readonly effectiveMasterLayerKey = computed<string | null>(() => {
     const explicit = this.masterLayerKey();
     if (explicit) {
-      // Vérifier qu'il est toujours actif
       if (explicit === 'sst' && this.showSst()) return explicit;
       if (explicit.startsWith('sat') && this.activeSat() === explicit) return explicit;
+      if (explicit === 'windForecast'  && this.showWindForecast())  return explicit;
+      if (explicit === 'wavesForecast' && this.showWavesForecast()) return explicit;
+      if (explicit === 'windArrows'    && this.showWindArrows())    return explicit;
+      if (explicit === 'waveArrows'    && this.showWaveArrows())    return explicit;
     }
     if (this.activeSat() !== 'none') return this.activeSat();
     if (this.showSst()) return 'sst';
+    if (this.showWindForecast()) return 'windForecast';
+    if (this.showWavesForecast()) return 'wavesForecast';
+    if (this.showWindArrows()) return 'windArrows';
+    if (this.showWaveArrows()) return 'waveArrows';
     return null;
   });
 
@@ -711,6 +750,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (this.showBuoys()) active.push('buoys');
     if (this.showTracks()) active.push('tracks');
     if (this.showRain()) active.push('rain');
+    if (this.showWindForecast()) active.push('windForecast');
+    if (this.showWavesForecast()) active.push('wavesForecast');
+    if (this.showWindArrows()) active.push('windArrows');
+    if (this.showWaveArrows()) active.push('waveArrows');
     return [...active].sort((a, b) => {
       const rA = this.LAYER_CATEGORY[a] ?? this.DEFAULT_LAYER_RANK;
       const rB = this.LAYER_CATEGORY[b] ?? this.DEFAULT_LAYER_RANK;
@@ -733,6 +776,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
     if (key === 'tracks') return ['vec-tracks'];
     if (key === 'rain') return ['rain-tiles'];
+    if (key === 'windForecast') return ['wind-forecast-wms'];
+    if (key === 'wavesForecast') return ['waves-forecast-wms'];
+    if (key === 'windArrows') return ['wind-arrows-wms'];
+    if (key === 'waveArrows') return ['wave-arrows-wms'];
     if (key.startsWith('sat')) return [`sat-${key}`];
     return [];
   }
@@ -755,8 +802,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  /** G6b/G7 — calcule les validités client-side pour la layer "master" courante.
-   *  Master dérivé de effectiveMasterLayerKey. Cap à 500 timesteps. */
+  /** G6b/G7/G9 — calcule les validités client-side pour la layer "master" courante.
+   *  Master dérivé de effectiveMasterLayerKey. Cap à 500 timesteps.
+   *  Forecast wind/waves/arrows = step 6h, fenêtre 0 past + 168 future. */
   readonly masterValidityList = computed<Date[]>(() => {
     const now = Date.now();
     const master = this.effectiveMasterLayerKey();
@@ -769,6 +817,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
     if (master === 'sst') {
       return this.generateClientValidities(24 * 3_600_000, 168, 0, now);
+    }
+    if (master === 'windForecast' || master === 'wavesForecast' ||
+        master === 'windArrows'   || master === 'waveArrows') {
+      return this.generateClientValidities(6 * 3_600_000, 0, 168, now);
     }
     return [];
   });
@@ -797,6 +849,28 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       const date = `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`;
       const url = this.buildWmsTileUrl('aetherwx:sst-daily', date, { interpolations: 'bicubic' });
       (map.getSource('sst-wms') as maplibregl.RasterTileSource).setTiles([url]);
+    }
+
+    // G9 — forecast wind/waves + arrows
+    const iso = t.toISOString().split('.')[0] + 'Z';
+    const forecastLayers: Array<{ active: boolean; layerId: string; gsName: string; style?: string }> = [
+      { active: this.showWindForecast(),  layerId: 'wind-forecast-wms',  gsName: 'aetherwx:wind-speed' },
+      { active: this.showWavesForecast(), layerId: 'waves-forecast-wms', gsName: 'aetherwx:wave-hs' },
+      { active: this.showWindArrows(),    layerId: 'wind-arrows-wms',    gsName: 'aetherwx:wind-speed', style: 'aetherwx:wind-arrows' },
+      { active: this.showWaveArrows(),    layerId: 'wave-arrows-wms',    gsName: 'aetherwx:wave-dir',   style: 'aetherwx:wave-arrows' },
+    ];
+    for (const fl of forecastLayers) {
+      if (!fl.active) continue;
+      const src = map.getSource(fl.layerId);
+      if (!src) continue;
+      const url = '/geoserver/aetherwx/wms' +
+        '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
+        `&LAYERS=${encodeURIComponent(fl.gsName)}` +
+        `&STYLES=${fl.style ? encodeURIComponent(fl.style) : ''}` +
+        '&FORMAT=image/png&TRANSPARENT=true' +
+        `&TIME=${encodeURIComponent(iso)}` +
+        '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256';
+      (src as maplibregl.RasterTileSource).setTiles([url]);
     }
 
     // Sat actif
@@ -1078,6 +1152,64 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       this.vectorLoading.set(null);
       showSig.set(false);
     }
+  }
+
+  /** G9 — toggle générique pour les 4 layers forecast WMS time-enabled
+   *  (wind/waves raster + arrows). Pattern identique à toggleSst, factorisé
+   *  via config opts. */
+  private toggleForecastLayer(opts: {
+    key: 'windForecast' | 'wavesForecast' | 'windArrows' | 'waveArrows';
+    layerId: string;
+    gsName: string;
+    style?: string;
+    opacity: number;
+    on: boolean;
+  }): void {
+    const sigMap = {
+      windForecast: this.showWindForecast,
+      wavesForecast: this.showWavesForecast,
+      windArrows: this.showWindArrows,
+      waveArrows: this.showWaveArrows,
+    } as const;
+    const sig = sigMap[opts.key];
+    if (sig() === opts.on) return;
+    sig.set(opts.on);
+    const map = this.map;
+    if (!map) return;
+    if (!opts.on) {
+      if (map.getLayer(opts.layerId)) map.removeLayer(opts.layerId);
+      if (map.getSource(opts.layerId)) map.removeSource(opts.layerId);
+      return;
+    }
+    const iso = this.currentTime().toISOString().split('.')[0] + 'Z';
+    const url = '/geoserver/aetherwx/wms' +
+      '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
+      `&LAYERS=${encodeURIComponent(opts.gsName)}` +
+      `&STYLES=${opts.style ? encodeURIComponent(opts.style) : ''}` +
+      '&FORMAT=image/png&TRANSPARENT=true' +
+      `&TIME=${encodeURIComponent(iso)}` +
+      '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256';
+    if (map.getSource(opts.layerId)) map.removeSource(opts.layerId);
+    map.addSource(opts.layerId, { type: 'raster', tiles: [url], tileSize: 256 });
+    map.addLayer({
+      id: opts.layerId,
+      type: 'raster',
+      source: opts.layerId,
+      paint: { 'raster-opacity': opts.opacity },
+    });
+  }
+
+  toggleWindForecast(on: boolean): void {
+    this.toggleForecastLayer({ key: 'windForecast', layerId: 'wind-forecast-wms', gsName: 'aetherwx:wind-speed', opacity: 0.7, on });
+  }
+  toggleWavesForecast(on: boolean): void {
+    this.toggleForecastLayer({ key: 'wavesForecast', layerId: 'waves-forecast-wms', gsName: 'aetherwx:wave-hs', opacity: 0.7, on });
+  }
+  toggleWindArrows(on: boolean): void {
+    this.toggleForecastLayer({ key: 'windArrows', layerId: 'wind-arrows-wms', gsName: 'aetherwx:wind-speed', style: 'aetherwx:wind-arrows', opacity: 0.9, on });
+  }
+  toggleWaveArrows(on: boolean): void {
+    this.toggleForecastLayer({ key: 'waveArrows', layerId: 'wave-arrows-wms', gsName: 'aetherwx:wave-dir', style: 'aetherwx:wave-arrows', opacity: 0.9, on });
   }
 
   /** G8b — tracks vessels : LineString polylines depuis WFS aetherwx:vessel_tracks_daily.
