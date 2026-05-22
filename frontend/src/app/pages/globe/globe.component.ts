@@ -113,6 +113,49 @@ function gibsDailyDate(): string {
       <aside class="controls">
         <h2>Couches</h2>
 
+        <!-- G18 M10 — toggle mode simple/avancé (visible ≤ 760px) -->
+        <div class="mobile-mode-bar">
+          <button type="button" class="mobile-mode-toggle"
+                  (click)="mobileSimpleMode.set(!mobileSimpleMode())">
+            {{ mobileSimpleMode() ? '⊕ Vue avancée' : '⊖ Vue simple' }}
+          </button>
+        </div>
+
+        <!-- G18 M10 — vue simple mobile : grid 2×3 de 6 toggles essentiels -->
+        @if (mobileSimpleMode()) {
+          <div class="essential-layers">
+            <div class="essential-grid">
+              <button type="button" class="essential-toggle" [class.active]="showVessels()"
+                      (click)="toggleVector('vessels')" [disabled]="vectorLoading() === 'vessels'">
+                <span class="ess-icon">🚢</span><span class="ess-label">Navires</span>
+              </button>
+              <button type="button" class="essential-toggle" [class.active]="showWind()"
+                      (click)="toggleWind(!showWind())" [disabled]="windLoading()">
+                <span class="ess-icon">🌬</span><span class="ess-label">Vent</span>
+              </button>
+              <button type="button" class="essential-toggle" [class.active]="showAlerts()"
+                      (click)="toggleVector('alerts')" [disabled]="vectorLoading() === 'alerts'">
+                <span class="ess-icon">⚠</span><span class="ess-label">Alertes</span>
+              </button>
+              <button type="button" class="essential-toggle" [class.active]="showLightning()"
+                      (click)="toggleVector('lightning')" [disabled]="vectorLoading() === 'lightning'">
+                <span class="ess-icon">⚡</span><span class="ess-label">Foudre</span>
+              </button>
+              <button type="button" class="essential-toggle" [class.active]="showSst()"
+                      (click)="toggleSst(!showSst())">
+                <span class="ess-icon">🌡</span><span class="ess-label">SST</span>
+              </button>
+              <button type="button" class="essential-toggle" [class.active]="isSatActive('satIR')"
+                      (click)="toggleSatLayer('satIR', !isSatActive('satIR'))">
+                <span class="ess-icon">🛰</span><span class="ess-label">Sat IR</span>
+              </button>
+            </div>
+          </div>
+        }
+
+        <!-- G18 M10 — Wrapper layer-toggles, masqué en mode simple mobile -->
+        <div class="layer-toggles" [class.layer-toggles-hidden]="mobileSimpleMode()">
+
         <!-- Projection toggle (hors sections) -->
         <div class="row projection-row">
           <button type="button" class="btn"
@@ -430,6 +473,7 @@ function gibsDailyDate(): string {
         <div class="info subtle">
           MapLibre 5.24 + WebGL2 GPGPU. Bbox Europe [{{ WIND_BBOX.join(', ') }}].
         </div>
+        </div><!-- /.layer-toggles -->
       </aside>
 
       <div class="fps" aria-label="frames per second">FPS {{ fps() }}</div>
@@ -745,6 +789,63 @@ function gibsDailyDate(): string {
       outline-offset: 1px;
     }
 
+    /* G18 M10 — mobile simple mode (parité /legacy-map). Desktop = caché.
+       ≤ 760px : .mobile-mode-bar visible, .essential-grid 2×3, layer-toggles masqués
+       sur opt-in (toggle "Vue simple" → mobileSimpleMode true). */
+    .mobile-mode-bar { display: none; }
+    .essential-layers { display: none; }
+    @media (max-width: 760px) {
+      .controls {
+        max-width: calc(100vw - 28px);
+        max-height: 60vh;
+        overflow-y: auto;
+      }
+      .mobile-mode-bar { display: flex; justify-content: flex-end; padding: 0 0 8px 0; }
+      .mobile-mode-toggle {
+        background: hsl(224 85% 30% / 0.4);
+        color: #d8e0f0;
+        border: 1px solid hsl(224 85% 55% / 0.6);
+        padding: 5px 10px;
+        border-radius: 6px;
+        font-size: 11px;
+        font-family: ui-monospace, monospace;
+        cursor: pointer;
+      }
+      .mobile-mode-toggle:hover { background: hsl(224 85% 40% / 0.6); }
+      .essential-layers { display: block; }
+      .essential-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+      }
+      .essential-toggle {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        min-height: 72px;
+        padding: 8px 6px;
+        background: rgba(28, 35, 51, 0.95);
+        color: #d8e0f0;
+        border: 1px solid #3a4458;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: background .15s, border-color .15s;
+      }
+      .essential-toggle:hover:not(:disabled) {
+        background: rgba(42, 52, 72, 0.95);
+      }
+      .essential-toggle.active {
+        background: hsl(224 85% 30% / 0.55);
+        border-color: hsl(224 85% 60%);
+      }
+      .essential-toggle:disabled { opacity: 0.5; cursor: progress; }
+      .ess-icon { font-size: 22px; line-height: 1; }
+      .ess-label { font-size: 11px; line-height: 1; }
+      .layer-toggles-hidden { display: none; }
+    }
+
     .fps {
       position: absolute;
       top: 56px;
@@ -1042,6 +1143,32 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
 
   toggleLegend(): void { this.legendOpen.update((v) => !v); }
   toggleAttrCollapsed(): void { this.attrOpen.update((v) => !v); }
+
+  /** G18 M10 (2026-05-22) — mobile simple mode (parité /legacy-map).
+   *  Default true sur ≤760px, false desktop. Affiche grid 2×3 de 6 toggles
+   *  essentiels au lieu des catalog sections complètes. Toggle button
+   *  "⊕ Vue avancée" pour repasser à l'UI complète. Persisté localStorage
+   *  clé partagée avec /map. */
+  readonly mobileSimpleMode = signal<boolean>(this.loadMobileSimpleMode());
+
+  private loadMobileSimpleMode(): boolean {
+    try {
+      const v = localStorage.getItem('aetherwx.mobile-simple-mode');
+      if (v !== null) return v === '1';
+    } catch {}
+    return typeof window !== 'undefined' && window.innerWidth <= 760;
+  }
+  private persistMobileSimpleOnChange = effect(() => {
+    const v = this.mobileSimpleMode();
+    try { localStorage.setItem('aetherwx.mobile-simple-mode', v ? '1' : '0'); } catch {}
+  });
+
+  /** G18 M11 (2026-05-22) — cache MMSI → vessel name pour le popup tracks.
+   *  Peuplé à chaque fetch vessels via _fetchVectorFc('vessels'). */
+  private vesselNameCache = new Map<number, string>();
+  vesselNameLookup(mmsi: number): string | null {
+    return this.vesselNameCache.get(mmsi) ?? null;
+  }
 
   /** G18 M5 (2026-05-22) — alerts feed exposé du AlertsService.
    *  Panel dédié à droite quand showAlerts() && alertsList().length > 0. */
@@ -2491,7 +2618,16 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       return await this.alertsService.refresh(new Date(), 3600);
     }
     if (kind === 'vessels') {
-      return await firstValueFrom(this.vesselsService.fetchLiveVessels(new Date(), 900));
+      const fc = await firstValueFrom(this.vesselsService.fetchLiveVessels(new Date(), 900));
+      // G18 M11 — peuple le cache mmsi → name pour le popup tracks
+      this.vesselNameCache.clear();
+      for (const feat of fc.features ?? []) {
+        const p = (feat.properties ?? {}) as unknown as Record<string, unknown>;
+        const mmsi = p['mmsi'] as number | undefined;
+        const name = (p['vessel_name'] || p['name']) as string | undefined;
+        if (mmsi != null && name) this.vesselNameCache.set(mmsi, name);
+      }
+      return fc;
     }
     // G8 — fetch REST direct pour 6 layers vector. Mapping endpoint :
     //  - piezo  → /api/hubeau/piezo/recent (path nested sous hubeau)
@@ -2705,6 +2841,55 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // détecte la layer source, build HTML avec props feature, ouvre Popup.
     // Cluster vessels → zoom-in au lieu de popup (comme /map OL prod).
     map.on('click', (e) => {
+      // Helpers utilisés dans les branches (fmtRelTime + row builder)
+      const fmtRelTimeOuter = (isoOrTs: unknown): string => {
+        if (!isoOrTs) return '';
+        const d = new Date(String(isoOrTs));
+        if (isNaN(d.getTime())) return String(isoOrTs);
+        const diffSec = Math.round((Date.now() - d.getTime()) / 1000);
+        if (diffSec < 60) return `il y a ${diffSec}s`;
+        const diffMin = Math.round(diffSec / 60);
+        if (diffMin < 60) return `il y a ${diffMin} min`;
+        const diffH = Math.round(diffMin / 60);
+        if (diffH < 24) return `il y a ${diffH}h`;
+        return `il y a ${Math.round(diffH / 24)}j`;
+      };
+      const rowOuter = (label: string, value: string | number | undefined | null, unit = ''): string => {
+        if (value === null || value === undefined || value === '') return '';
+        return `<div style="display:flex;justify-content:space-between;gap:12px;margin-top:3px"><span style="color:#8a96a8;font-size:11px">${label}</span><span style="font-weight:500">${value}${unit}</span></div>`;
+      };
+
+      // G18 M11 — vessel tracks line-click avec bbox tolerance.
+      // queryRenderedFeatures sur e.point sur une ligne fine échoue souvent
+      // (1.2px width). On utilise une bbox 6px autour du curseur.
+      if (map.getLayer('vec-tracks')) {
+        const T = 6;
+        const trackFeats = map.queryRenderedFeatures(
+          [[e.point.x - T, e.point.y - T], [e.point.x + T, e.point.y + T]],
+          { layers: ['vec-tracks'] },
+        );
+        if (trackFeats.length > 0) {
+          const p = (trackFeats[0].properties ?? {}) as Record<string, unknown>;
+          const mmsi = p['mmsi'] as number | undefined;
+          const day = p['day'] as string | undefined;
+          const pointsN = p['points_n'] as number | undefined;
+          const vesselName = mmsi != null ? this.vesselNameLookup(mmsi) : null;
+          const title = vesselName ?? (mmsi != null ? `MMSI ${mmsi}` : 'Trajet AIS');
+          const html = `
+            <div>
+              <div style="font-size:13px;font-weight:600;color:#22c55e;border-bottom:1px solid #2a3245;padding-bottom:6px;margin-bottom:4px">🛤 ${title}</div>
+              ${rowOuter('MMSI', mmsi)}
+              ${rowOuter('Jour', day)}
+              ${rowOuter('Points AIS', pointsN)}
+            </div>`;
+          new maplibregl.Popup({ closeButton: true, maxWidth: '260px', offset: 12 })
+            .setLngLat(e.lngLat)
+            .setHTML(html)
+            .addTo(map);
+          return;
+        }
+      }
+
       const allLayers = [
         'vec-vessels-clusters', 'vec-vessels-points',
         'vec-lightning', 'vec-alerts',
@@ -2936,7 +3121,13 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     const setCursor = (cursor: string) => () => {
       map.getCanvas().style.cursor = cursor;
     };
-    for (const layerId of ['vec-vessels-clusters', 'vec-vessels-points', 'vec-lightning', 'vec-alerts']) {
+    for (const layerId of [
+      'vec-vessels-clusters', 'vec-vessels-points',
+      'vec-lightning', 'vec-alerts',
+      'vec-metar', 'vec-hubeau', 'vec-piezo',
+      'vec-quakes', 'vec-firms', 'vec-buoys',
+      'vec-tracks',
+    ]) {
       map.on('mouseenter', layerId, setCursor('pointer'));
       map.on('mouseleave', layerId, setCursor(''));
     }
