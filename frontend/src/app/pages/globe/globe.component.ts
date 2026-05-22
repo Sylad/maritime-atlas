@@ -489,6 +489,11 @@ function gibsDailyDate(): string {
           <div class="info">Pluie radar RainViewer (snap au cursor)</div>
         }
 
+        <!-- G18 M14 — warning >5 layers actifs (parité /legacy-map cap5) -->
+        @if (cap5Warning(); as msg) {
+          <div class="cap5-inline" role="status">⚠ {{ msg }}</div>
+        }
+
         <!-- G18 M6 — bouton reset prefs (parité /legacy-map) -->
         <div class="reset-row">
           <button type="button" class="layer-reset" (click)="resetLayerPrefs()"
@@ -699,6 +704,24 @@ function gibsDailyDate(): string {
       background: rgba(59, 91, 255, 0.25);
       border-color: #6b4a8a;
     }
+    /* G18 M14 — cap 5 layers actifs (parité /legacy-map). Inline warning
+       affiché en bas du drawer quand >5 layers visibles. */
+    .cap5-inline {
+      margin-top: 12px;
+      padding: 8px 10px;
+      background: rgba(80, 30, 20, 0.75);
+      border: 1px solid #b91c1c;
+      border-radius: 6px;
+      color: #fecaca;
+      font-size: 11px;
+      line-height: 1.4;
+      animation: cap5-fade-in .25s ease-out;
+    }
+    @keyframes cap5-fade-in {
+      from { opacity: 0; transform: translateY(-4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
     /* G18 M13 — LegendGraphic inline (parité /legacy-map). Affichée
        sous le toggle WMS quand la layer est active. Image PNG palette
        servie par GeoServer GetLegendGraphic avec LEGEND_OPTIONS dark. */
@@ -1257,6 +1280,41 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   vesselNameLookup(mmsi: number): string | null {
     return this.vesselNameCache.get(mmsi) ?? null;
   }
+
+  /** G18 M14 (2026-05-22) — cap 5 layers actifs (audit gap G-4).
+   *  Count tout layer rasterized ou vector visible. Au-dessus de 5,
+   *  affiche un warning inline pour prévenir lenteur rendering. */
+  private readonly MAX_ACTIVE_LAYERS = 5;
+  readonly activeLayersCount = computed(() => {
+    let n = 0;
+    if (this.showSst() || this.showSstContours()) n++;
+    if (this.showWindForecast() || this.showWindContours()) n++;
+    if (this.showWavesForecast() || this.showWaveContours()) n++;
+    if (this.showWind()) n++;
+    if (this.showVessels()) n++;
+    if (this.showAlerts()) n++;
+    if (this.showLightning()) n++;
+    if (this.showMetar()) n++;
+    if (this.showHubeau()) n++;
+    if (this.showPiezo()) n++;
+    if (this.showQuakes()) n++;
+    if (this.showFirms()) n++;
+    if (this.showBuoys()) n++;
+    if (this.showTracks()) n++;
+    if (this.showRain()) n++;
+    if (this.showWindArrows()) n++;
+    if (this.showWaveArrows()) n++;
+    if (this.showBathy() || this.showEez() || this.showMpa() || this.showEfas()) n++;
+    for (const sig of Object.values(this.satShowSignals())) if (sig()) n++;
+    return n;
+  });
+  readonly cap5Warning = computed<string | null>(() => {
+    const n = this.activeLayersCount();
+    if (n > this.MAX_ACTIVE_LAYERS) {
+      return `${n} layers actifs — réduis pour éviter le rendu lent (max recommandé ${this.MAX_ACTIVE_LAYERS}).`;
+    }
+    return null;
+  });
 
   /** G18 M13 (2026-05-22) — URL GetLegendGraphic pour les WMS time-enabled.
    *  Render côté GeoServer un PNG palette 20×120 du SLD courant. Inclus en
