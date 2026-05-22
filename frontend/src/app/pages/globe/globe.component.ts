@@ -113,186 +113,228 @@ function gibsDailyDate(): string {
       <aside class="controls">
         <h2>Couches</h2>
 
-        <div class="row">
-          <button
-            type="button"
-            class="btn"
+        <!-- Projection toggle (hors sections) -->
+        <div class="row projection-row">
+          <button type="button" class="btn"
             [class.active]="projection() === 'globe'"
-            (click)="setProjection('globe')"
-          >🌍 Globe</button>
-          <button
-            type="button"
-            class="btn"
+            (click)="setProjection('globe')">🌍 Globe</button>
+          <button type="button" class="btn"
             [class.active]="projection() === 'mercator'"
-            (click)="setProjection('mercator')"
-          >🗺 Mercator</button>
+            (click)="setProjection('mercator')">🗺 Mercator</button>
         </div>
 
-        <div class="row">
-          <button
-            type="button"
-            class="btn"
-            [class.active]="!showSst()"
-            (click)="toggleSst(false)"
-          >SST off</button>
-          <button
-            type="button"
-            class="btn"
-            [class.active]="showSst()"
-            (click)="toggleSst(true)"
-          >SST live</button>
-        </div>
-
-        <div class="row">
-          <button
-            type="button"
-            class="btn"
-            [class.active]="!showWind()"
-            (click)="toggleWind(false)"
-          >Vent off</button>
-          <button
-            type="button"
-            class="btn"
-            [class.active]="showWind()"
-            (click)="toggleWind(true)"
-            [disabled]="windLoading()"
-          >🌬 Particules WebGL</button>
-        </div>
-
-        @if (windLoading()) {
-          <div class="info">Chargement grid vent…</div>
-        }
-        @if (windError()) {
-          <div class="info error">{{ windError() }}</div>
-        }
-        @if (showWind() && !windLoading() && !windError()) {
-          <div class="info">Wind GFS — {{ DEFAULT_WIND_PARTICLES }} particules</div>
-        }
-
-        <label class="sat-label">
-          <span class="sat-title">📡 Imagerie satellite / radar</span>
-          <select class="sat-select" [value]="activeSat()" (change)="onSatChange($any($event.target).value)">
-            <option value="none">— Aucune</option>
-            <optgroup label="NASA GIBS (journalier J-1)">
-              @for (p of GIBS_PRODUCTS; track p.key) {
-                <option [value]="p.key">{{ p.label }}</option>
+        <!-- ═══ Section MARITIME (vessels, tracks, alerts, lightning) ═════ -->
+        <div class="catalog-section" [class.is-open]="globeSections().maritime">
+          <button type="button" class="catalog-section-head"
+                  (click)="toggleGlobeSection('maritime')"
+                  [attr.aria-expanded]="globeSections().maritime">
+            <span class="head-chevron">{{ globeSections().maritime ? '▼' : '▶' }}</span>
+            <span class="head-icon">🌊</span>
+            <span class="head-name">Maritime</span>
+            <span class="head-count">{{ globeSectionCount('maritime').active }}/{{ globeSectionCount('maritime').total }}</span>
+          </button>
+          @if (globeSections().maritime) {
+            <div class="catalog-section-body">
+              <div class="row">
+                <button type="button" class="btn full" [class.active]="showVessels()"
+                        (click)="toggleVector('vessels')" [disabled]="vectorLoading() === 'vessels'">🚢 Navires AIS (cluster)</button>
+              </div>
+              <div class="row">
+                <button type="button" class="btn full" [class.active]="showTracks()"
+                        (click)="toggleTracks(!showTracks())" [disabled]="vectorLoading() === 'tracks'">🚢 Trajets AIS</button>
+              </div>
+              <div class="row">
+                <button type="button" class="btn full" [class.active]="showAlerts()"
+                        (click)="toggleVector('alerts')" [disabled]="vectorLoading() === 'alerts'">⚠ Alertes</button>
+              </div>
+              <div class="row">
+                <button type="button" class="btn full" [class.active]="showLightning()"
+                        (click)="toggleVector('lightning')" [disabled]="vectorLoading() === 'lightning'">⚡ Foudre</button>
+              </div>
+              @if (vectorCounts()['vessels'] != null && showVessels()) {
+                <div class="info">Navires — {{ vectorCounts()['vessels'] }} positions</div>
               }
-            </optgroup>
-            <optgroup label="EUMETSAT / Radar (NRT)">
-              @for (p of CASCADE_PRODUCTS; track p.key) {
-                <option [value]="p.key">{{ p.label }}</option>
+              @if (vectorCounts()['tracks'] != null && showTracks()) {
+                <div class="info">Trajets — {{ vectorCounts()['tracks'] }} polylines</div>
               }
-            </optgroup>
-          </select>
-        </label>
-        @if (activeSat() !== 'none') {
-          <div class="info">{{ currentSatAttribution() }}</div>
-        }
+              @if (vectorCounts()['alerts'] != null && showAlerts()) {
+                <div class="info">Alertes 1h — {{ vectorCounts()['alerts'] }}</div>
+              }
+              @if (vectorCounts()['lightning'] != null && showLightning()) {
+                <div class="info">Foudre 30 min — {{ vectorCounts()['lightning'] }}</div>
+              }
+            </div>
+          }
+        </div>
 
-        <div class="row">
-          <button
-            type="button"
-            class="btn"
-            [class.active]="showLightning()"
-            (click)="toggleVector('lightning')"
-            [disabled]="vectorLoading() === 'lightning'"
-          >⚡ Foudre</button>
-          <button
-            type="button"
-            class="btn"
-            [class.active]="showAlerts()"
-            (click)="toggleVector('alerts')"
-            [disabled]="vectorLoading() === 'alerts'"
-          >⚠ Alertes</button>
+        <!-- ═══ Section OBSERVATION (metar, hubeau, piezo, quakes, firms, buoys) ═══ -->
+        <div class="catalog-section" [class.is-open]="globeSections().observation">
+          <button type="button" class="catalog-section-head"
+                  (click)="toggleGlobeSection('observation')"
+                  [attr.aria-expanded]="globeSections().observation">
+            <span class="head-chevron">{{ globeSections().observation ? '▼' : '▶' }}</span>
+            <span class="head-icon">👁</span>
+            <span class="head-name">Observation</span>
+            <span class="head-count">{{ globeSectionCount('observation').active }}/{{ globeSectionCount('observation').total }}</span>
+          </button>
+          @if (globeSections().observation) {
+            <div class="catalog-section-body">
+              <div class="row"><button type="button" class="btn full" [class.active]="showMetar()"
+                (click)="toggleVector('metar')" [disabled]="vectorLoading() === 'metar'">🌡 METAR</button></div>
+              <div class="row"><button type="button" class="btn full" [class.active]="showHubeau()"
+                (click)="toggleVector('hubeau')" [disabled]="vectorLoading() === 'hubeau'">💧 Hub'eau débits</button></div>
+              <div class="row"><button type="button" class="btn full" [class.active]="showPiezo()"
+                (click)="toggleVector('piezo')" [disabled]="vectorLoading() === 'piezo'">🩸 Piezo nappes</button></div>
+              <div class="row"><button type="button" class="btn full" [class.active]="showQuakes()"
+                (click)="toggleVector('quakes')" [disabled]="vectorLoading() === 'quakes'">🌐 Séismes</button></div>
+              <div class="row"><button type="button" class="btn full" [class.active]="showFirms()"
+                (click)="toggleVector('firms')" [disabled]="vectorLoading() === 'firms'">🔥 FIRMS feux</button></div>
+              <div class="row"><button type="button" class="btn full" [class.active]="showBuoys()"
+                (click)="toggleVector('buoys')" [disabled]="vectorLoading() === 'buoys'">⚓ Bouées</button></div>
+              @if (vectorCounts()['metar'] != null && showMetar()) { <div class="info">METAR — {{ vectorCounts()['metar'] }}</div> }
+              @if (vectorCounts()['hubeau'] != null && showHubeau()) { <div class="info">Hub'eau — {{ vectorCounts()['hubeau'] }}</div> }
+              @if (vectorCounts()['piezo'] != null && showPiezo()) { <div class="info">Piezo — {{ vectorCounts()['piezo'] }}</div> }
+              @if (vectorCounts()['quakes'] != null && showQuakes()) { <div class="info">Séismes — {{ vectorCounts()['quakes'] }}</div> }
+              @if (vectorCounts()['firms'] != null && showFirms()) { <div class="info">FIRMS — {{ vectorCounts()['firms'] }}</div> }
+              @if (vectorCounts()['buoys'] != null && showBuoys()) { <div class="info">Bouées — {{ vectorCounts()['buoys'] }}</div> }
+            </div>
+          }
         </div>
-        <div class="row">
-          <button
-            type="button"
-            class="btn full"
-            [class.active]="showVessels()"
-            (click)="toggleVector('vessels')"
-            [disabled]="vectorLoading() === 'vessels'"
-          >🚢 Navires AIS (cluster)</button>
-        </div>
-        @if (vectorCounts()['lightning'] != null && showLightning()) {
-          <div class="info">Foudre 30 min — {{ vectorCounts()['lightning'] }} strikes</div>
-        }
-        @if (vectorCounts()['alerts'] != null && showAlerts()) {
-          <div class="info">Alertes 1h — {{ vectorCounts()['alerts'] }} actives</div>
-        }
-        @if (vectorCounts()['vessels'] != null && showVessels()) {
-          <div class="info">Navires live — {{ vectorCounts()['vessels'] }} positions</div>
-        }
 
-        <!-- G8 (2026-05-22) — 6 layers vector portées depuis /map. -->
-        <div class="row">
-          <button type="button" class="btn full" [class.active]="showMetar()"
-                  (click)="toggleVector('metar')" [disabled]="vectorLoading() === 'metar'">🌡 METAR</button>
+        <!-- ═══ Section SATELLITES (NASA GIBS + EUMETSAT) ═══════════════ -->
+        <div class="catalog-section" [class.is-open]="globeSections().satellites">
+          <button type="button" class="catalog-section-head"
+                  (click)="toggleGlobeSection('satellites')"
+                  [attr.aria-expanded]="globeSections().satellites">
+            <span class="head-chevron">{{ globeSections().satellites ? '▼' : '▶' }}</span>
+            <span class="head-icon">🛰</span>
+            <span class="head-name">Satellites</span>
+            <span class="head-count">{{ globeSectionCount('satellites').active }}/{{ globeSectionCount('satellites').total }}</span>
+          </button>
+          @if (globeSections().satellites) {
+            <div class="catalog-section-body">
+              <label class="sat-label">
+                <span class="sat-title">Sélection produit (1 actif à la fois)</span>
+                <select class="sat-select" [value]="activeSat()" (change)="onSatChange($any($event.target).value)">
+                  <option value="none">— Aucune</option>
+                  <optgroup label="NASA GIBS (journalier J-1)">
+                    @for (p of GIBS_PRODUCTS; track p.key) {
+                      <option [value]="p.key">{{ p.label }}</option>
+                    }
+                  </optgroup>
+                  <optgroup label="EUMETSAT / Radar (NRT)">
+                    @for (p of CASCADE_PRODUCTS; track p.key) {
+                      <option [value]="p.key">{{ p.label }}</option>
+                    }
+                  </optgroup>
+                </select>
+              </label>
+              @if (activeSat() !== 'none') {
+                <div class="info">{{ currentSatAttribution() }}</div>
+              }
+            </div>
+          }
         </div>
-        <div class="row">
-          <button type="button" class="btn full" [class.active]="showHubeau()"
-                  (click)="toggleVector('hubeau')" [disabled]="vectorLoading() === 'hubeau'">💧 Hub'eau débits</button>
-        </div>
-        <div class="row">
-          <button type="button" class="btn full" [class.active]="showPiezo()"
-                  (click)="toggleVector('piezo')" [disabled]="vectorLoading() === 'piezo'">🩸 Piezo nappes</button>
-        </div>
-        <div class="row">
-          <button type="button" class="btn full" [class.active]="showQuakes()"
-                  (click)="toggleVector('quakes')" [disabled]="vectorLoading() === 'quakes'">🌐 Séismes</button>
-        </div>
-        <div class="row">
-          <button type="button" class="btn full" [class.active]="showFirms()"
-                  (click)="toggleVector('firms')" [disabled]="vectorLoading() === 'firms'">🔥 FIRMS feux</button>
-        </div>
-        <div class="row">
-          <button type="button" class="btn full" [class.active]="showBuoys()"
-                  (click)="toggleVector('buoys')" [disabled]="vectorLoading() === 'buoys'">⚓ Bouées</button>
-        </div>
-        <!-- G8b — tracks (vessel polylines) + rain (RainViewer XYZ). -->
-        <div class="row">
-          <button type="button" class="btn full" [class.active]="showTracks()"
-                  (click)="toggleTracks(!showTracks())" [disabled]="vectorLoading() === 'tracks'">🚢 Trajets AIS</button>
-        </div>
-        <div class="row">
-          <button type="button" class="btn full" [class.active]="showRain()"
+
+        <!-- ═══ Section RADAR (pluie, RainViewer) ═══════════════════════ -->
+        <div class="catalog-section" [class.is-open]="globeSections().radar">
+          <button type="button" class="catalog-section-head"
+                  (click)="toggleGlobeSection('radar')"
+                  [attr.aria-expanded]="globeSections().radar">
+            <span class="head-chevron">{{ globeSections().radar ? '▼' : '▶' }}</span>
+            <span class="head-icon">📡</span>
+            <span class="head-name">Radar</span>
+            <span class="head-count">{{ globeSectionCount('radar').active }}/{{ globeSectionCount('radar').total }}</span>
+          </button>
+          @if (globeSections().radar) {
+            <div class="catalog-section-body">
+              <div class="row">
+                <button type="button" class="btn full" [class.active]="showRain()"
                   (click)="toggleRain(!showRain())" [disabled]="vectorLoading() === 'rain'">🌧 Pluie RainViewer</button>
+              </div>
+              <div class="info subtle">DWD / KNMI / RainViewer IR → choisir dans la section Satellites</div>
+              @if (vectorCounts()['rain'] != null && showRain()) {
+                <div class="info">Pluie radar (snap au cursor)</div>
+              }
+            </div>
+          }
         </div>
 
-        <!-- G9 (2026-05-22) — forecast wind/waves + arrows (WMS GS time-enabled). -->
-        <div class="row">
-          <button type="button" class="btn full" [class.active]="showWindForecast()"
-                  (click)="toggleWindForecast(!showWindForecast())">🌬 Vent (raster)</button>
-        </div>
-        <div class="row">
-          <button type="button" class="btn full" [class.active]="showWindArrows()"
-                  (click)="toggleWindArrows(!showWindArrows())">↗ Flèches vent</button>
-        </div>
-        <div class="row">
-          <button type="button" class="btn full" [class.active]="showWavesForecast()"
-                  (click)="toggleWavesForecast(!showWavesForecast())">🌊 Vagues (raster)</button>
-        </div>
-        <div class="row">
-          <button type="button" class="btn full" [class.active]="showWaveArrows()"
-                  (click)="toggleWaveArrows(!showWaveArrows())">↗ Flèches vagues</button>
+        <!-- ═══ Section FORECAST (wind, waves, arrows) ══════════════════ -->
+        <div class="catalog-section" [class.is-open]="globeSections().forecast">
+          <button type="button" class="catalog-section-head"
+                  (click)="toggleGlobeSection('forecast')"
+                  [attr.aria-expanded]="globeSections().forecast">
+            <span class="head-chevron">{{ globeSections().forecast ? '▼' : '▶' }}</span>
+            <span class="head-icon">🌤</span>
+            <span class="head-name">Forecast</span>
+            <span class="head-count">{{ globeSectionCount('forecast').active }}/{{ globeSectionCount('forecast').total }}</span>
+          </button>
+          @if (globeSections().forecast) {
+            <div class="catalog-section-body">
+              <div class="row"><button type="button" class="btn full" [class.active]="showWindForecast()"
+                (click)="toggleWindForecast(!showWindForecast())">🌬 Vent (raster)</button></div>
+              <div class="row"><button type="button" class="btn full" [class.active]="showWindArrows()"
+                (click)="toggleWindArrows(!showWindArrows())">↗ Flèches vent</button></div>
+              <div class="row"><button type="button" class="btn full" [class.active]="showWavesForecast()"
+                (click)="toggleWavesForecast(!showWavesForecast())">🌊 Vagues (raster)</button></div>
+              <div class="row"><button type="button" class="btn full" [class.active]="showWaveArrows()"
+                (click)="toggleWaveArrows(!showWaveArrows())">↗ Flèches vagues</button></div>
+            </div>
+          }
         </div>
 
-        <!-- G11b (2026-05-22) — 4 layers sources scientifiques statiques. -->
-        <div class="row">
-          <button type="button" class="btn full" [class.active]="showBathy()"
-                  (click)="toggleBathy(!showBathy())">🏔 Bathymétrie EMODnet</button>
+        <!-- ═══ Section DYNAMICS (SST + Wind particles) ═══════════════════ -->
+        <div class="catalog-section" [class.is-open]="globeSections().dynamics">
+          <button type="button" class="catalog-section-head"
+                  (click)="toggleGlobeSection('dynamics')"
+                  [attr.aria-expanded]="globeSections().dynamics">
+            <span class="head-chevron">{{ globeSections().dynamics ? '▼' : '▶' }}</span>
+            <span class="head-icon">💨</span>
+            <span class="head-name">Dynamiques</span>
+            <span class="head-count">{{ globeSectionCount('dynamics').active }}/{{ globeSectionCount('dynamics').total }}</span>
+          </button>
+          @if (globeSections().dynamics) {
+            <div class="catalog-section-body">
+              <div class="row">
+                <button type="button" class="btn" [class.active]="!showSst()" (click)="toggleSst(false)">SST off</button>
+                <button type="button" class="btn" [class.active]="showSst()" (click)="toggleSst(true)">🌡 SST live</button>
+              </div>
+              <div class="row">
+                <button type="button" class="btn" [class.active]="!showWind()" (click)="toggleWind(false)">Vent off</button>
+                <button type="button" class="btn" [class.active]="showWind()" (click)="toggleWind(true)" [disabled]="windLoading()">🌬 Particules WebGL</button>
+              </div>
+              @if (windLoading()) { <div class="info">Chargement grid vent…</div> }
+              @if (windError()) { <div class="info error">{{ windError() }}</div> }
+              @if (showWind() && !windLoading() && !windError()) {
+                <div class="info">GFS — {{ DEFAULT_WIND_PARTICLES }} particules</div>
+              }
+            </div>
+          }
         </div>
-        <div class="row">
-          <button type="button" class="btn full" [class.active]="showEez()"
-                  (click)="toggleEez(!showEez())">🌐 EEZ Marine Regions</button>
-        </div>
-        <div class="row">
-          <button type="button" class="btn full" [class.active]="showMpa()"
-                  (click)="toggleMpa(!showMpa())">🛡 MPA EMODnet</button>
-        </div>
-        <div class="row">
-          <button type="button" class="btn full" [class.active]="showEfas()"
-                  (click)="toggleEfas(!showEfas())">🌊 EFAS forecast crues</button>
+
+        <!-- ═══ Section SOURCES (bathy, EEZ, MPA, EFAS) ═══════════════════ -->
+        <div class="catalog-section" [class.is-open]="globeSections().sources">
+          <button type="button" class="catalog-section-head"
+                  (click)="toggleGlobeSection('sources')"
+                  [attr.aria-expanded]="globeSections().sources">
+            <span class="head-chevron">{{ globeSections().sources ? '▼' : '▶' }}</span>
+            <span class="head-icon">🗺</span>
+            <span class="head-name">Sources</span>
+            <span class="head-count">{{ globeSectionCount('sources').active }}/{{ globeSectionCount('sources').total }}</span>
+          </button>
+          @if (globeSections().sources) {
+            <div class="catalog-section-body">
+              <div class="row"><button type="button" class="btn full" [class.active]="showBathy()"
+                (click)="toggleBathy(!showBathy())">🏔 Bathymétrie EMODnet</button></div>
+              <div class="row"><button type="button" class="btn full" [class.active]="showEez()"
+                (click)="toggleEez(!showEez())">🌐 EEZ Marine Regions</button></div>
+              <div class="row"><button type="button" class="btn full" [class.active]="showMpa()"
+                (click)="toggleMpa(!showMpa())">🛡 MPA EMODnet</button></div>
+              <div class="row"><button type="button" class="btn full" [class.active]="showEfas()"
+                (click)="toggleEfas(!showEfas())">🌊 EFAS forecast crues</button></div>
+            </div>
+          }
         </div>
 
         <!-- G11d (2026-05-22) — sliders opacité par layer active. -->
@@ -463,6 +505,82 @@ function gibsDailyDate(): string {
     }
     .controls .info.subtle { opacity: .7; margin-top: 10px; }
     .controls .info.error { color: #f87171; }
+
+    /* G15 (2026-05-22) — Sections accordéon menu gauche, calquées sur /map.
+       Pattern : header cliquable avec chevron + icon + name + count, body
+       collapsible. Animation slide-in 180ms à l'ouverture. */
+    .catalog-section {
+      border-top: 1px solid #1c2333;
+      margin-top: 0.4em;
+      padding-top: 0.3em;
+    }
+    .catalog-section:first-of-type {
+      border-top: 0;
+      margin-top: 0.6em;
+    }
+    .catalog-section-head {
+      display: flex;
+      align-items: center;
+      gap: 0.5em;
+      width: 100%;
+      background: transparent;
+      border: 0;
+      padding: 0.4em 0.2em;
+      cursor: pointer;
+      color: #c9d6e8;
+      font-family: inherit;
+      font-size: 0.8rem;
+      border-radius: 6px;
+      transition: background 120ms, color 120ms;
+    }
+    .catalog-section-head:hover {
+      background: rgba(255, 255, 255, 0.04);
+    }
+    .catalog-section.is-open .catalog-section-head {
+      color: hsl(160 80% 70%);
+    }
+    .head-chevron {
+      width: 1em;
+      font-size: 0.7rem;
+      opacity: 0.7;
+    }
+    .head-icon {
+      font-size: 0.95rem;
+    }
+    .head-name {
+      flex: 1;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-align: left;
+    }
+    .head-count {
+      font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
+      font-size: 0.65rem;
+      color: #8a96a8;
+      background: rgba(255, 255, 255, 0.06);
+      padding: 0.1em 0.55em;
+      border-radius: 999px;
+      letter-spacing: 0.02em;
+    }
+    .catalog-section.is-open .head-count {
+      color: hsl(160 80% 70%);
+      background: hsl(160 70% 18% / 0.6);
+    }
+    .catalog-section-body {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3em;
+      padding: 0.3em 0 0.4em 0.2em;
+      animation: globeAccordionSlideIn 180ms ease-out;
+    }
+    @keyframes globeAccordionSlideIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .projection-row {
+      padding-bottom: 0.5em;
+      border-bottom: 1px solid #1c2333;
+    }
 
     /* G11d (2026-05-22) — panneau sliders opacité par layer active. */
     .opacity-panel {
@@ -669,6 +787,69 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
    *  Default = maintenant. Future G6b : drive les WMS time-enabled
    *  (sat cascade, sst, etc.) via setSource() au changement. */
   readonly currentTime = signal<Date>(new Date());
+
+  /** G15 (2026-05-22) — sections accordéon du menu gauche, calquées sur /map.
+   *  6 sections regroupant les 22+ layers globe. Default = Maritime+Sources
+   *  ouvertes, autres fermées (UX scan rapide). */
+  readonly globeSections = signal<{
+    maritime: boolean;
+    observation: boolean;
+    satellites: boolean;
+    radar: boolean;
+    forecast: boolean;
+    dynamics: boolean;
+    sources: boolean;
+  }>({
+    maritime: true,
+    observation: false,
+    satellites: false,
+    radar: false,
+    forecast: false,
+    dynamics: false,
+    sources: false,
+  });
+
+  toggleGlobeSection(key: keyof ReturnType<typeof this.globeSections>): void {
+    this.globeSections.update((s) => ({ ...s, [key]: !s[key] }));
+  }
+
+  /** Compteur "X actives / Y totales" par section, affiché dans le header. */
+  globeSectionCount(key: keyof ReturnType<typeof this.globeSections>): { active: number; total: number } {
+    switch (key) {
+      case 'maritime':
+        return {
+          active: [this.showVessels(), this.showTracks(), this.showAlerts(), this.showLightning()].filter(Boolean).length,
+          total: 4,
+        };
+      case 'observation':
+        return {
+          active: [this.showMetar(), this.showHubeau(), this.showPiezo(), this.showQuakes(), this.showFirms(), this.showBuoys()].filter(Boolean).length,
+          total: 6,
+        };
+      case 'satellites':
+        return { active: this.activeSat() !== 'none' ? 1 : 0, total: SAT_PRODUCTS.length };
+      case 'radar':
+        return {
+          active: [this.showRain(), this.activeSat() === 'satRainviewer', this.activeSat() === 'radarDwd', this.activeSat() === 'radarKnmi'].filter(Boolean).length,
+          total: 4,
+        };
+      case 'forecast':
+        return {
+          active: [this.showWindForecast(), this.showWavesForecast(), this.showWindArrows(), this.showWaveArrows()].filter(Boolean).length,
+          total: 4,
+        };
+      case 'dynamics':
+        return {
+          active: [this.showSst(), this.showWind()].filter(Boolean).length,
+          total: 2,
+        };
+      case 'sources':
+        return {
+          active: [this.showBathy(), this.showEez(), this.showMpa(), this.showEfas()].filter(Boolean).length,
+          total: 4,
+        };
+    }
+  }
 
   /** G11c (2026-05-22) — playback animation temporelle (+6h/s).
    *  Toggle via bouton ▶︎ du TimeSliderComponent. */
