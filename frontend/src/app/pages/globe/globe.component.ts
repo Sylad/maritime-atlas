@@ -2403,52 +2403,52 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     this.catalogSections.update((s) => ({ ...s, [key]: !s[key] }));
   }
 
-  /** Compteur "X actives / Y totales" par section, affiché dans le header. */
+  /** G19 — Compteur "X actives / Y totales" par section, calqué identique
+   *  /legacy-map (cf map.component.ts line 4123) pour parité visuelle. */
   catalogSectionCount(key: keyof ReturnType<typeof this.catalogSections>): { active: number; total: number } {
     switch (key) {
-      case 'maritime':
-        return {
-          active: [this.showVessels(), this.showTracks(), this.showAlerts(), this.showLightning()].filter(Boolean).length,
-          total: 4,
-        };
-      case 'observation':
-        return {
-          active: [this.showMetar(), this.showQuakes(), this.showFirms(), this.showBuoys()].filter(Boolean).length,
-          total: 4,
-        };
-      case 'hydrology':
-        return {
-          active: [this.showHubeau(), this.showPiezo()].filter(Boolean).length,
-          total: 2,
-        };
+      case 'maritime': {
+        // 7 layers : vessels, tracks, alerts, buoys, SST, waves, waveArrows
+        const flags = [this.showVessels(), this.showTracks(), this.showAlerts(), this.showBuoys(),
+                       this.showSst(), this.showWavesForecast(), this.showWaveArrows()];
+        return { active: flags.filter(Boolean).length, total: flags.length };
+      }
+      case 'observation': {
+        // 4 layers : lightning, metar, quakes, firms (rain déplacé Radar)
+        const flags = [this.showLightning(), this.showMetar(), this.showQuakes(), this.showFirms()];
+        return { active: flags.filter(Boolean).length, total: flags.length };
+      }
+      case 'hydrology': {
+        const flags = [this.showHubeau(), this.showPiezo()];
+        return { active: flags.filter(Boolean).length, total: flags.length };
+      }
       case 'satellites': {
-        // G16 — count multi-sat actifs (GIBS + cascade EUMETSAT)
+        // 11 layers : 7 GIBS + 4 cascade/RainViewer (matchant /map)
         const gibsKeys = ['satTrueColor','satTrueColorVIIRS','satIR','satWaterVapor','satCloudTop','satAerosol','satDayNight'];
-        const cascadeKeys = ['satEuIrRss','satGlobalIrMtg','satEuHrvRgb'];
+        const cascadeKeys = ['satRainviewer','satEuIrRss','satGlobalIrMtg','satEuHrvRgb'];
         const all = [...gibsKeys, ...cascadeKeys];
-        const active = all.filter((k) => this.satShowSignals()[k]()).length;
+        const active = all.filter((k) => this.satShowSignals()[k]?.()).length;
         return { active, total: all.length };
       }
-      case 'radar':
-        return {
-          active: [this.showRain(), this.showSatRainviewer(), this.showRadarDwd(), this.showRadarKnmi()].filter(Boolean).length,
-          total: 4,
-        };
-      case 'forecast':
-        return {
-          active: [this.showWindForecast(), this.showWavesForecast(), this.showWindArrows(), this.showWaveArrows(), this.showWindContours(), this.showWaveContours()].filter(Boolean).length,
-          total: 6,
-        };
-      case 'dynamics':
-        return {
-          active: [this.showSst(), this.showWind(), this.showSstContours()].filter(Boolean).length,
-          total: 3,
-        };
-      case 'sources':
-        return {
-          active: [this.showBathy(), this.showEez(), this.showMpa(), this.showEfas()].filter(Boolean).length,
-          total: 4,
-        };
+      case 'radar': {
+        // 3 layers : rain (RainViewer global), radarDwd, radarKnmi
+        const flags = [this.showRain(), this.showRadarDwd(), this.showRadarKnmi()];
+        return { active: flags.filter(Boolean).length, total: flags.length };
+      }
+      case 'forecast': {
+        // 3 layers : wind (raster forecast), windArrows, windParticles (WebGL)
+        const flags = [this.showWindForecast(), this.showWindArrows(), this.showWind()];
+        return { active: flags.filter(Boolean).length, total: flags.length };
+      }
+      case 'dynamics': {
+        // Garde compat — section inutilisée par le template /map mais signal type encore défini.
+        return { active: 0, total: 0 };
+      }
+      case 'sources': {
+        // 1 fixe (basemap toujours actif) + 3 WMS sources (bathy/eez/mpa)
+        const flags = [this.showBathy(), this.showEez(), this.showMpa()];
+        return { active: 1 + flags.filter(Boolean).length, total: 1 + flags.length };
+      }
     }
   }
 
