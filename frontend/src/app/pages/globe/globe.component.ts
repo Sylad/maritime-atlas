@@ -416,6 +416,14 @@ function gibsDailyDate(): string {
           <div class="info">Pluie radar RainViewer (snap au cursor)</div>
         }
 
+        <!-- G18 M6 — bouton reset prefs (parité /legacy-map) -->
+        <div class="reset-row">
+          <button type="button" class="layer-reset" (click)="resetLayerPrefs()"
+                  title="Restaure l'affichage par défaut (toutes layers OFF + opacités reset + clear localStorage)">
+            ↺ Réinitialiser l'affichage
+          </button>
+        </div>
+
         <div class="info subtle">
           MapLibre 5.24 + WebGL2 GPGPU. Bbox Europe [{{ WIND_BBOX.join(', ') }}].
         </div>
@@ -574,6 +582,24 @@ function gibsDailyDate(): string {
     .controls .btn.mode-incompatible.active {
       background: rgba(59, 91, 255, 0.25);
       border-color: #6b4a8a;
+    }
+    /* G18 M6 — reset prefs button */
+    .reset-row { margin-top: 16px; }
+    .layer-reset {
+      width: 100%;
+      padding: 8px 10px;
+      background: #2a2333;
+      color: #d8c5e8;
+      border: 1px solid #5a4068;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: background .15s, border-color .15s;
+    }
+    .layer-reset:hover {
+      background: #3a2d48;
+      border-color: #7a5b94;
+      color: #fff;
     }
     .controls .info {
       font-size: 11px;
@@ -1022,6 +1048,47 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (seconds < 60) return `${seconds}s`;
     if (seconds < 3600) return `${Math.round(seconds / 60)}min`;
     return `${Math.round(seconds / 3600)}h`;
+  }
+
+  /** G18 M6 (2026-05-22) — reset toutes les layers à OFF + clear prefs.
+   *  Parité /legacy-map resetLayerPrefs. Appelé via le button "↺ Reset"
+   *  en bas du drawer. */
+  resetLayerPrefs(): void {
+    // Vector layers : passe par toggleVector pour bien removeLayer/removeSource
+    for (const k of ['lightning', 'alerts', 'vessels', 'metar', 'hubeau', 'piezo', 'quakes', 'firms', 'buoys'] as const) {
+      if ((this as any)[`show${k.charAt(0).toUpperCase()}${k.slice(1)}`]()) {
+        void this.toggleVector(k);
+      }
+    }
+    if (this.showTracks()) void this.toggleTracks(false);
+    if (this.showRain())   void this.toggleRain(false);
+    // Raster forecast
+    if (this.showWindForecast())  this.toggleWindForecast(false);
+    if (this.showWavesForecast()) this.toggleWavesForecast(false);
+    if (this.showWindArrows())    this.toggleWindArrows(false);
+    if (this.showWaveArrows())    this.toggleWaveArrows(false);
+    // M4 contours
+    if (this.showSstContours())  this.toggleSstContours(false);
+    if (this.showWindContours()) this.toggleWindContours(false);
+    if (this.showWaveContours()) this.toggleWaveContours(false);
+    // Dynamics
+    if (this.showSst())  this.toggleSst(false);
+    if (this.showWind()) void this.toggleWind(false);
+    // Sat layers (G16)
+    for (const [k, sig] of Object.entries(this.satShowSignals())) {
+      if (sig()) this.toggleSatLayer(k, false);
+    }
+    // Sources statiques
+    if (this.showBathy()) this.toggleBathy(false);
+    if (this.showEez())   this.toggleEez(false);
+    if (this.showMpa())   this.toggleMpa(false);
+    if (this.showEfas())  this.toggleEfas(false);
+    // Opacities reset + clear localStorage
+    this.layerOpacities.set({ ...this.LAYER_OPACITY_DEFAULTS });
+    try {
+      localStorage.removeItem('globe.prefs-v1');
+      localStorage.removeItem('globe.layer-opacities-v1');
+    } catch { /* silence */ }
   }
 
   /** G18 M3 (2026-05-22) — UX mode-aware (parité /map line 4524+).
