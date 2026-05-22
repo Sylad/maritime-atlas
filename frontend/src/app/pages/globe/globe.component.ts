@@ -274,6 +274,24 @@ function gibsDailyDate(): string {
           <button type="button" class="btn full" [class.active]="showWaveArrows()"
                   (click)="toggleWaveArrows(!showWaveArrows())">↗ Flèches vagues</button>
         </div>
+
+        <!-- G11b (2026-05-22) — 4 layers sources scientifiques statiques. -->
+        <div class="row">
+          <button type="button" class="btn full" [class.active]="showBathy()"
+                  (click)="toggleBathy(!showBathy())">🏔 Bathymétrie EMODnet</button>
+        </div>
+        <div class="row">
+          <button type="button" class="btn full" [class.active]="showEez()"
+                  (click)="toggleEez(!showEez())">🌐 EEZ Marine Regions</button>
+        </div>
+        <div class="row">
+          <button type="button" class="btn full" [class.active]="showMpa()"
+                  (click)="toggleMpa(!showMpa())">🛡 MPA EMODnet</button>
+        </div>
+        <div class="row">
+          <button type="button" class="btn full" [class.active]="showEfas()"
+                  (click)="toggleEfas(!showEfas())">🌊 EFAS forecast crues</button>
+        </div>
         @if (vectorCounts()['metar'] != null && showMetar()) {
           <div class="info">METAR — {{ vectorCounts()['metar'] }} stations</div>
         }
@@ -534,6 +552,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       void this.showWavesForecast();
       void this.showWindArrows();
       void this.showWaveArrows();
+      void this.showBathy();
+      void this.showEez();
+      void this.showMpa();
+      void this.showEfas();
       if (!enabled) return;
       const auto = this.computeAutoZIndexOrder();
       if (auto.length === 0) return;
@@ -569,6 +591,12 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   readonly showWavesForecast = signal(false);
   readonly showWindArrows = signal(false);
   readonly showWaveArrows = signal(false);
+  /** G11b (2026-05-22) — 4 layers statiques sources sciencé (EMODnet/Marine
+   *  Regions/EFAS) via proxy nginx maritime. */
+  readonly showBathy = signal(false);
+  readonly showEez = signal(false);
+  readonly showMpa = signal(false);
+  readonly showEfas = signal(false);
   readonly vectorLoading = signal<string | null>(null);
   readonly vectorCounts = signal<Record<string, number | undefined>>({});
 
@@ -584,7 +612,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     satTrueColor: 0, satTrueColorVIIRS: 0, satIR: 0, satWaterVapor: 0,
     satCloudTop: 0, satAerosol: 0, satDayNight: 0,
     satEuIrRss: 0, satGlobalIrMtg: 0, satEuHrvRgb: 0,
-    sst: 1, windForecast: 1, wavesForecast: 1,
+    sst: 1, windForecast: 1, wavesForecast: 1, efas: 1,
+    bathy: 0, eez: 0, mpa: 0,
     radarDwd: 2, radarKnmi: 2,
     lightning: 4, alerts: 4, vessels: 4,
     metar: 4, hubeau: 4, piezo: 4, quakes: 4, firms: 4, buoys: 4,
@@ -754,6 +783,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (this.showWavesForecast()) active.push('wavesForecast');
     if (this.showWindArrows()) active.push('windArrows');
     if (this.showWaveArrows()) active.push('waveArrows');
+    if (this.showBathy()) active.push('bathy');
+    if (this.showEez()) active.push('eez');
+    if (this.showMpa()) active.push('mpa');
+    if (this.showEfas()) active.push('efas');
     return [...active].sort((a, b) => {
       const rA = this.LAYER_CATEGORY[a] ?? this.DEFAULT_LAYER_RANK;
       const rB = this.LAYER_CATEGORY[b] ?? this.DEFAULT_LAYER_RANK;
@@ -780,6 +813,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (key === 'wavesForecast') return ['waves-forecast-wms'];
     if (key === 'windArrows') return ['wind-arrows-wms'];
     if (key === 'waveArrows') return ['wave-arrows-wms'];
+    if (key === 'bathy') return ['bathy-wms'];
+    if (key === 'eez') return ['eez-wms'];
+    if (key === 'mpa') return ['mpa-wms'];
+    if (key === 'efas') return ['efas-wms'];
     if (key.startsWith('sat')) return [`sat-${key}`];
     return [];
   }
@@ -1196,6 +1233,82 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       type: 'raster',
       source: opts.layerId,
       paint: { 'raster-opacity': opts.opacity },
+    });
+  }
+
+  /** G11b — toggle générique pour les 4 layers WMS sources statiques
+   *  (bathy/eez/mpa/efas). Pas de TIME param, juste un proxy nginx
+   *  configuré côté ingress maritime. */
+  private toggleStaticWmsLayer(opts: {
+    key: 'bathy' | 'eez' | 'mpa' | 'efas';
+    layerId: string;
+    proxyUrl: string;     // ex: '/wms-emodnet'
+    wmsLayer: string;     // ex: 'mean_atlas_land'
+    opacity: number;
+    attribution: string;
+    on: boolean;
+  }): void {
+    const sigMap = {
+      bathy: this.showBathy,
+      eez: this.showEez,
+      mpa: this.showMpa,
+      efas: this.showEfas,
+    } as const;
+    const sig = sigMap[opts.key];
+    if (sig() === opts.on) return;
+    sig.set(opts.on);
+    const map = this.map;
+    if (!map) return;
+    if (!opts.on) {
+      if (map.getLayer(opts.layerId)) map.removeLayer(opts.layerId);
+      if (map.getSource(opts.layerId)) map.removeSource(opts.layerId);
+      return;
+    }
+    const url = `${opts.proxyUrl}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap` +
+      `&LAYERS=${encodeURIComponent(opts.wmsLayer)}` +
+      '&STYLES=&FORMAT=image/png&TRANSPARENT=true' +
+      '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256';
+    if (map.getSource(opts.layerId)) map.removeSource(opts.layerId);
+    map.addSource(opts.layerId, {
+      type: 'raster',
+      tiles: [url],
+      tileSize: 256,
+      attribution: opts.attribution,
+    });
+    map.addLayer({
+      id: opts.layerId,
+      type: 'raster',
+      source: opts.layerId,
+      paint: { 'raster-opacity': opts.opacity },
+    });
+  }
+
+  toggleBathy(on: boolean): void {
+    this.toggleStaticWmsLayer({
+      key: 'bathy', layerId: 'bathy-wms', proxyUrl: '/wms-emodnet',
+      wmsLayer: 'mean_atlas_land', opacity: 0.7,
+      attribution: '© EMODnet Bathymetry', on,
+    });
+  }
+  toggleEez(on: boolean): void {
+    this.toggleStaticWmsLayer({
+      key: 'eez', layerId: 'eez-wms', proxyUrl: '/wms-marineregions',
+      wmsLayer: 'MarineRegions:eez', opacity: 0.6,
+      attribution: '© Marine Regions (VLIZ)', on,
+    });
+  }
+  toggleMpa(on: boolean): void {
+    this.toggleStaticWmsLayer({
+      key: 'mpa', layerId: 'mpa-wms', proxyUrl: '/wms-emodnet-human',
+      wmsLayer: 'marineprotectedareas', opacity: 0.6,
+      attribution: '© EMODnet Human Activities', on,
+    });
+  }
+  toggleEfas(on: boolean): void {
+    this.toggleStaticWmsLayer({
+      key: 'efas', layerId: 'efas-wms', proxyUrl: '/wms-efas',
+      wmsLayer: 'efas_forecast_flood_probability', opacity: 0.7,
+      attribution: '© EFAS Copernicus', on,
     });
   }
 
