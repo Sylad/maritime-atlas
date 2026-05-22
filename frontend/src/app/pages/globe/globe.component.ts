@@ -27,6 +27,7 @@ import {
 import { Router, RouterLink } from '@angular/router';
 
 import { TimeSliderComponent, TimeSliderLayerCoverage } from '../../components/time-slider/time-slider.component';
+import { IngestionMiniChartComponent } from '../../components/ingestion-mini-chart/ingestion-mini-chart.component';
 
 import maplibregl, {
   type CustomLayerInterface,
@@ -93,7 +94,7 @@ function gibsDailyDate(): string {
 @Component({
   selector: 'app-globe',
   standalone: true,
-  imports: [CommonModule, RouterLink, TimeSliderComponent],
+  imports: [CommonModule, RouterLink, TimeSliderComponent, IngestionMiniChartComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="globe-root">
@@ -1044,10 +1045,17 @@ function gibsDailyDate(): string {
             @else if (modeIsFuture()) { ◷ FORECAST }
             @else { ◷ REPLAY }
           </div>
+          @if (lastRefreshAt()) {
+            <div class="legend-refresh">refresh {{ lastRefreshAt() | date:'HH:mm:ss' }}</div>
+          }
           @if (windError()) {
             <div class="legend-error">{{ windError() }}</div>
           }
         </div>
+
+        <!-- G20 (2026-05-22) — Mini-graph ingestion 24h (parité /legacy-map) -->
+        <div class="legend-section-title legend-ingestion-title">Ingestion 24h</div>
+        <app-ingestion-mini-chart />
       </div>
 
       <div class="fps" aria-label="frames per second">FPS {{ fps() }}</div>
@@ -2157,6 +2165,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
    *  Default = maintenant. Future G6b : drive les WMS time-enabled
    *  (sat cascade, sst, etc.) via setSource() au changement. */
   readonly currentTime = signal<Date>(new Date());
+
+  /** G20 (2026-05-22) — dernier refresh tick (affiché sous LIVE badge).
+   *  Met à jour à chaque fetch vector ou WMS refresh. Parité /legacy-map. */
+  readonly lastRefreshAt = signal<Date | null>(null);
 
   /** G18 (2026-05-22) — drawer legend collapsible (parite /legacy-map).
    *  Default true = ouvert. Mobile : collapse via bouton close. */
@@ -3412,6 +3424,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       }
 
       this.vectorCounts.update((c) => ({ ...c, [kind]: fc.features?.length ?? 0 }));
+      this.lastRefreshAt.set(new Date());
       this.vectorLoading.set(null);
     } catch (err) {
       console.error(`[globe] ${kind} fetch failed`, err);
