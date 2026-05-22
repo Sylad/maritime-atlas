@@ -423,6 +423,31 @@ function gibsDailyDate(): string {
 
       <div class="fps" aria-label="frames per second">FPS {{ fps() }}</div>
 
+      <!-- G18 M5 — Alerts feed panel (parité /legacy-map, 10 dernières alertes). -->
+      @if (showAlerts() && alertsList().length > 0) {
+        <aside class="alerts-panel" aria-label="Alertes actives">
+          <div class="alerts-panel-title">Alertes actives ({{ alertsList().length }})</div>
+          <div class="alerts-feed">
+            @for (a of alertsList().slice(0, 10); track a.id) {
+              <div class="alert-item" [class.danger]="a.severity === 'danger'" [class.warning]="a.severity === 'warning'">
+                <div class="alert-head">
+                  <span class="alert-kind">{{ alertKindLabel(a.kind) }}</span>
+                  <span class="alert-age">{{ formatAge(a.age_seconds) }}</span>
+                </div>
+                <div class="alert-meta">
+                  {{ a.vessel_name || ('MMSI ' + a.mmsi) }}
+                  @if (a.kind === 'high-wind') {
+                    · {{ a.detail?.windSpeed | number:'1.0-1' }} m/s
+                  } @else if (a.kind === 'lightning-proximity') {
+                    · {{ a.detail?.distanceM | number:'1.0-0' }} m
+                  }
+                </div>
+              </div>
+            }
+          </div>
+        </aside>
+      }
+
       <!-- G6 (2026-05-22) — time-bar /globe. Inputs minimaux (minTime,
            maxTime, layerCoverage). G6b ajoutera validityList + WMS time
            refresh + master du temps. -->
@@ -704,6 +729,51 @@ function gibsDailyDate(): string {
       font-size: 12px;
     }
 
+    /* G18 M5 — alerts feed panel (parité /legacy-map). Position top-right
+       sous le FPS, scroll si > 10 items, severity-aware borders. */
+    .alerts-panel {
+      position: absolute;
+      top: 100px;
+      right: 14px;
+      z-index: 10;
+      width: 260px;
+      max-height: 50vh;
+      overflow-y: auto;
+      background: rgba(20, 24, 38, 0.95);
+      border: 1px solid #2a3245;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 12px;
+      color: #e6ecf3;
+    }
+    .alerts-panel-title {
+      font-weight: 600;
+      font-size: 12px;
+      color: #f97316;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+    .alerts-feed { display: flex; flex-direction: column; gap: 6px; }
+    .alert-item {
+      padding: 6px 8px;
+      background: rgba(50, 60, 80, 0.5);
+      border-left: 3px solid #94a3b8;
+      border-radius: 4px;
+      line-height: 1.4;
+    }
+    .alert-item.warning { border-left-color: #f97316; background: rgba(80, 50, 30, 0.5); }
+    .alert-item.danger  { border-left-color: #dc2626; background: rgba(80, 30, 30, 0.5); }
+    .alert-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      font-weight: 500;
+    }
+    .alert-kind { color: #fff; }
+    .alert-age { color: #94a3b8; font-family: ui-monospace, monospace; font-size: 11px; }
+    .alert-meta { color: #b0bac8; font-size: 11px; margin-top: 2px; }
+
     /* Override MapLibre popup pour matcher le thème dark du site.
        Le default MapLibre est fond blanc + texte noir = invisible ici. */
     /* CRITIQUE : forcer position: absolute sur le wrapper. MapLibre default est
@@ -937,6 +1007,22 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
 
   toggleLegend(): void { this.legendOpen.update((v) => !v); }
   toggleAttrCollapsed(): void { this.attrOpen.update((v) => !v); }
+
+  /** G18 M5 (2026-05-22) — alerts feed exposé du AlertsService.
+   *  Panel dédié à droite quand showAlerts() && alertsList().length > 0. */
+  readonly alertsList = this.alertsService.latestAlerts;
+
+  alertKindLabel(kind: string): string {
+    if (kind === 'high-wind') return 'Vent fort';
+    if (kind === 'lightning-proximity') return 'Foudre à proximité';
+    return kind;
+  }
+
+  formatAge(seconds: number): string {
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) return `${Math.round(seconds / 60)}min`;
+    return `${Math.round(seconds / 3600)}h`;
+  }
 
   /** G18 M3 (2026-05-22) — UX mode-aware (parité /map line 4524+).
    *  Détecte si cursor time-bar est sur "live" (±5min de now), futur ou passé.
