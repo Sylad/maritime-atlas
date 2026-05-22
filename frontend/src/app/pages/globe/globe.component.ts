@@ -796,6 +796,31 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       void this.autoZIndexEnabled(); void this.masterLayerKey(); void this.projection();
       this.persistGlobePrefs();
     });
+
+    // G18 M3 — mode-aware visibility : quand le cursor passe en future/past,
+    // les layers incompatibles (live-only/past-only/no-future) sont masquées
+    // via setLayoutProperty visibility='none' sans toucher au showX signal
+    // (donc le toggle reste "actif" + grisé pour rappeler que la layer est
+    // toggled on mais hidden par contexte temporel). Reverse au retour live.
+    effect(() => {
+      const map = this.map;
+      if (!map) return;
+      const apply = (active: boolean, layerIds: string[]) => {
+        for (const lid of layerIds) {
+          if (!map.getLayer(lid)) continue;
+          map.setLayoutProperty(lid, 'visibility', active ? 'visible' : 'none');
+        }
+      };
+      apply(this.vesselsActive(),   ['vec-vessels-clusters', 'vec-vessels-cluster-count', 'vec-vessels-points']);
+      apply(this.alertsActive(),    ['vec-alerts']);
+      apply(this.lightningActive(), ['vec-lightning']);
+      apply(this.metarActive(),     ['vec-metar']);
+      apply(this.hubeauActive(),    ['vec-hubeau']);
+      apply(this.piezoActive(),     ['vec-piezo']);
+      apply(this.quakesActive(),    ['vec-quakes']);
+      apply(this.firmsActive(),     ['vec-firms']);
+      apply(this.buoysActive(),     ['vec-buoys']);
+    });
   }
 
   readonly projection = signal<'globe' | 'mercator'>('globe');
