@@ -17,6 +17,7 @@ import {
   Component,
   computed,
   DestroyRef,
+  effect,
   ElementRef,
   inject,
   OnDestroy,
@@ -237,7 +238,11 @@ function gibsDailyDate(): string {
           [layerCoverage]="sliderLayerCoverage()"
           [validityList]="masterValidityList()"
           [externalCurrentTime]="currentTime()"
-          (timeChange)="onSliderTimeChange($event)" />
+          [autoZIndexEnabled]="autoZIndexEnabled()"
+          (timeChange)="onSliderTimeChange($event)"
+          (masterChange)="setMasterLayer($event)"
+          (reorderRequest)="reorderLayerByDrag($event.fromKey, $event.toKey)"
+          (autoZIndexEnabledChange)="onAutoZIndexToggleChange($event)" />
       }
     </div>
   `,
@@ -425,6 +430,29 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
 
   readonly mapContainer = viewChild.required<ElementRef<HTMLDivElement>>('mapContainer');
 
+  constructor() {
+    // G7 (2026-05-22) — effect auto Z-index reorder. Recompute l'ordre
+    // hiérarchique (sat→raster→radar→WFS→anim) à chaque changement
+    // d'activation, tant que autoZIndexEnabled() est true. Cf Sprint Z /map.
+    effect(() => {
+      const enabled = this.autoZIndexEnabled();
+      // Subscribe aux signaux activation
+      void this.activeSat();
+      void this.showSst();
+      void this.showWind();
+      void this.showLightning();
+      void this.showAlerts();
+      void this.showVessels();
+      if (!enabled) return;
+      const auto = this.computeAutoZIndexOrder();
+      if (auto.length === 0) return;
+      const current = this.layerZIndexOrder();
+      if (auto.length === current.length && auto.every((k, i) => k === current[i])) return;
+      this.layerZIndexOrder.set(auto);
+      queueMicrotask(() => this.applyMapLibreZIndex());
+    }, { allowSignalWrites: true });
+  }
+
   readonly projection = signal<'globe' | 'mercator'>('globe');
   readonly showSst = signal(false);
   readonly showWind = signal(false);
@@ -444,6 +472,29 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
    *  (sat cascade, sst, etc.) via setSource() au changement. */
   readonly currentTime = signal<Date>(new Date());
 
+  /** G7 (2026-05-22) — porté depuis /map Sprint Z. Rank sémantique pour
+   *  l'ordre Z auto : sat (0, fond images larges) → raster sst (1) → radar
+   *  (2) → WFS (4, points/lignes) → animations (5, particules au sommet). */
+  private readonly LAYER_CATEGORY: Record<string, number> = {
+    satTrueColor: 0, satTrueColorVIIRS: 0, satIR: 0, satWaterVapor: 0,
+    satCloudTop: 0, satAerosol: 0, satDayNight: 0,
+    satEuIrRss: 0, satGlobalIrMtg: 0, satEuHrvRgb: 0,
+    sst: 1,
+    radarDwd: 2, radarKnmi: 2,
+    lightning: 4, alerts: 4, vessels: 4,
+    windParticles: 5,
+  };
+  private readonly DEFAULT_LAYER_RANK = 3;
+
+  /** G7 — mode Z-index auto. Quand ON, recompute layerZIndexOrder à chaque
+   *  changement d'activation. Quand l'user drag, bascule à OFF. */
+  readonly autoZIndexEnabled = signal<boolean>(true);
+  readonly layerZIndexOrder = signal<string[]>([]);
+
+  /** G7 — master du temps. Drive masterValidityList. null = auto-pick
+   *  (premier WMS time-enabled actif). */
+  readonly masterLayerKey = signal<string | null>(null);
+
   /** G6b — bornes alignées sur la fenêtre des validités master.
    *  Sat/SST = past 168h, futur 0 (cf masterValidityList).
    *  Pas de WMS time-enabled actif = fallback ±6h. */
@@ -458,13 +509,19 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     return new Date(this.currentTime().getTime() + 6 * 3_600_000);
   });
 
-  /** G6 — couverture des layers actifs sur la time-bar. Pour l'instant : 1 rangée
-   *  par layer activé, sans validités précises (G6b wiring GS GetCapabilities).
-   *  Pas master-éligible tant que validités non câblées. */
+  /** G6/G7 — couverture des layers actifs sur la time-bar. 1 rangée par layer
+   *  actif. canBeMaster = WMS time-enabled (sat/sst). isMaster = la layer
+   *  active maître du temps. Ordre dérivé de layerZIndexOrder (Sprint Z porté). */
   readonly sliderLayerCoverage = computed<TimeSliderLayerCoverage[]>(() => {
     const out: TimeSliderLayerCoverage[] = [];
+    const isWmsTime = (k: string) => k === 'sst' || k.startsWith('sat');
+    const master = this.effectiveMasterLayerKey();
     const push = (active: boolean, key: string, name: string, color: string, pastH: number, futureH: number) => {
-      if (active) out.push({ key, name, color, pastH, futureH, isMaster: false, canBeMaster: false });
+      if (active) out.push({
+        key, name, color, pastH, futureH,
+        isMaster: master === key,
+        canBeMaster: isWmsTime(key),
+      });
     };
     push(this.showSst(),       'sst',       'sst',       '#3b82f6', 168, 0);
     push(this.showWind(),      'windParticles', 'wind-particles', '#10b981', 0, 168);
@@ -475,7 +532,34 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       const sat = SAT_PRODUCTS.find((p) => p.key === this.activeSat());
       if (sat) push(true, sat.key, sat.gsName, '#a855f7', 168, 0);
     }
+    // G7 — réordonne selon layerZIndexOrder. Layers non listées (= ordre user
+    // n'a pas encore tagué cette layer) gardent l'ordre déclaratif ci-dessus.
+    const zOrder = this.layerZIndexOrder();
+    if (zOrder.length > 0) {
+      out.sort((a, b) => {
+        const ia = zOrder.indexOf(a.key);
+        const ib = zOrder.indexOf(b.key);
+        if (ia === -1 && ib === -1) return 0;
+        if (ia === -1) return 1;
+        if (ib === -1) return -1;
+        return ia - ib;
+      });
+    }
     return out;
+  });
+
+  /** G7 — masterLayerKey effectif. Si user a pick explicite → c'est lui.
+   *  Sinon fallback : 1er WMS time-enabled actif (sat > sst). */
+  private readonly effectiveMasterLayerKey = computed<string | null>(() => {
+    const explicit = this.masterLayerKey();
+    if (explicit) {
+      // Vérifier qu'il est toujours actif
+      if (explicit === 'sst' && this.showSst()) return explicit;
+      if (explicit.startsWith('sat') && this.activeSat() === explicit) return explicit;
+    }
+    if (this.activeSat() !== 'none') return this.activeSat();
+    if (this.showSst()) return 'sst';
+    return null;
   });
 
   /** G6 — handler timeChange du slider. Set le signal + refresh les WMS
@@ -485,22 +569,103 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     this.refreshWmsTimeForActiveLayers();
   }
 
-  /** G6b — calcule les validités client-side pour la layer "master" courante.
-   *  Pour sat cascade : step ~5-15min fenêtre 168h past.
-   *  Pour sst : step 24h (daily), fenêtre 168h past.
-   *  Pas de fetch GS GetCapabilities en MVP (factoring en G7).
-   *  Cap à 500 timesteps pour pas saturer la time-bar. */
-  readonly masterValidityList = computed<Date[]>(() => {
-    const now = Date.now();
-    const sat = this.activeSat();
-    if (sat !== 'none') {
-      const product = SAT_PRODUCTS.find((p) => p.key === sat);
-      if (product) {
-        const stepMs = product.kind === 'gibs-daily' ? 24 * 3_600_000 : 5 * 60_000;
-        return this.generateClientValidities(stepMs, 168, 0, now);
+  /** G7 — handler ★ click du slider. Set le master du temps explicite. */
+  setMasterLayer(key: string): void {
+    this.masterLayerKey.set(key);
+  }
+
+  /** G7 — handler drag-DnD du slider. Réordonne layerZIndexOrder et désactive
+   *  le mode auto. Applique moveLayer() sur MapLibre. */
+  reorderLayerByDrag(fromKey: string, toKey: string): void {
+    if (fromKey === toKey) return;
+    if (this.autoZIndexEnabled()) {
+      this.autoZIndexEnabled.set(false);
+    }
+    const current = this.sliderLayerCoverage().map((c) => c.key);
+    const fromIdx = current.indexOf(fromKey);
+    const toIdx = current.indexOf(toKey);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const reordered = [...current];
+    reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, fromKey);
+    this.layerZIndexOrder.set(reordered);
+    queueMicrotask(() => this.applyMapLibreZIndex());
+  }
+
+  /** G7 — handler toggle auto/manuel du slider. */
+  onAutoZIndexToggleChange(enabled: boolean): void {
+    if (this.autoZIndexEnabled() === enabled) return;
+    this.autoZIndexEnabled.set(enabled);
+    if (enabled) {
+      const auto = this.computeAutoZIndexOrder();
+      if (auto.length > 0) {
+        this.layerZIndexOrder.set(auto);
+        queueMicrotask(() => this.applyMapLibreZIndex());
       }
     }
-    if (this.showSst()) {
+  }
+
+  /** G7 — calcule l'ordre Z auto des layers actives selon LAYER_CATEGORY. */
+  private computeAutoZIndexOrder(): string[] {
+    const active: string[] = [];
+    if (this.activeSat() !== 'none') active.push(this.activeSat());
+    if (this.showSst()) active.push('sst');
+    if (this.showWind()) active.push('windParticles');
+    if (this.showLightning()) active.push('lightning');
+    if (this.showAlerts()) active.push('alerts');
+    if (this.showVessels()) active.push('vessels');
+    return [...active].sort((a, b) => {
+      const rA = this.LAYER_CATEGORY[a] ?? this.DEFAULT_LAYER_RANK;
+      const rB = this.LAYER_CATEGORY[b] ?? this.DEFAULT_LAYER_RANK;
+      if (rA !== rB) return rB - rA;
+      return active.indexOf(a) - active.indexOf(b);
+    });
+  }
+
+  /** G7 — mapping key sémantique → IDs de layers MapLibre concrètes. Une key
+   *  peut couvrir plusieurs layers MapLibre (ex: vessels = clusters + count +
+   *  points). Retourne [] si pas init ou pas dans la carte. */
+  private mapLibreLayerIds(key: string): string[] {
+    if (key === 'sst') return ['sst-wms'];
+    if (key === 'windParticles') return ['wind-webgl'];
+    if (key === 'lightning') return ['vec-lightning'];
+    if (key === 'alerts') return ['vec-alerts'];
+    if (key === 'vessels') return ['vec-vessels-clusters', 'vec-vessels-cluster-count', 'vec-vessels-points'];
+    if (key.startsWith('sat')) return [`sat-${key}`];
+    return [];
+  }
+
+  /** G7 — applique l'ordre layerZIndexOrder à MapLibre via moveLayer.
+   *  Itère du BOTTOM (dernier) au TOP (premier) — chaque moveLayer sans
+   *  beforeId place en haut de la stack MapLibre. */
+  private applyMapLibreZIndex(): void {
+    const map = this.map;
+    if (!map) return;
+    const order = this.layerZIndexOrder();
+    if (order.length === 0) return;
+    for (let i = order.length - 1; i >= 0; i--) {
+      const ids = this.mapLibreLayerIds(order[i]);
+      for (const id of ids) {
+        if (map.getLayer(id)) {
+          try { map.moveLayer(id); } catch { /* layer race */ }
+        }
+      }
+    }
+  }
+
+  /** G6b/G7 — calcule les validités client-side pour la layer "master" courante.
+   *  Master dérivé de effectiveMasterLayerKey. Cap à 500 timesteps. */
+  readonly masterValidityList = computed<Date[]>(() => {
+    const now = Date.now();
+    const master = this.effectiveMasterLayerKey();
+    if (!master) return [];
+    if (master.startsWith('sat')) {
+      const product = SAT_PRODUCTS.find((p) => p.key === master);
+      if (!product) return [];
+      const stepMs = product.kind === 'gibs-daily' ? 24 * 3_600_000 : 5 * 60_000;
+      return this.generateClientValidities(stepMs, 168, 0, now);
+    }
+    if (master === 'sst') {
       return this.generateClientValidities(24 * 3_600_000, 168, 0, now);
     }
     return [];
