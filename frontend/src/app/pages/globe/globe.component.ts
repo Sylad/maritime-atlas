@@ -3449,10 +3449,13 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  private buildWmsTileUrl(layerName: string, time: string, opts?: { interpolations?: string }): string {
+  private buildWmsTileUrl(layerName: string, time: string, opts?: { interpolations?: string; style?: string }): string {
+    // G22 — pour SST, force STYLES=raster (le default GS sst-with-contours
+    // affiche les contours sans demande). Override via opts.style si besoin.
+    const styleParam = opts?.style ?? (layerName === 'aetherwx:sst-daily' ? 'raster' : '');
     return '/geoserver/aetherwx/wms' +
       '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
-      `&LAYERS=${encodeURIComponent(layerName)}&STYLES=&FORMAT=image/png&TRANSPARENT=true` +
+      `&LAYERS=${encodeURIComponent(layerName)}&STYLES=${encodeURIComponent(styleParam)}&FORMAT=image/png&TRANSPARENT=true` +
       `&TIME=${encodeURIComponent(time)}` +
       (opts?.interpolations ? `&INTERPOLATIONS=${opts.interpolations}` : '') +
       '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256';
@@ -3533,7 +3536,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
           tiles: [
             '/geoserver/aetherwx/wms' +
               '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
-              '&LAYERS=aetherwx:sst-daily&STYLES=&FORMAT=image/png&TRANSPARENT=true' +
+              // G22 (2026-05-23) — STYLES=raster explicite pour éviter le
+              // default GS sst-with-contours qui affiche les contours sans
+              // que l'user les ait demandés (cf bug report 2026-05-22).
+              '&LAYERS=aetherwx:sst-daily&STYLES=raster&FORMAT=image/png&TRANSPARENT=true' +
               // 2026-05-21 — INTERPOLATIONS=bicubic param GS vendor pour
               // interpolation raster côté serveur (anti-pixellisation). Match
               // ce que la /map prod fait. Cf [[geoserver_wms_interpolations_param]].
