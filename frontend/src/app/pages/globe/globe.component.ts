@@ -28,6 +28,10 @@ import { Router, RouterLink } from '@angular/router';
 
 import { TimeSliderComponent, TimeSliderLayerCoverage } from '../../components/time-slider/time-slider.component';
 import { IngestionMiniChartComponent } from '../../components/ingestion-mini-chart/ingestion-mini-chart.component';
+import { AnimationPanelComponent } from '../../components/animation-panel/animation-panel.component';
+import { AnimationControlsComponent } from '../../components/animation-controls/animation-controls.component';
+import { AnimationPlayerService, type AnimationOptions } from '../../services/animation-player.service';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 import maplibregl, {
   type CustomLayerInterface,
@@ -94,7 +98,7 @@ function gibsDailyDate(): string {
 @Component({
   selector: 'app-globe',
   standalone: true,
-  imports: [CommonModule, RouterLink, TimeSliderComponent, IngestionMiniChartComponent],
+  imports: [CommonModule, RouterLink, TimeSliderComponent, IngestionMiniChartComponent, AnimationPanelComponent, AnimationControlsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="globe-root">
@@ -1095,7 +1099,7 @@ function gibsDailyDate(): string {
           [layerCoverage]="sliderLayerCoverage()"
           [validityList]="masterValidityList()"
           [externalCurrentTime]="currentTime()"
-          [externalAnimationActive]="playing()"
+          [externalAnimationActive]="animPlayer.state() !== 'idle'"
           [autoZIndexEnabled]="autoZIndexEnabled()"
           (timeChange)="onSliderTimeChange($event)"
           (playClicked)="onSliderPlayClicked()"
@@ -1103,6 +1107,19 @@ function gibsDailyDate(): string {
           (reorderRequest)="reorderLayerByDrag($event.fromKey, $event.toKey)"
           (autoZIndexEnabledChange)="onAutoZIndexToggleChange($event)" />
       }
+
+      <!-- G21 — modal animation config (parité /legacy-map). -->
+      @if (animPanelOpen()) {
+        <app-animation-panel
+          [anchor]="currentTime()"
+          [forecastActive]="isForecastActive()"
+          [masterLayerLabel]="masterLayerLabel()"
+          (launch)="onAnimationLaunch($event)"
+          (cancel)="closeAnimationPanel()" />
+      }
+      <!-- G21 — controls floattants (play/pause/stop/speed) au-dessus du slider.
+           Visibilité gérée en interne par le composant via animPlayer.state(). -->
+      <app-animation-controls />
     </div>
   `,
   styles: `
@@ -2469,6 +2486,151 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   readonly playing = signal<boolean>(false);
   private animTimer?: ReturnType<typeof setInterval>;
 
+  /** G21 (2026-05-22) — Animation player parité /legacy-map.
+   *  Injecte AnimationPlayerService (singleton @Injectable root). Cf
+   *  spec sub-agent A5d87 pour wiring détaillé. Public pour template binding. */
+  readonly animPlayer = inject(AnimationPlayerService);
+  readonly animPanelOpen = signal<boolean>(false);
+
+  isForecastActive(): boolean {
+    return this.showWindForecast() || this.showWavesForecast() || this.showWindArrows() || this.showWaveArrows();
+  }
+
+  openAnimationPanel(): void {
+    if (this.animPlayer.state() !== 'idle') return;
+    this.animPanelOpen.set(true);
+  }
+  closeAnimationPanel(): void { this.animPanelOpen.set(false); }
+
+  /** Catalogue animatable pour le animation player. Mapping key → master
+   *  GS layer name pour fetchTimestamps. */
+  private readonly animatableLayersGlobe: Array<{ key: string; label: string; type: 'wms' | 'vector'; gsLayerName?: string }> = [
+    { key: 'sst',           label: 'SST',             type: 'wms', gsLayerName: 'aetherwx:sst-daily' },
+    { key: 'windForecast',  label: 'Vent forecast',   type: 'wms', gsLayerName: 'aetherwx:wind-speed' },
+    { key: 'wavesForecast', label: 'Vagues forecast', type: 'wms', gsLayerName: 'aetherwx:wave-hs' },
+    ...SAT_PRODUCTS.map((p) => ({ key: p.key, label: p.label, type: 'wms' as const, gsLayerName: `aetherwx:${p.gsName}` })),
+    { key: 'lightning',     label: 'Foudre',          type: 'vector' as const },
+    { key: 'alerts',        label: 'Alertes',         type: 'vector' as const },
+    { key: 'vessels',       label: 'Navires',         type: 'vector' as const },
+  ];
+
+  readonly masterLayerLabel = computed<string | null>(() => {
+    const key = this.effectiveMasterLayerKey();
+    if (!key) return null;
+    return this.animatableLayersGlobe.find((l) => l.key === key)?.label ?? null;
+  });
+
+  async onAnimationLaunch(opts: AnimationOptions): Promise<void> {
+    this.closeAnimationPanel();
+    const masterKey = this.effectiveMasterLayerKey();
+    const master = masterKey ? this.animatableLayersGlobe.find((l) => l.key === masterKey) : undefined;
+    const { start, end } = this.computeAnimationWindow(opts);
+    let timestamps: Date[] = [];
+    if (master) {
+      try { timestamps = await this.fetchTimestamps(master, start, end); } catch { /* fallback step 1h */ }
+    }
+    this.animPlayer.start({ ...opts, timestamps, masterLayerLabel: master?.label ?? undefined });
+  }
+
+  private computeAnimationWindow(opts: AnimationOptions): { start: Date; end: Date } {
+    const hours = { '6h': 6, '24h': 24, '3d': 72, '7d': 168 }[opts.duration];
+    const ms = hours * 3_600_000;
+    const resolved = opts.direction === 'auto'
+      ? (opts.forecastActive ? 'future' : 'past')
+      : opts.direction;
+    const anchor = new Date(opts.anchor.getTime());
+    anchor.setUTCMinutes(0, 0, 0);
+    if (resolved === 'past') {
+      return { start: new Date(anchor.getTime() - ms), end: anchor };
+    }
+    return { start: anchor, end: new Date(anchor.getTime() + ms) };
+  }
+
+  private async fetchTimestamps(
+    master: { type: 'wms' | 'vector'; gsLayerName?: string },
+    start: Date,
+    end: Date,
+  ): Promise<Date[]> {
+    if (master.type === 'vector') {
+      const STEP = 30 * 60_000;
+      const out: Date[] = [];
+      for (let t = start.getTime(); t <= end.getTime(); t += STEP) out.push(new Date(t));
+      return out;
+    }
+    if (!master.gsLayerName) return [];
+    try {
+      const url = '/geoserver/aetherwx/wms?service=WMS&version=1.3.0&request=GetCapabilities';
+      const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+      if (!resp.ok) throw new Error(`GetCapabilities HTTP ${resp.status}`);
+      const xml = await resp.text();
+      return this.parseTimeDimension(xml, master.gsLayerName)
+        .filter((t) => t.getTime() >= start.getTime() && t.getTime() <= end.getTime());
+    } catch (err) {
+      console.warn('[globe-anim] GetCapabilities échec :', err);
+      return [];
+    }
+  }
+
+  private parseTimeDimension(xml: string, layerName: string): Date[] {
+    const shortName = layerName.replace(/^aetherwx:/, '');
+    const doc = new DOMParser().parseFromString(xml, 'application/xml');
+    if (doc.querySelector('parsererror')) return [];
+    const layers = Array.from(doc.querySelectorAll('Layer'));
+    const targetLayer = layers.find((l) => {
+      const nameEl = Array.from(l.children).find((c) => c.tagName === 'Name');
+      return nameEl?.textContent?.trim() === shortName;
+    });
+    if (!targetLayer) return [];
+    let timeDim: Element | null = null;
+    let current: Element | null = targetLayer;
+    while (current && !timeDim) {
+      const local = Array.from(current.children).find(
+        (c) => c.tagName === 'Dimension' && c.getAttribute('name') === 'time',
+      );
+      if (local) { timeDim = local; break; }
+      current = current.parentElement?.closest('Layer') ?? null;
+    }
+    if (!timeDim) return [];
+    const raw = timeDim.textContent?.trim() ?? '';
+    const out: Date[] = [];
+    for (const token of raw.split(',')) {
+      const trimmed = token.trim();
+      if (!trimmed) continue;
+      if (trimmed.includes('/')) {
+        const parts = trimmed.split('/');
+        if (parts.length !== 3) continue;
+        const s = new Date(parts[0]);
+        const e = new Date(parts[1]);
+        if (isNaN(s.getTime()) || isNaN(e.getTime())) continue;
+        const periodMs = this.parseIsoPeriodMs(parts[2]);
+        if (periodMs <= 0) continue;
+        const now = Date.now();
+        const windowStart = Math.max(s.getTime(), now - 168 * 3_600_000);
+        const windowEnd = Math.min(e.getTime(), now + 168 * 3_600_000);
+        if (windowStart > windowEnd) continue;
+        const MAX_TS = 500;
+        const stepMsEff = Math.max(periodMs, (windowEnd - windowStart) / MAX_TS);
+        const firstSnap = Math.ceil(windowStart / periodMs) * periodMs;
+        for (let t = firstSnap; t <= windowEnd; t += stepMsEff) out.push(new Date(t));
+        continue;
+      }
+      const d = new Date(trimmed);
+      if (!isNaN(d.getTime())) out.push(d);
+    }
+    return out;
+  }
+
+  private parseIsoPeriodMs(period: string): number {
+    const m = period.match(/^P(?:T)?(\d+)([MHD])$/);
+    if (!m) return 0;
+    const n = parseInt(m[1], 10);
+    const unit = m[2];
+    if (unit === 'M') return n * 60_000;
+    if (unit === 'H') return n * 3_600_000;
+    if (unit === 'D') return n * 86_400_000;
+    return 0;
+  }
+
   /** G11d (2026-05-22) — opacité par layer key. Défauts cohérents /map :
    *  raster forecast/sst = 0.7 (blend lisible), sat = 0.85, sources stat
    *  = 0.6, vector = 1, animations = 0.9. Persisté localStorage.
@@ -2883,10 +3045,13 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     return key;
   }
 
-  /** G11c — handler play/pause du slider. Toggle l'animation +6h/s. */
+  /** G21 — handler play/pause du slider. idle → ouvre panel anim,
+   *  playing → pause, paused → resume. Parité /legacy-map. */
   onSliderPlayClicked(): void {
-    if (this.playing()) this.stopPlay();
-    else this.startPlay();
+    const state = this.animPlayer.state();
+    if (state === 'idle') this.openAnimationPanel();
+    else if (state === 'playing') this.animPlayer.pause();
+    else if (state === 'paused') this.animPlayer.resume();
   }
 
   private startPlay(): void {
@@ -3162,6 +3327,15 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     void this.mergeGlobePrefsFromDb();
     this._initMap();
     this._startFpsLoop();
+    // G21 — animation player wiring (parité /legacy-map). Chaque tick frameTime
+    // pilote le currentTime + refresh WMS tiles. Same pipeline that the slider
+    // manuel utilise via onSliderTimeChange.
+    this.animPlayer.frameTime$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((t) => {
+        this.currentTime.set(t);
+        this.refreshWmsTimeForActiveLayers();
+      });
   }
 
   ngOnDestroy(): void {
