@@ -226,7 +226,7 @@ INSERT INTO data_sources (
   'grib_gfs_multi',
   '{"fhours": [0, 6, 12, 24, 48]}',
   'geotiff_volume',
-  '{"output_dir": "/coverage/wind-speed-gfs", "output_prefix": "gfs_wind_speed", "bbox": [-15, 35, 30, 65], "geoserver_create_if_missing": true, "geoserver_workspace": "maritime", "geoserver_store": "wind-speed-gfs", "geoserver_coverage": "wind-speed-gfs", "geoserver_title": "Wind Speed (GFS 0.25° via orchestrator)"}',
+  '{"output_dir": "/coverage/wind-speed-gfs", "output_prefix": "gfs_wind_speed", "bbox": [-15, 35, 30, 65], "geoserver_create_if_missing": true, "geoserver_workspace": "aetherwx", "geoserver_store": "wind-speed-gfs", "geoserver_coverage": "wind-speed-gfs", "geoserver_title": "Wind Speed (GFS 0.25° via orchestrator)"}',
   '/coverage/wind-speed-gfs (5 fhours/cycle)',
   '[-15,35,30,65]',
   false
@@ -599,7 +599,7 @@ ON CONFLICT (name) DO NOTHING;
 -- demande à grib-parser de fetcher l'image WMS au FORMAT image/tiff
 -- (GeoTIFF avec EPSG:4326 baked-in), de la déposer dans
 -- /coverage/sat-<product>/sat-<product>_YYYYMMDD'T'HHMMSSZ.tif, et de
--- créer/reindexer la coverage maritime:sat-<product> dans GeoServer.
+-- créer/reindexer la coverage aetherwx:sat-<product> dans GeoServer.
 -- Le frontend consomme via WMS standard, comme SST/wind/waves.
 INSERT INTO data_sources (
   name, kind, url, schedule_kind, schedule_expr,
@@ -612,8 +612,8 @@ INSERT INTO data_sources (
    'cron', '30 3 * * *',
    'sat_geotiff', NULL,
    'geotiff_volume',
-   '{"output_dir": "/coverage/sat-modis-true-color", "output_prefix": "sat-modis-true-color", "geoserver_create_if_missing": true, "geoserver_workspace": "maritime", "geoserver_store": "sat-modis-true-color", "geoserver_coverage": "sat-modis-true-color", "geoserver_title": "Satellite MODIS Terra True Color (NASA GIBS)"}',
-   '/coverage/sat-modis-true-color/ + maritime:sat-modis-true-color WMS',
+   '{"output_dir": "/coverage/sat-modis-true-color", "output_prefix": "sat-modis-true-color", "geoserver_create_if_missing": true, "geoserver_workspace": "aetherwx", "geoserver_store": "sat-modis-true-color", "geoserver_coverage": "sat-modis-true-color", "geoserver_title": "Satellite MODIS Terra True Color (NASA GIBS)"}',
+   '/coverage/sat-modis-true-color/ + aetherwx:sat-modis-true-color WMS',
    '[-25,30,40,70]', false),
   ('satellite-viirs-true-color',
    'http_satellite',
@@ -621,8 +621,8 @@ INSERT INTO data_sources (
    'cron', '35 3 * * *',
    'sat_geotiff', NULL,
    'geotiff_volume',
-   '{"output_dir": "/coverage/sat-viirs-true-color", "output_prefix": "sat-viirs-true-color", "geoserver_create_if_missing": true, "geoserver_workspace": "maritime", "geoserver_store": "sat-viirs-true-color", "geoserver_coverage": "sat-viirs-true-color", "geoserver_title": "Satellite VIIRS SNPP True Color (NASA GIBS)"}',
-   '/coverage/sat-viirs-true-color/ + maritime:sat-viirs-true-color WMS',
+   '{"output_dir": "/coverage/sat-viirs-true-color", "output_prefix": "sat-viirs-true-color", "geoserver_create_if_missing": true, "geoserver_workspace": "aetherwx", "geoserver_store": "sat-viirs-true-color", "geoserver_coverage": "sat-viirs-true-color", "geoserver_title": "Satellite VIIRS SNPP True Color (NASA GIBS)"}',
+   '/coverage/sat-viirs-true-color/ + aetherwx:sat-viirs-true-color WMS',
    '[-25,30,40,70]', false),
   ('satellite-modis-ir',
    'http_satellite',
@@ -630,8 +630,8 @@ INSERT INTO data_sources (
    'cron', '40 3 * * *',
    'sat_geotiff', NULL,
    'geotiff_volume',
-   '{"output_dir": "/coverage/sat-modis-ir", "output_prefix": "sat-modis-ir", "geoserver_create_if_missing": true, "geoserver_workspace": "maritime", "geoserver_store": "sat-modis-ir", "geoserver_coverage": "sat-modis-ir", "geoserver_title": "Satellite MODIS IR Brightness Temp band 31"}',
-   '/coverage/sat-modis-ir/ + maritime:sat-modis-ir WMS',
+   '{"output_dir": "/coverage/sat-modis-ir", "output_prefix": "sat-modis-ir", "geoserver_create_if_missing": true, "geoserver_workspace": "aetherwx", "geoserver_store": "sat-modis-ir", "geoserver_coverage": "sat-modis-ir", "geoserver_title": "Satellite MODIS IR Brightness Temp band 31"}',
+   '/coverage/sat-modis-ir/ + aetherwx:sat-modis-ir WMS',
    '[-25,30,40,70]', false),
   ('satellite-airs-air-temp',
    'http_satellite',
@@ -639,8 +639,8 @@ INSERT INTO data_sources (
    'cron', '45 3 * * *',
    'sat_geotiff', NULL,
    'geotiff_volume',
-   '{"output_dir": "/coverage/sat-airs-air-temp", "output_prefix": "sat-airs-air-temp", "geoserver_create_if_missing": true, "geoserver_workspace": "maritime", "geoserver_store": "sat-airs-air-temp", "geoserver_coverage": "sat-airs-air-temp", "geoserver_title": "Satellite AIRS Surface Air Temperature"}',
-   '/coverage/sat-airs-air-temp/ + maritime:sat-airs-air-temp WMS',
+   '{"output_dir": "/coverage/sat-airs-air-temp", "output_prefix": "sat-airs-air-temp", "geoserver_create_if_missing": true, "geoserver_workspace": "aetherwx", "geoserver_store": "sat-airs-air-temp", "geoserver_coverage": "sat-airs-air-temp", "geoserver_title": "Satellite AIRS Surface Air Temperature"}',
+   '/coverage/sat-airs-air-temp/ + aetherwx:sat-airs-air-temp WMS',
    '[-25,30,40,70]', false),
   ('satellite-modis-cloud-top',
    'http_satellite',
@@ -648,8 +648,8 @@ INSERT INTO data_sources (
    'cron', '50 3 * * *',
    'sat_geotiff', NULL,
    'geotiff_volume',
-   '{"output_dir": "/coverage/sat-modis-cloud-top", "output_prefix": "sat-modis-cloud-top", "geoserver_create_if_missing": true, "geoserver_workspace": "maritime", "geoserver_store": "sat-modis-cloud-top", "geoserver_coverage": "sat-modis-cloud-top", "geoserver_title": "Satellite MODIS Cloud Top Pressure"}',
-   '/coverage/sat-modis-cloud-top/ + maritime:sat-modis-cloud-top WMS',
+   '{"output_dir": "/coverage/sat-modis-cloud-top", "output_prefix": "sat-modis-cloud-top", "geoserver_create_if_missing": true, "geoserver_workspace": "aetherwx", "geoserver_store": "sat-modis-cloud-top", "geoserver_coverage": "sat-modis-cloud-top", "geoserver_title": "Satellite MODIS Cloud Top Pressure"}',
+   '/coverage/sat-modis-cloud-top/ + aetherwx:sat-modis-cloud-top WMS',
    '[-25,30,40,70]', false),
   ('satellite-modis-aerosol',
    'http_satellite',
@@ -657,8 +657,8 @@ INSERT INTO data_sources (
    'cron', '55 3 * * *',
    'sat_geotiff', NULL,
    'geotiff_volume',
-   '{"output_dir": "/coverage/sat-modis-aerosol", "output_prefix": "sat-modis-aerosol", "geoserver_create_if_missing": true, "geoserver_workspace": "maritime", "geoserver_store": "sat-modis-aerosol", "geoserver_coverage": "sat-modis-aerosol", "geoserver_title": "Satellite MODIS Aerosol Optical Depth"}',
-   '/coverage/sat-modis-aerosol/ + maritime:sat-modis-aerosol WMS',
+   '{"output_dir": "/coverage/sat-modis-aerosol", "output_prefix": "sat-modis-aerosol", "geoserver_create_if_missing": true, "geoserver_workspace": "aetherwx", "geoserver_store": "sat-modis-aerosol", "geoserver_coverage": "sat-modis-aerosol", "geoserver_title": "Satellite MODIS Aerosol Optical Depth"}',
+   '/coverage/sat-modis-aerosol/ + aetherwx:sat-modis-aerosol WMS',
    '[-25,30,40,70]', false),
   ('satellite-viirs-day-night',
    'http_satellite',
@@ -666,8 +666,8 @@ INSERT INTO data_sources (
    'cron', '0 4 * * *',
    'sat_geotiff', NULL,
    'geotiff_volume',
-   '{"output_dir": "/coverage/sat-viirs-day-night", "output_prefix": "sat-viirs-day-night", "geoserver_create_if_missing": true, "geoserver_workspace": "maritime", "geoserver_store": "sat-viirs-day-night", "geoserver_coverage": "sat-viirs-day-night", "geoserver_title": "Satellite VIIRS Day/Night Band"}',
-   '/coverage/sat-viirs-day-night/ + maritime:sat-viirs-day-night WMS',
+   '{"output_dir": "/coverage/sat-viirs-day-night", "output_prefix": "sat-viirs-day-night", "geoserver_create_if_missing": true, "geoserver_workspace": "aetherwx", "geoserver_store": "sat-viirs-day-night", "geoserver_coverage": "sat-viirs-day-night", "geoserver_title": "Satellite VIIRS Day/Night Band"}',
+   '/coverage/sat-viirs-day-night/ + aetherwx:sat-viirs-day-night WMS',
    '[-25,30,40,70]', false)
 ON CONFLICT (name) DO UPDATE SET
   kind = EXCLUDED.kind,
