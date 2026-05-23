@@ -2795,7 +2795,97 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         timestamps = allTs.filter((t) => t.getTime() >= start.getTime() && t.getTime() <= end.getTime());
       } catch { /* fallback step 1h */ }
     }
+    // G41 (2026-05-23) — Pre-load TOUTES les frames SST en mémoire MapLibre
+    // (1 raster source par TS, fetched en parallèle AVANT le play). Pendant
+    // l'animation, on switch juste la visibility = 0 fetch GS, animation 100%
+    // lisse. Pattern radar (RainViewer). Tradeoff : 2-3s d'attente initial.
+    if (masterKey === 'sst' && timestamps.length > 1) {
+      await this.preloadFrames('sst', 'aetherwx:sst-daily', 'sst-direct', timestamps);
+    }
     this.animPlayer.start({ ...effectiveOpts, timestamps, masterLayerLabel: master?.label ?? undefined });
+  }
+
+  /** G41 — frames pré-chargées : map<masterKey, { timestamps, layerIds }> */
+  private preloadedFrames?: { masterKey: string; timestamps: Date[]; layerIds: string[]; mainLayerId: string };
+
+  /** G41 — pre-load N frames comme raster sources séparés. Chaque source
+   *  a son TIME bake dans l'URL → MapLibre cache les tiles in-memory.
+   *  Pendant animation : switch visibility = 0 fetch. */
+  private async preloadFrames(masterKey: string, gsName: string, style: string, timestamps: Date[]): Promise<void> {
+    const map = this.map;
+    if (!map) return;
+    this.cleanupAnimationFrames();
+    // Cache le layer principal (sst-wms) pour le re-activer après l'animation.
+    const mainLayerId = `${masterKey}-wms`;
+    if (map.getLayer(mainLayerId)) map.setLayoutProperty(mainLayerId, 'visibility', 'none');
+    const layerIds: string[] = [];
+    for (let i = 0; i < timestamps.length; i++) {
+      const ts = timestamps[i];
+      const date = ts.toISOString().split('T')[0];
+      const sourceId = `anim-${masterKey}-${i}`;
+      const url = '/geoserver/aetherwx/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
+        `&LAYERS=${encodeURIComponent(gsName)}&STYLES=${encodeURIComponent(style)}` +
+        `&FORMAT=image/png&TRANSPARENT=true&INTERPOLATIONS=bicubic` +
+        `&TIME=${encodeURIComponent(date)}` +
+        `&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=1024&HEIGHT=1024`;
+      map.addSource(sourceId, { type: 'raster', tiles: [url], tileSize: 1024 });
+      map.addLayer({
+        id: sourceId, type: 'raster', source: sourceId,
+        layout: { visibility: 'none' },
+        paint: { 'raster-opacity': 0.7 },
+      });
+      layerIds.push(sourceId);
+    }
+    this.preloadedFrames = { masterKey, timestamps, layerIds, mainLayerId };
+    // Attend que toutes les sources soient idle (tiles loaded).
+    await this.waitForSourcesIdle(layerIds, 10_000);
+    // Affiche la 1ère frame.
+    this.switchAnimationFrame(0);
+  }
+
+  private waitForSourcesIdle(sourceIds: string[], timeoutMs: number): Promise<void> {
+    const map = this.map;
+    if (!map) return Promise.resolve();
+    return new Promise((resolve) => {
+      const start = Date.now();
+      const check = () => {
+        const allLoaded = sourceIds.every((id) => {
+          const src = map.getSource(id) as any;
+          return src && (typeof src.loaded === 'function' ? src.loaded() : true);
+        });
+        if (allLoaded || Date.now() - start > timeoutMs) resolve();
+        else setTimeout(check, 200);
+      };
+      setTimeout(check, 400);
+    });
+  }
+
+  /** G41 — switch la visibility sur la frame correspondante. Appelé par
+   *  l'animation player tick via frameIndex. */
+  private switchAnimationFrame(idx: number): void {
+    const map = this.map;
+    if (!map || !this.preloadedFrames) return;
+    const { layerIds } = this.preloadedFrames;
+    for (let i = 0; i < layerIds.length; i++) {
+      if (map.getLayer(layerIds[i])) {
+        map.setLayoutProperty(layerIds[i], 'visibility', i === idx ? 'visible' : 'none');
+      }
+    }
+  }
+
+  /** G41 — nettoyage des frames pré-chargées à la fin de l'animation. */
+  private cleanupAnimationFrames(): void {
+    const map = this.map;
+    if (!map || !this.preloadedFrames) return;
+    for (const id of this.preloadedFrames.layerIds) {
+      if (map.getLayer(id)) map.removeLayer(id);
+      if (map.getSource(id)) map.removeSource(id);
+    }
+    // Re-affiche le layer principal.
+    if (map.getLayer(this.preloadedFrames.mainLayerId)) {
+      map.setLayoutProperty(this.preloadedFrames.mainLayerId, 'visibility', 'visible');
+    }
+    this.preloadedFrames = undefined;
   }
 
   private computeAnimationWindow(opts: AnimationOptions): { start: Date; end: Date } {
@@ -3635,8 +3725,22 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((t) => {
         this.currentTime.set(t);
+        // G41 — si frames pré-chargées, switch visibility = 0 fetch
+        if (this.preloadedFrames) {
+          const idx = this.preloadedFrames.timestamps.findIndex(
+            (ts) => Math.abs(ts.getTime() - t.getTime()) < 60_000,
+          );
+          if (idx >= 0) {
+            this.switchAnimationFrame(idx);
+            return;
+          }
+        }
         this.refreshWmsTimeForActiveLayers();
       });
+    // G41 — cleanup frames quand animation revient idle.
+    this.animPlayer.finished$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.cleanupAnimationFrames());
   }
 
   ngOnDestroy(): void {
