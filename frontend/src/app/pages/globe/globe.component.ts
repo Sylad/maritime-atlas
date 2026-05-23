@@ -995,20 +995,15 @@ function gibsDailyDate(): string {
                          (input)="setLayerOpacity('mpa', +$any($event.target).value)" />
                 }
               </div>
-              <div class="layer-row">
-                <label class="layer-toggle" [class.dim]="!showEfas()">
-                  <input type="checkbox" [checked]="showEfas()" (change)="toggleEfas(!showEfas())" />
+              <div class="layer-row layer-soon">
+                <label class="layer-toggle dim" title="Endpoint Copernicus migré — à rebrancher">
+                  <input type="checkbox" disabled />
                   <span class="toggle-glyph"><span class="glyph-icon">🌊</span></span>
                   <span class="toggle-text">
                     <span class="toggle-name">EFAS forecast crues</span>
-                    <span class="toggle-count">Copernicus EMS</span>
+                    <span class="toggle-count">à rebrancher (endpoint migré)</span>
                   </span>
                 </label>
-                @if (showEfas()) {
-                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
-                         [value]="getLayerOpacity('efas')"
-                         (input)="setLayerOpacity('efas', +$any($event.target).value)" />
-                }
               </div>
               <div class="layer-row layer-soon">
                 <label class="layer-toggle dim">
