@@ -3489,11 +3489,12 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     const forecastLayers: Array<{ active: boolean; layerId: string; gsName: string; style?: string; interpolations?: string }> = [
       { active: this.showWindForecast(),  layerId: 'wind-forecast-wms',  gsName: 'aetherwx:wind-speed' },
       { active: this.showWavesForecast(), layerId: 'waves-forecast-wms', gsName: 'aetherwx:wave-hs' },
-      { active: this.showWindArrows(),    layerId: 'wind-arrows-wms',    gsName: 'aetherwx:wind-speed' },
-      { active: this.showWaveArrows(),    layerId: 'wave-arrows-wms',    gsName: 'aetherwx:wave-dir' },
       { active: this.showWindContours(),  layerId: 'wind-contours-wms',  gsName: 'aetherwx:wind-speed', style: 'aetherwx:wind-speed-contours-only', interpolations: 'bicubic' },
       { active: this.showWaveContours(),  layerId: 'wave-contours-wms',  gsName: 'aetherwx:wave-hs',    style: 'aetherwx:wave-hs-contours-only',    interpolations: 'bicubic' },
     ];
+    // G31 (2026-05-23) — wind/wave arrows : GeoJSON pré-générés (pattern legacy)
+    // → MapLibre symbol layer rotation = dirTo. Plus de WMS/SLD GS.
+    void this.refreshArrowsForTime(t);
     for (const fl of forecastLayers) {
       if (!fl.active) continue;
       const src = map.getSource(fl.layerId);
@@ -4075,12 +4076,118 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   toggleWavesForecast(on: boolean): void {
     this.toggleForecastLayer({ key: 'wavesForecast', layerId: 'waves-forecast-wms', gsName: 'aetherwx:wave-hs', opacity: 0.7, on });
   }
+  /** G31 (2026-05-23) — Pivot pattern legacy : MapLibre symbol layer
+   *  consommant les GeoJSON pré-générés par weather-fetcher (mêmes que
+   *  /legacy-map OL). Rotation = dirTo (deg compass, MapLibre icon-rotate
+   *  attend deg → pas de conversion). Plus de WMS, plus de SLD GS. */
   toggleWindArrows(on: boolean): void {
-    // wind-arrows SLD encore manquant côté GS, fallback raster en attendant.
-    this.toggleForecastLayer({ key: 'windArrows', layerId: 'wind-arrows-wms', gsName: 'aetherwx:wind-speed', style: 'raster', opacity: 0.9, on });
+    if (this.showWindArrows() === on) return;
+    this.showWindArrows.set(on);
+    const map = this.map;
+    if (!map) return;
+    if (!on) { this.removeArrowsLayer('wind-arrows-vec'); return; }
+    this.addArrowsLayer(map, 'wind-arrows-vec', '#fde047');
+    void this.refreshArrowsForTime(this.currentTime());
   }
   toggleWaveArrows(on: boolean): void {
-    this.toggleForecastLayer({ key: 'waveArrows', layerId: 'wave-arrows-wms', gsName: 'aetherwx:wave-dir', style: 'raster', opacity: 0.9, on });
+    if (this.showWaveArrows() === on) return;
+    this.showWaveArrows.set(on);
+    const map = this.map;
+    if (!map) return;
+    if (!on) { this.removeArrowsLayer('wave-arrows-vec'); return; }
+    this.addArrowsLayer(map, 'wave-arrows-vec', '#60a5fa');
+    void this.refreshArrowsForTime(this.currentTime());
+  }
+
+  private lastWindArrowsTs?: string;
+  private lastWaveArrowsTs?: string;
+
+  private removeArrowsLayer(layerId: string): void {
+    const map = this.map; if (!map) return;
+    if (map.getLayer(layerId)) map.removeLayer(layerId);
+    if (map.getSource(layerId)) map.removeSource(layerId);
+    if (layerId === 'wind-arrows-vec') this.lastWindArrowsTs = undefined;
+    if (layerId === 'wave-arrows-vec') this.lastWaveArrowsTs = undefined;
+  }
+
+  private addArrowsLayer(map: maplibregl.Map, sourceId: string, color: string): void {
+    if (map.getSource(sourceId)) map.removeSource(sourceId);
+    map.addSource(sourceId, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({
+      id: sourceId,
+      type: 'symbol',
+      source: sourceId,
+      layout: {
+        'icon-image': 'arrow-tip',
+        'icon-rotate': ['get', 'dirTo'],
+        'icon-rotation-alignment': 'map',
+        'icon-size': 0.6,
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+      },
+      paint: {
+        'icon-color': color,
+        'icon-halo-color': '#0f172a',
+        'icon-halo-width': 1.5,
+      },
+    });
+  }
+
+  /** Fetch le manifest, snap au cursor, charge la GeoJSON correspondante
+   *  pour wind et/ou wave selon showWindArrows/showWaveArrows. */
+  private async refreshArrowsForTime(t: Date): Promise<void> {
+    const wantWind = this.showWindArrows();
+    const wantWave = this.showWaveArrows();
+    if (!wantWind && !wantWave) return;
+    const map = this.map;
+    if (!map) return;
+    const manifest = await this.arrows.getManifest();
+    if (!manifest) return;
+    if (wantWind) {
+      const ts = this.arrows.findNearestTs(manifest.wind, t);
+      const src = map.getSource('wind-arrows-vec') as maplibregl.GeoJSONSource | undefined;
+      if (!ts) { src?.setData({ type: 'FeatureCollection', features: [] } as any); this.lastWindArrowsTs = undefined; }
+      else if (ts !== this.lastWindArrowsTs) {
+        try {
+          const fc = await this.arrows.fetchArrows('wind', ts);
+          src?.setData(fc as any);
+          this.lastWindArrowsTs = ts;
+        } catch (err) { console.error('[globe] wind arrows fetch failed', err); }
+      }
+    }
+    if (wantWave) {
+      const ts = this.arrows.findNearestTs(manifest.wave, t);
+      const src = map.getSource('wave-arrows-vec') as maplibregl.GeoJSONSource | undefined;
+      if (!ts) { src?.setData({ type: 'FeatureCollection', features: [] } as any); this.lastWaveArrowsTs = undefined; }
+      else if (ts !== this.lastWaveArrowsTs) {
+        try {
+          const fc = await this.arrows.fetchArrows('wave', ts);
+          src?.setData(fc as any);
+          this.lastWaveArrowsTs = ts;
+        } catch (err) { console.error('[globe] wave arrows fetch failed', err); }
+      }
+    }
+  }
+
+  /** Génère un SDF arrow icon 32×32 et l'ajoute au sprite MapLibre.
+   *  SDF=true permet de re-colorer via icon-color dans la layer. */
+  private addArrowIconToMap(map: maplibregl.Map): void {
+    if (map.hasImage('arrow-tip')) return;
+    const size = 32;
+    const cv = document.createElement('canvas');
+    cv.width = size; cv.height = size;
+    const ctx = cv.getContext('2d')!;
+    ctx.fillStyle = 'rgba(255,255,255,1)';
+    ctx.beginPath();
+    // Flèche pointant vers le haut (dirTo=0 = Nord, MapLibre rotate clockwise)
+    ctx.moveTo(size / 2, 2);
+    ctx.lineTo(size - 6, size - 4);
+    ctx.lineTo(size / 2, size - 10);
+    ctx.lineTo(6, size - 4);
+    ctx.closePath();
+    ctx.fill();
+    const data = ctx.getImageData(0, 0, size, size);
+    map.addImage('arrow-tip', { width: size, height: size, data: data.data }, { sdf: true });
   }
 
   /** G8b — tracks vessels : LineString polylines depuis WFS aetherwx:vessel_tracks_daily.
@@ -4367,6 +4474,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // ici on le fait au load aussi pour Angular TS.
     map.on('load', () => {
       map.setProjection({ type: this.projection() });
+      // G31 (2026-05-23) — sprite arrow SDF pour wind-arrows-vec / wave-arrows-vec.
+      // SDF=true → tintable via icon-color dans la layer.
+      this.addArrowIconToMap(map);
       // G11e — applique le state user restauré depuis localStorage AVANT le boot
       // (toggleX peut maintenant créer les sources/layers).
       this.applyPendingRestore();
