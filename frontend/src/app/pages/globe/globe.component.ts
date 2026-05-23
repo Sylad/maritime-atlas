@@ -3493,8 +3493,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // (wind-speed-rainbow + wave-hs-rainbow, .sld uploadés via REST 2026-05-23).
     const iso = t.toISOString().split('.')[0] + 'Z';
     const forecastLayers: Array<{ active: boolean; layerId: string; gsName: string; style?: string; interpolations?: string }> = [
-      { active: this.showWindForecast(),  layerId: 'wind-forecast-wms',  gsName: 'aetherwx:wind-speed' },
-      { active: this.showWavesForecast(), layerId: 'waves-forecast-wms', gsName: 'aetherwx:wave-hs' },
+      { active: this.showWindForecast(),  layerId: 'wind-forecast-wms',  gsName: 'aetherwx:wind-speed', interpolations: 'bicubic' },
+      { active: this.showWavesForecast(), layerId: 'waves-forecast-wms', gsName: 'aetherwx:wave-hs',    interpolations: 'bicubic' },
       { active: this.showWindContours(),  layerId: 'wind-contours-wms',  gsName: 'aetherwx:wind-speed', style: 'aetherwx:wind-speed-contours-only', interpolations: 'bicubic' },
       { active: this.showWaveContours(),  layerId: 'wave-contours-wms',  gsName: 'aetherwx:wave-hs',    style: 'aetherwx:wave-hs-contours-only',    interpolations: 'bicubic' },
     ];
@@ -3879,6 +3879,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     layerId: string;
     gsName: string;
     style?: string;
+    interpolations?: string;
     opacity: number;
     on: boolean;
   }): void {
@@ -3904,6 +3905,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       `&LAYERS=${encodeURIComponent(opts.gsName)}` +
       `&STYLES=${opts.style ? encodeURIComponent(opts.style) : ''}` +
       '&FORMAT=image/png&TRANSPARENT=true' +
+      (opts.interpolations ? `&INTERPOLATIONS=${opts.interpolations}` : '') +
       `&TIME=${encodeURIComponent(iso)}` +
       '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256';
     if (map.getSource(opts.layerId)) map.removeSource(opts.layerId);
@@ -4082,10 +4084,12 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   toggleWindForecast(on: boolean): void {
     // G29 (2026-05-23) — SLDs rainbow uploadés via REST. Laisse GS prendre
     // le defaultStyle (wind-speed-rainbow) → palette rainbow native.
-    this.toggleForecastLayer({ key: 'windForecast', layerId: 'wind-forecast-wms', gsName: 'aetherwx:wind-speed', opacity: 0.7, on });
+    // G33 (2026-05-23) — INTERPOLATIONS=bicubic pour lisser le raster GFS
+    // 0.25° au zoom élevé (sinon pixelisé visible côté user).
+    this.toggleForecastLayer({ key: 'windForecast', layerId: 'wind-forecast-wms', gsName: 'aetherwx:wind-speed', interpolations: 'bicubic', opacity: 0.7, on });
   }
   toggleWavesForecast(on: boolean): void {
-    this.toggleForecastLayer({ key: 'wavesForecast', layerId: 'waves-forecast-wms', gsName: 'aetherwx:wave-hs', opacity: 0.7, on });
+    this.toggleForecastLayer({ key: 'wavesForecast', layerId: 'waves-forecast-wms', gsName: 'aetherwx:wave-hs', interpolations: 'bicubic', opacity: 0.7, on });
   }
   /** G31 (2026-05-23) — Pivot pattern legacy : MapLibre symbol layer
    *  consommant les GeoJSON pré-générés par weather-fetcher (mêmes que
