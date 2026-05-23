@@ -1140,8 +1140,9 @@ function gibsDailyDate(): string {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      /* G27 — padding vertical réduit (4px vs 8px) */
-      padding: 4px 14px;
+      /* G43 (2026-05-23) — padding compact 0.1em vertical + 1em horizontal. */
+      padding: 0.1em 1em;
+      gap: 0.1em;
       background: rgba(10, 14, 26, 0.78);
       /* G26 — cyan glow (parité drawer + nav buttons) */
       border-bottom: 1px solid hsl(224 85% 55% / 0.5);
@@ -1151,7 +1152,7 @@ function gibsDailyDate(): string {
         0 0 30px -4px hsl(224 90% 55% / 0.18);
       backdrop-filter: blur(6px);
     }
-    .brand { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+    .brand { display: flex; align-items: center; gap: 0.1em; font-size: 14px; }
     .brand-icon { font-size: 18px; }
     /* G27 — bouton clickable (toggle drawer) avec hover/focus glow */
     .brand-icon-btn {
@@ -1198,7 +1199,7 @@ function gibsDailyDate(): string {
       font-size: 10px;
       letter-spacing: .04em;
     }
-    .nav-links { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .nav-links { display: flex; align-items: center; gap: 0.1em; flex-wrap: wrap; }
     /* G24 — boutons header harmonisés : hauteur fixe 28px, padding égaux,
        border cyan glow comme le drawer (parité bordure magnifique demandée). */
     .nav-link, .nav-btn {
