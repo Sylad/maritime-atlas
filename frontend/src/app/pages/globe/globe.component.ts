@@ -3633,10 +3633,11 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
               // la palette rainbow). User feedback "plus de palette" avec
               // STYLES=raster (greyscale only).
               // G34 (2026-05-23) — `sst-direct` SLD = rainbow pur sans
-              // contours + VendorOption interpolation:BICUBIC baked.
-              // Remplace l'ancien hack `sst-with-contours + env=50` qui
-              // laissait apparaître les isolines (env var pas honorée).
+              // contours. G35 (2026-05-23) — re-ajoute `INTERPOLATIONS=bicubic`
+              // request-side : le VendorOption SLD-side n'est pas honoré au
+              // niveau GetMap, on rebascule sur le paramètre WMS GS vendor.
               '&LAYERS=aetherwx:sst-daily&STYLES=sst-direct&FORMAT=image/png&TRANSPARENT=true' +
+              '&INTERPOLATIONS=bicubic' +
               '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256',
           ],
           tileSize: 256,
