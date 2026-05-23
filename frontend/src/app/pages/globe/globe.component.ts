@@ -3582,12 +3582,15 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // bicubic baked). Remplace le hack `sst-with-contours + env=50` qui
     // laissait apparaître les isolines de manière intermittente.
     const styleParam = opts?.style ?? (layerName === 'aetherwx:sst-daily' ? 'sst-direct' : '');
+    // G40 (2026-05-23) — SST en tiles 1024×1024 (vs 256) pour réduire le
+    // nb de fetches par 16× durant les animations. Autres layers gardent 256.
+    const size = layerName === 'aetherwx:sst-daily' ? 1024 : 256;
     return '/geoserver/aetherwx/wms' +
       '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
       `&LAYERS=${encodeURIComponent(layerName)}&STYLES=${encodeURIComponent(styleParam)}&FORMAT=image/png&TRANSPARENT=true` +
       `&TIME=${encodeURIComponent(time)}` +
       (opts?.interpolations ? `&INTERPOLATIONS=${opts.interpolations}` : '') +
-      '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256';
+      `&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=${size}&HEIGHT=${size}`;
   }
 
   // Expose templates constants
@@ -3660,6 +3663,12 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     const sourceId = 'sst-wms';
     if (on) {
       if (!map.getSource(sourceId)) {
+        // G40 (2026-05-23) — tileSize 256 → 1024 + WIDTH/HEIGHT 1024.
+        // Réduction du nb de tiles fetched par 16× (4× linéaire, 16× quad).
+        // Pour animation SST 8 validités : ~960 tiles → ~60 tiles GS-side.
+        // Tradeoff : chaque tile 16× plus grosse à render server-side, mais
+        // total throughput largement gagnant. SST 4km grid = pas de perte
+        // visuelle visible à zoom < 6.
         map.addSource(sourceId, {
           type: 'raster',
           tiles: [
@@ -3667,9 +3676,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
               '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
               '&LAYERS=aetherwx:sst-daily&STYLES=sst-direct&FORMAT=image/png&TRANSPARENT=true' +
               '&INTERPOLATIONS=bicubic' +
-              '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256',
+              '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=1024&HEIGHT=1024',
           ],
-          tileSize: 256,
+          tileSize: 1024,
         });
       }
       if (!map.getLayer(layerId)) {
