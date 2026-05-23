@@ -384,8 +384,8 @@ export class AnimationPanelComponent implements OnChanges {
   // ── Form state (signals) ─────────────────────────────────────────
   readonly duration = signal<AnimationDuration>('24h');
   readonly direction = signal<AnimationDirection>('auto');
-  readonly speed = signal<AnimationSpeed>(4);
-  readonly loop = signal<boolean>(true);
+  readonly speed = signal<AnimationSpeed>(1);
+  readonly loop = signal<boolean>(false);
   readonly followRealTime = signal<boolean>(true);
 
   // ── Constants ────────────────────────────────────────────────────

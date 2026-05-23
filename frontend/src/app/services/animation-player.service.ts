@@ -204,6 +204,14 @@ export class AnimationPlayerService {
     this.rangeEnd = null;
     this.setTimestamps(null);
 
+    // G44 (2026-05-23) — Fire finished$ AUSSI sur stop manuel. Sans ça,
+    // les consumers (globe.cleanupAnimationFrames) ne sont pas notifiés
+    // et les ressources pré-chargées (sources/layers MapLibre) restent
+    // → MapLibre continue de fetch les tiles tant que les layers existent.
+    if (wasActive) {
+      this.finishedSubject.next();
+    }
+
     if (wasActive && this.nearestNowProvider) {
       // Fire-and-forget : on émet la frame return-to-now dès qu'on a la
       // réponse. Si fail, on retombe sur Date.now().
