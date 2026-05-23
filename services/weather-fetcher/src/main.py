@@ -85,6 +85,7 @@ RABBITMQ_URL = os.environ.get('RABBITMQ_URL', 'amqp://maritime:maritime@rabbitmq
 GEOSERVER_URL = os.environ.get('GEOSERVER_URL', 'http://geoserver:8080/geoserver')
 GEOSERVER_USER = os.environ.get('GEOSERVER_ADMIN_USER', 'admin')
 GEOSERVER_PASS = os.environ.get('GEOSERVER_ADMIN_PASSWORD', 'geoserver')
+GEOSERVER_WORKSPACE = os.environ.get('GEOSERVER_WORKSPACE', 'aetherwx')  # G47 — workspace en env (Sprint 0 rename)
 
 # Bbox Europe étroite (sprint Europe 2026-05-12) — cohérence avec sst + ais.
 # Açores → Pologne, Méditerranée → Cap Nord. GFS 0.25° couvre toute la Terre,
@@ -145,7 +146,7 @@ def ensure_mosaic_config_files(coverage_dir: Path) -> None:
 def coverage_store_exists(store_name: str) -> bool:
     try:
         r = requests.get(
-            f"{GEOSERVER_URL}/rest/workspaces/maritime/coveragestores/{store_name}.json",
+            f"{GEOSERVER_URL}/rest/workspaces/{GEOSERVER_WORKSPACE}/coveragestores/{store_name}.json",
             auth=(GEOSERVER_USER, GEOSERVER_PASS),
             timeout=10,
         )
@@ -163,12 +164,12 @@ def create_mosaic_store(store_name: str, coverage_name: str, coverage_dir: Path,
                 'name': store_name,
                 'type': 'ImageMosaic',
                 'enabled': True,
-                'workspace': {'name': 'maritime'},
+                'workspace': {'name': GEOSERVER_WORKSPACE},
                 'url': f'file://{coverage_dir}',
             },
         }
         r = requests.post(
-            f"{GEOSERVER_URL}/rest/workspaces/maritime/coveragestores",
+            f"{GEOSERVER_URL}/rest/workspaces/{GEOSERVER_WORKSPACE}/coveragestores",
             json=store_payload,
             auth=(GEOSERVER_USER, GEOSERVER_PASS),
             timeout=60,
@@ -178,7 +179,7 @@ def create_mosaic_store(store_name: str, coverage_name: str, coverage_dir: Path,
             return False
 
         r2 = requests.post(
-            f"{GEOSERVER_URL}/rest/workspaces/maritime/coveragestores/{store_name}/external.imagemosaic",
+            f"{GEOSERVER_URL}/rest/workspaces/{GEOSERVER_WORKSPACE}/coveragestores/{store_name}/external.imagemosaic",
             data=str(coverage_dir),
             headers={'Content-Type': 'text/plain'},
             auth=(GEOSERVER_USER, GEOSERVER_PASS),
@@ -208,7 +209,7 @@ def create_mosaic_store(store_name: str, coverage_name: str, coverage_dir: Path,
   </metadata>
 </coverage>"""
         r3 = requests.post(
-            f"{GEOSERVER_URL}/rest/workspaces/maritime/coveragestores/{store_name}/coverages",
+            f"{GEOSERVER_URL}/rest/workspaces/{GEOSERVER_WORKSPACE}/coveragestores/{store_name}/coverages",
             data=coverage_xml,
             headers={'Content-Type': 'text/xml'},
             auth=(GEOSERVER_USER, GEOSERVER_PASS),
@@ -227,7 +228,7 @@ def create_mosaic_store(store_name: str, coverage_name: str, coverage_dir: Path,
 def trigger_reindex(store_name: str, coverage_dir: Path) -> None:
     try:
         r = requests.post(
-            f"{GEOSERVER_URL}/rest/workspaces/maritime/coveragestores/{store_name}/external.imagemosaic",
+            f"{GEOSERVER_URL}/rest/workspaces/{GEOSERVER_WORKSPACE}/coveragestores/{store_name}/external.imagemosaic",
             data=str(coverage_dir),
             headers={'Content-Type': 'text/plain'},
             auth=(GEOSERVER_USER, GEOSERVER_PASS),
