@@ -1186,11 +1186,14 @@ export class TimeSliderComponent implements OnDestroy {
 
   togglePlay(): void {
     // Toujours notifier le parent — s'il gère un AnimationPlayer externe,
-    // il intercepte (ouvre la modal, pause, resume…). Si le parent ne
-    // fait rien (cas standalone / test), on fallback sur le start/stop
-    // interne "+6h/s".
+    // il intercepte (ouvre la modal, pause, resume…). G37 (2026-05-23) :
+    // si le parent fournit `externalCurrentTime` (= il pilote le temps),
+    // on NE déclenche PLUS le fallback legacy "+6h/s" — sinon double
+    // animation : panel modal + legacy interval qui se chevauchent →
+    // cursor saute par +6h tandis que l'user configure encore l'anim.
     this.playClicked.emit();
-    if (this.externalAnimationActive()) return;
+    const hasExternalController = this.externalCurrentTime() !== null || this.externalAnimationActive();
+    if (hasExternalController) return;
     if (this.legacyPlaying()) this.stopPlay();
     else this.startPlay();
   }
