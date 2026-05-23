@@ -2828,8 +2828,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         `&LAYERS=${encodeURIComponent(gsName)}&STYLES=${encodeURIComponent(style)}` +
         `&FORMAT=image/png&TRANSPARENT=true&INTERPOLATIONS=bicubic&tiled=true` +
         `&TIME=${encodeURIComponent(date)}` +
-        `&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=1024&HEIGHT=1024`;
-      map.addSource(sourceId, { type: 'raster', tiles: [url], tileSize: 1024 });
+        `&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256`;
+      map.addSource(sourceId, { type: 'raster', tiles: [url], tileSize: 256 });
       map.addLayer({
         id: sourceId, type: 'raster', source: sourceId,
         layout: { visibility: 'none' },
@@ -3673,9 +3673,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // bicubic baked). Remplace le hack `sst-with-contours + env=50` qui
     // laissait apparaître les isolines de manière intermittente.
     const styleParam = opts?.style ?? (layerName === 'aetherwx:sst-daily' ? 'sst-direct' : '');
-    // G40 (2026-05-23) — SST en tiles 1024×1024 (vs 256) pour réduire le
-    // nb de fetches par 16× durant les animations. Autres layers gardent 256.
-    const size = layerName === 'aetherwx:sst-daily' ? 1024 : 256;
+    // G43b (2026-05-23) — Revert : taille fixe 256 pour aligner sur la grille
+    // GWC. GWC cache compense le nombre de fetches.
+    const size = 256;
     // G42c (2026-05-23) — `tiled=true` route vers GWC cache.
     return '/geoserver/aetherwx/wms' +
       '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
@@ -3769,12 +3769,11 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     const sourceId = 'sst-wms';
     if (on) {
       if (!map.getSource(sourceId)) {
-        // G40 (2026-05-23) — tileSize 256 → 1024 + WIDTH/HEIGHT 1024.
-        // Réduction du nb de tiles fetched par 16× (4× linéaire, 16× quad).
-        // Pour animation SST 8 validités : ~960 tiles → ~60 tiles GS-side.
-        // G42c (2026-05-23) — `&tiled=true` route vers GWC cache (Direct WMS
-        // Integration enabled via Job PostSync). Cf headers response qui
-        // afficheront `geowebcache-cache-result: HIT|MISS`.
+        // G43b (2026-05-23) — Revert tileSize à 256. La grille GWC est en
+        // 256×256 (EPSG:3857 / 900913 standard). Avec tileSize=1024 + WIDTH=1024
+        // le BBOX ne s'aligne PAS sur la grille GWC → `Miss-Reason: request
+        // does not align to grid(s)`. Maintenant GWC cache absorbe le ~120×
+        // de fetches en mémoire.
         map.addSource(sourceId, {
           type: 'raster',
           tiles: [
@@ -3782,9 +3781,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
               '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
               '&LAYERS=aetherwx:sst-daily&STYLES=sst-direct&FORMAT=image/png&TRANSPARENT=true' +
               '&INTERPOLATIONS=bicubic&tiled=true' +
-              '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=1024&HEIGHT=1024',
+              '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256',
           ],
-          tileSize: 1024,
+          tileSize: 256,
         });
       }
       if (!map.getLayer(layerId)) {
