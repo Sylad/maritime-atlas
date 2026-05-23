@@ -995,15 +995,21 @@ function gibsDailyDate(): string {
                          (input)="setLayerOpacity('mpa', +$any($event.target).value)" />
                 }
               </div>
-              <div class="layer-row layer-soon">
-                <label class="layer-toggle dim" title="Endpoint Copernicus migré — à rebrancher">
-                  <input type="checkbox" disabled />
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showEfas()"
+                       title="Copernicus EMS — archive publique uniquement (T-30j+)">
+                  <input type="checkbox" [checked]="showEfas()" (change)="toggleEfas(!showEfas())" />
                   <span class="toggle-glyph"><span class="glyph-icon">🌊</span></span>
                   <span class="toggle-text">
                     <span class="toggle-name">EFAS forecast crues</span>
-                    <span class="toggle-count">à rebrancher (endpoint migré)</span>
+                    <span class="toggle-count">Copernicus EMS · archive ≥30j</span>
                   </span>
                 </label>
+                @if (showEfas()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('efas')"
+                         (input)="setLayerOpacity('efas', +$any($event.target).value)" />
+                }
               </div>
               <div class="layer-row layer-soon">
                 <label class="layer-toggle dim">
@@ -4061,10 +4067,15 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     });
   }
   toggleEfas(on: boolean): void {
+    // G31 (2026-05-23) — Migration endpoint Copernicus EMS :
+    // ancien `efas_forecast_flood_probability` n'existe plus, split en
+    // 2 layers par horizon (probLT48h / probGT48h). On charge le >48h
+    // par défaut (signal plus visible sur la carte). Public sert ARCHIVE
+    // uniquement, real-time forecast = EFAS Partners only.
     this.toggleStaticWmsLayer({
       key: 'efas', layerId: 'efas-wms', proxyUrl: '/wms-efas',
-      wmsLayer: 'efas_forecast_flood_probability', opacity: 0.7,
-      attribution: '© EFAS Copernicus', on,
+      wmsLayer: 'mapserver:probGT48h', opacity: 0.7,
+      attribution: '© EFAS Copernicus EMS (archive ≥30j)', on,
     });
   }
 
