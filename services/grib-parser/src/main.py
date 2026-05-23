@@ -75,7 +75,7 @@ class ParseRequest(BaseModel):
     parser_config: Optional[dict[str, Any]] = Field(None, description='Config additionnelle (ex: fhours: list[int])')
     # ─── Sprint N4 Phase 2 : auto-create GeoServer store ───
     geoserver_create_if_missing: Optional[bool] = Field(False)
-    geoserver_workspace: Optional[str] = Field('maritime')
+    geoserver_workspace: Optional[str] = Field('aetherwx')
     geoserver_store: Optional[str] = Field(None)
     geoserver_coverage: Optional[str] = Field(None, description='Nom de la coverage (= basename output_dir)')
     geoserver_title: Optional[str] = Field(None)

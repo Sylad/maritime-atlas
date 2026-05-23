@@ -322,7 +322,7 @@ export class OrchestratorRunnerService implements OnModuleInit, OnModuleDestroy 
       // cycle, idempotent les fois suivantes (le sidecar check d'abord
       // l'existence via REST).
       geoserver_create_if_missing: sinkCfg.geoserver_create_if_missing,
-      geoserver_workspace: sinkCfg.geoserver_workspace ?? 'maritime',
+      geoserver_workspace: sinkCfg.geoserver_workspace ?? 'aetherwx',
       geoserver_store: sinkCfg.geoserver_store,
       geoserver_coverage: sinkCfg.geoserver_coverage,
       geoserver_title: sinkCfg.geoserver_title,
