@@ -2770,12 +2770,32 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     this.closeAnimationPanel();
     const masterKey = this.effectiveMasterLayerKey();
     const master = masterKey ? this.animatableLayersGlobe.find((l) => l.key === masterKey) : undefined;
-    const { start, end } = this.computeAnimationWindow(opts);
     let timestamps: Date[] = [];
+    let effectiveOpts = opts;
     if (master) {
-      try { timestamps = await this.fetchTimestamps(master, start, end); } catch { /* fallback step 1h */ }
+      try {
+        // G39 (2026-05-23) — fetch ALL validities (range très large), puis
+        // ré-ancrer la fenêtre d'animation sur la LATEST validité du master.
+        // Sinon : SST observation J-13→J-4 vs anchor=now → window [now-24h,now]
+        // sans data → fallback legacy 1h step (8 validités attendues, 24
+        // frames inutiles obtenues). User-perçu : "cursor évolue à l'heure".
+        const allTs = await this.fetchTimestamps(master, new Date(0), new Date(Date.now() + 7 * 86_400_000));
+        if (allTs.length > 0) {
+          const latest = allTs[allTs.length - 1];
+          // Pour direction past, anchor sur latest pour que la fenêtre
+          // capture la data réelle.
+          const resolved = opts.direction === 'auto'
+            ? (opts.forecastActive ? 'future' : 'past')
+            : opts.direction;
+          if (resolved === 'past') {
+            effectiveOpts = { ...opts, anchor: latest };
+          }
+        }
+        const { start, end } = this.computeAnimationWindow(effectiveOpts);
+        timestamps = allTs.filter((t) => t.getTime() >= start.getTime() && t.getTime() <= end.getTime());
+      } catch { /* fallback step 1h */ }
     }
-    this.animPlayer.start({ ...opts, timestamps, masterLayerLabel: master?.label ?? undefined });
+    this.animPlayer.start({ ...effectiveOpts, timestamps, masterLayerLabel: master?.label ?? undefined });
   }
 
   private computeAnimationWindow(opts: AnimationOptions): { start: Date; end: Date } {
