@@ -3540,16 +3540,15 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   }
 
   private buildWmsTileUrl(layerName: string, time: string, opts?: { interpolations?: string; style?: string }): string {
-    // G24 — pour SST, STYLES=sst-with-contours + env=contourInterval:50
-    // (seul SLD publié sur GS, env big interval = pas de contours rendus).
-    const styleParam = opts?.style ?? (layerName === 'aetherwx:sst-daily' ? 'sst-with-contours' : '');
-    const envParam = layerName === 'aetherwx:sst-daily' ? '&env=contourInterval:50' : '';
+    // G34 (2026-05-23) — SST → `sst-direct` SLD (rainbow pur, sans contours,
+    // bicubic baked). Remplace le hack `sst-with-contours + env=50` qui
+    // laissait apparaître les isolines de manière intermittente.
+    const styleParam = opts?.style ?? (layerName === 'aetherwx:sst-daily' ? 'sst-direct' : '');
     return '/geoserver/aetherwx/wms' +
       '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
       `&LAYERS=${encodeURIComponent(layerName)}&STYLES=${encodeURIComponent(styleParam)}&FORMAT=image/png&TRANSPARENT=true` +
       `&TIME=${encodeURIComponent(time)}` +
       (opts?.interpolations ? `&INTERPOLATIONS=${opts.interpolations}` : '') +
-      envParam +
       '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256';
   }
 
@@ -3633,9 +3632,11 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
               // (SST 0-30°C donc interval 50 = aucun contour rendu, juste
               // la palette rainbow). User feedback "plus de palette" avec
               // STYLES=raster (greyscale only).
-              '&LAYERS=aetherwx:sst-daily&STYLES=sst-with-contours&FORMAT=image/png&TRANSPARENT=true' +
-              '&env=contourInterval:50' +
-              '&INTERPOLATIONS=bicubic' +
+              // G34 (2026-05-23) — `sst-direct` SLD = rainbow pur sans
+              // contours + VendorOption interpolation:BICUBIC baked.
+              // Remplace l'ancien hack `sst-with-contours + env=50` qui
+              // laissait apparaître les isolines (env var pas honorée).
+              '&LAYERS=aetherwx:sst-daily&STYLES=sst-direct&FORMAT=image/png&TRANSPARENT=true' +
               '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256',
           ],
           tileSize: 256,
@@ -4101,7 +4102,16 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     const map = this.map;
     if (!map) return;
     if (!on) { this.removeArrowsLayer('wind-arrows-vec'); return; }
-    this.addArrowsLayer(map, 'wind-arrows-vec', '#fde047');
+    // G34 — palette dégradée selon speed (m/s) : bleu froid → rouge chaud
+    this.addArrowsLayer(map, 'wind-arrows-vec', [
+      'interpolate', ['linear'], ['get', 'speed'],
+      0,  '#60a5fa',  // 0 kt → bleu clair
+      5,  '#22c55e',  // 5 m/s ≈ 10 kt → vert
+      10, '#fde047',  // 10 m/s ≈ 20 kt → jaune
+      15, '#fb923c',  // 15 m/s ≈ 30 kt → orange
+      20, '#dc2626',  // 20 m/s ≈ 40 kt → rouge
+      30, '#7f1d1d',  // 30 m/s ≈ 60 kt → rouge sombre
+    ]);
     void this.refreshArrowsForTime(this.currentTime());
   }
   toggleWaveArrows(on: boolean): void {
@@ -4110,7 +4120,16 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     const map = this.map;
     if (!map) return;
     if (!on) { this.removeArrowsLayer('wave-arrows-vec'); return; }
-    this.addArrowsLayer(map, 'wave-arrows-vec', '#60a5fa');
+    // G34 — palette dégradée selon hs (m) : bleu → violet → rouge
+    this.addArrowsLayer(map, 'wave-arrows-vec', [
+      'interpolate', ['linear'], ['get', 'hs'],
+      0, '#bfdbfe',  // 0 m → bleu très clair
+      1, '#60a5fa',  // 1 m → bleu
+      2, '#3b82f6',  // 2 m → bleu vif
+      4, '#8b5cf6',  // 4 m → violet (forte mer)
+      6, '#dc2626',  // 6 m → rouge (très grosse mer)
+      9, '#7f1d1d',  // 9 m+ → rouge sombre (exceptionnel)
+    ]);
     void this.refreshArrowsForTime(this.currentTime());
   }
 
@@ -4125,7 +4144,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (layerId === 'wave-arrows-vec') this.lastWaveArrowsTs = undefined;
   }
 
-  private addArrowsLayer(map: maplibregl.Map, sourceId: string, color: string): void {
+  private addArrowsLayer(map: maplibregl.Map, sourceId: string, colorExpr: any): void {
     if (map.getSource(sourceId)) map.removeSource(sourceId);
     map.addSource(sourceId, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addLayer({
@@ -4141,7 +4160,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         'icon-ignore-placement': true,
       },
       paint: {
-        'icon-color': color,
+        'icon-color': colorExpr,
         'icon-halo-color': '#0f172a',
         'icon-halo-width': 1.5,
       },
