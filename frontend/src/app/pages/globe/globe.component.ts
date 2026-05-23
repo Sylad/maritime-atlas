@@ -3490,10 +3490,11 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (!map) return;
     const t = this.currentTime();
 
-    // SST — daily, format YYYY-MM-DD UTC. G37 : image source = 1 req/frame.
+    // SST — daily, format YYYY-MM-DD UTC
     const sstDate = `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`;
     if (this.showSst() && map.getSource('sst-wms')) {
-      this.refreshSstImage();
+      const url = this.buildWmsTileUrl('aetherwx:sst-daily', sstDate, { interpolations: 'bicubic' });
+      (map.getSource('sst-wms') as maplibregl.RasterTileSource).setTiles([url]);
     }
     // G18 M4 — SST contours snap au TIME daily du SST raster
     if (this.showSstContours() && map.getSource('sst-contours-wms')) {
@@ -3593,49 +3594,6 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   private lastFpsTime = performance.now();
   private frameCount = 0;
   private moveHandlers: Array<{ event: string; handler: () => void }> = [];
-  /** G37 — handler moveend pour refetch SST image source. */
-  private sstMoveHandler?: () => void;
-
-  /** G37 — bounds viewport courant en EPSG:4326 [west, south, east, north]
-   *  + coordinates pour ImageSource MapLibre. Refait à chaque pan/zoom. */
-  private currentViewportBounds(): { bbox4326: [number, number, number, number]; coords: [[number, number], [number, number], [number, number], [number, number]] } {
-    const map = this.map!;
-    const b = map.getBounds();
-    const w = b.getWest(), s = b.getSouth(), e = b.getEast(), n = b.getNorth();
-    return {
-      bbox4326: [w, s, e, n],
-      coords: [[w, n], [e, n], [e, s], [w, s]],
-    };
-  }
-
-  /** G37 — build le payload initial pour la source image SST.
-   *  ImageSource accepte un URL + 4 coords. updateImage() pour refresh. */
-  private buildSstImageSource(): maplibregl.ImageSourceSpecification {
-    const { bbox4326, coords } = this.currentViewportBounds();
-    return { type: 'image', url: this.buildSstImageUrl(bbox4326), coordinates: coords };
-  }
-
-  private buildSstImageUrl(bbox: [number, number, number, number]): string {
-    const t = this.currentTime();
-    const date = `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`;
-    return '/geoserver/aetherwx/wms' +
-      '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
-      '&LAYERS=aetherwx:sst-daily&STYLES=sst-direct&FORMAT=image/png&TRANSPARENT=true' +
-      '&INTERPOLATIONS=bicubic' +
-      `&TIME=${encodeURIComponent(date)}` +
-      `&SRS=EPSG:4326&BBOX=${bbox[1]},${bbox[0]},${bbox[3]},${bbox[2]}` +
-      '&WIDTH=1024&HEIGHT=1024';
-  }
-
-  /** G37 — refresh la source SST avec nouveau viewport + currentTime. */
-  private refreshSstImage(): void {
-    const map = this.map;
-    if (!map) return;
-    const src = map.getSource('sst-wms') as maplibregl.ImageSource | undefined;
-    if (!src) return;
-    const { bbox4326, coords } = this.currentViewportBounds();
-    src.updateImage({ url: this.buildSstImageUrl(bbox4326), coordinates: coords });
-  }
 
   ngAfterViewInit(): void {
     this.restoreLayerOpacities();
@@ -3681,13 +3639,18 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     const layerId = 'sst-wms';
     const sourceId = 'sst-wms';
     if (on) {
-      // G37 (2026-05-23) — Pivot raster tiles → image source. Pattern OL legacy
-      // (2026-05-14) : 1 GetMap par viewport = N fois moins de requests pendant
-      // animation (7 validités × 20 tiles = 140 reqs → 7 × 1 = 7 reqs).
-      // Tradeoff : refetch sur moveend (pan/zoom). Acceptable pour SST (data
-      // basse résolution 4km grid, refetch occasionnel).
       if (!map.getSource(sourceId)) {
-        map.addSource(sourceId, this.buildSstImageSource() as any);
+        map.addSource(sourceId, {
+          type: 'raster',
+          tiles: [
+            '/geoserver/aetherwx/wms' +
+              '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
+              '&LAYERS=aetherwx:sst-daily&STYLES=sst-direct&FORMAT=image/png&TRANSPARENT=true' +
+              '&INTERPOLATIONS=bicubic' +
+              '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256',
+          ],
+          tileSize: 256,
+        });
       }
       if (!map.getLayer(layerId)) {
         const before = map.getLayer('wind-webgl') ? 'wind-webgl' : undefined;
@@ -3695,19 +3658,11 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
           { id: layerId, type: 'raster', source: sourceId, paint: { 'raster-opacity': 0.7 } },
           before,
         );
-        // Refetch image sur pan/zoom pour matcher le viewport.
-        const handler = () => this.refreshSstImage();
-        map.on('moveend', handler);
-        this.sstMoveHandler = handler;
       } else {
         map.setLayoutProperty(layerId, 'visibility', 'visible');
       }
     } else {
       if (map.getLayer(layerId)) map.setLayoutProperty(layerId, 'visibility', 'none');
-      if (this.sstMoveHandler) {
-        map.off('moveend', this.sstMoveHandler);
-        this.sstMoveHandler = undefined;
-      }
     }
   }
 
