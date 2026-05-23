@@ -1098,6 +1098,7 @@ function gibsDailyDate(): string {
           [maxTime]="sliderMaxTime()"
           [layerCoverage]="sliderLayerCoverage()"
           [validityList]="masterValidityList()"
+          [stepMs]="masterStepMs()"
           [externalCurrentTime]="currentTime()"
           [externalAnimationActive]="animPlayer.state() !== 'idle'"
           [autoZIndexEnabled]="autoZIndexEnabled()"
@@ -1114,6 +1115,7 @@ function gibsDailyDate(): string {
           [anchor]="currentTime()"
           [forecastActive]="isForecastActive()"
           [masterLayerLabel]="masterLayerLabel()"
+          [masterStepMs]="masterStepMs()"
           (launch)="onAnimationLaunch($event)"
           (cancel)="closeAnimationPanel()" />
       }
@@ -3429,6 +3431,22 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       }
     }
   }
+
+  /** G36 (2026-05-23) — Granularité native du master layer en ms.
+   *  Sert à la fois pour TimeSlider (snap step buttons) et AnimationPanel
+   *  (filtre les durées < 2 × step + affiche le step humain). */
+  readonly masterStepMs = computed<number>(() => {
+    const master = this.effectiveMasterLayerKey();
+    if (!master) return 3_600_000; // 1h default
+    if (master.startsWith('sat')) {
+      const product = SAT_PRODUCTS.find((p) => p.key === master);
+      return product?.kind === 'gibs-daily' ? 24 * 3_600_000 : 5 * 60_000;
+    }
+    if (master === 'sst') return 24 * 3_600_000;
+    if (master === 'windForecast' || master === 'wavesForecast' ||
+        master === 'windArrows' || master === 'waveArrows') return 6 * 3_600_000;
+    return 3_600_000;
+  });
 
   /** G6b/G7/G9 — calcule les validités client-side pour la layer "master" courante.
    *  Master dérivé de effectiveMasterLayerKey. Cap à 500 timesteps.

@@ -4,6 +4,7 @@ import {
   computed,
   EventEmitter,
   Input,
+  OnChanges,
   Output,
   signal,
 } from '@angular/core';
@@ -54,13 +55,15 @@ import {
         <section class="ap-group">
           <div class="ap-label">Durée</div>
           <div class="ap-grid-2">
-            @for (d of durations; track d.value) {
+            @for (d of durations(); track d.value) {
               <button type="button"
                       class="ap-btn"
                       [class.is-active]="duration() === d.value"
-                      (click)="duration.set(d.value)">
+                      [disabled]="d.disabled"
+                      [title]="d.disabled ? 'Trop court pour ce layer (' + stepLabel() + ' par validité)' : ''"
+                      (click)="!d.disabled && duration.set(d.value)">
                 {{ d.label }}
-                <small>{{ d.frames }} frames</small>
+                <small>{{ d.frames }} frame{{ d.frames > 1 ? 's' : '' }}</small>
               </button>
             }
           </div>
@@ -109,8 +112,14 @@ import {
         <!-- Step (info only) -->
         <section class="ap-group ap-group-info">
           <div class="ap-label">Step</div>
-          <div class="ap-value">1 heure (arrondie)</div>
-          <small class="ap-hint">Match la granularité native des modèles forecast.</small>
+          <div class="ap-value">{{ stepLabel() }}</div>
+          <small class="ap-hint">
+            @if (masterLayerLabel) {
+              Granularité native de <strong>{{ masterLayerLabel }}</strong>.
+            } @else {
+              Granularité native du layer maître.
+            }
+          </small>
         </section>
 
         <!-- Toggles -->
@@ -350,7 +359,7 @@ import {
     }
   `],
 })
-export class AnimationPanelComponent {
+export class AnimationPanelComponent implements OnChanges {
   /** Date courante du slider — utilisée comme ancre par défaut. */
   @Input({ required: true }) anchor!: Date;
 
@@ -363,6 +372,12 @@ export class AnimationPanelComponent {
    *  timestamps. null = aucun layer animable actif. */
   @Input() masterLayerLabel: string | null = null;
 
+  /** G36 (2026-05-23) — Granularité native du master en ms. Sert à :
+   *  1) afficher le vrai step ("1 jour" si SST master, "6 heures" si wind)
+   *  2) désactiver les choix de durée < 2 × step (sinon animation = 0-1
+   *     frame, aucun changement visible). Default 1h pour back-compat. */
+  @Input() masterStepMs: number = 3_600_000;
+
   @Output() launch = new EventEmitter<AnimationOptions>();
   @Output() cancel = new EventEmitter<void>();
 
@@ -374,12 +389,35 @@ export class AnimationPanelComponent {
   readonly followRealTime = signal<boolean>(true);
 
   // ── Constants ────────────────────────────────────────────────────
-  readonly durations: Array<{ value: AnimationDuration; label: string; frames: number }> = [
-    { value: '6h',  label: '6 heures',  frames: 6 },
-    { value: '24h', label: '24 heures', frames: 24 },
-    { value: '3d',  label: '3 jours',   frames: 72 },
-    { value: '7d',  label: '7 jours',   frames: 168 },
-  ];
+  /** Durées en heures (clé legacy AnimationDuration). */
+  private readonly DURATION_HOURS: Record<AnimationDuration, number> = {
+    '6h': 6, '24h': 24, '3d': 72, '7d': 168,
+  };
+  private readonly DURATION_LABELS: Record<AnimationDuration, string> = {
+    '6h': '6 heures', '24h': '24 heures', '3d': '3 jours', '7d': '7 jours',
+  };
+  private readonly ALL_DURATIONS: AnimationDuration[] = ['6h', '24h', '3d', '7d'];
+
+  /** G36 — durées proposées filtrées : on garde uniquement celles qui
+   *  produisent ≥ 2 frames pour le master courant. Avec SST (step 24h)
+   *  → '6h' (0 frame) et '24h' (1 frame) sont cachés.
+   *  Toujours ≥1 option (sinon panneau inutile). */
+  readonly durations = computed<Array<{ value: AnimationDuration; label: string; frames: number; disabled: boolean }>>(() => {
+    const stepH = this.masterStepMs / 3_600_000;
+    return this.ALL_DURATIONS.map((value) => {
+      const hours = this.DURATION_HOURS[value];
+      const frames = Math.max(1, Math.floor(hours / Math.max(stepH, 1)));
+      return { value, label: this.DURATION_LABELS[value], frames, disabled: frames < 2 };
+    });
+  });
+
+  /** Label humain pour le step natif. */
+  readonly stepLabel = computed<string>(() => {
+    const h = this.masterStepMs / 3_600_000;
+    if (h >= 24) return `${Math.round(h / 24)} jour${h >= 48 ? 's' : ''}`;
+    if (h >= 1) return `${h} heure${h > 1 ? 's' : ''}`;
+    return `${Math.round(this.masterStepMs / 60_000)} minutes`;
+  });
 
   readonly directions: Array<{ value: AnimationDirection; label: string }> = [
     { value: 'auto',   label: 'Auto' },
@@ -417,12 +455,22 @@ export class AnimationPanelComponent {
 
   // ── Internals ────────────────────────────────────────────────────
   private durationHours(): number {
-    const map = { '6h': 6, '24h': 24, '3d': 72, '7d': 168 };
-    return map[this.duration()];
+    return this.DURATION_HOURS[this.duration()];
   }
   private speedMs(): number {
     const map = { 1: 1000, 2: 500, 4: 250, 8: 125 };
     return map[this.speed()];
+  }
+
+  ngOnChanges(): void {
+    // G36 — quand masterStepMs change (user change de master layer), si la
+    // durée sélectionnée devient disabled → switch sur la 1ère valide.
+    const ds = this.durations();
+    const cur = ds.find((d) => d.value === this.duration());
+    if (cur?.disabled) {
+      const firstOk = ds.find((d) => !d.disabled);
+      if (firstOk) this.duration.set(firstOk.value);
+    }
   }
 
   onLaunch(): void {
