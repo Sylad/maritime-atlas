@@ -2825,7 +2825,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       const sourceId = `anim-${masterKey}-${i}`;
       const url = '/geoserver/aetherwx/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
         `&LAYERS=${encodeURIComponent(gsName)}&STYLES=${encodeURIComponent(style)}` +
-        `&FORMAT=image/png&TRANSPARENT=true&INTERPOLATIONS=bicubic` +
+        `&FORMAT=image/png&TRANSPARENT=true&INTERPOLATIONS=bicubic&tiled=true` +
         `&TIME=${encodeURIComponent(date)}` +
         `&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=1024&HEIGHT=1024`;
       map.addSource(sourceId, { type: 'raster', tiles: [url], tileSize: 1024 });
@@ -3675,9 +3675,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // G40 (2026-05-23) — SST en tiles 1024×1024 (vs 256) pour réduire le
     // nb de fetches par 16× durant les animations. Autres layers gardent 256.
     const size = layerName === 'aetherwx:sst-daily' ? 1024 : 256;
+    // G42c (2026-05-23) — `tiled=true` route vers GWC cache.
     return '/geoserver/aetherwx/wms' +
       '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
-      `&LAYERS=${encodeURIComponent(layerName)}&STYLES=${encodeURIComponent(styleParam)}&FORMAT=image/png&TRANSPARENT=true` +
+      `&LAYERS=${encodeURIComponent(layerName)}&STYLES=${encodeURIComponent(styleParam)}&FORMAT=image/png&TRANSPARENT=true&tiled=true` +
       `&TIME=${encodeURIComponent(time)}` +
       (opts?.interpolations ? `&INTERPOLATIONS=${opts.interpolations}` : '') +
       `&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=${size}&HEIGHT=${size}`;
@@ -3770,16 +3771,16 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         // G40 (2026-05-23) — tileSize 256 → 1024 + WIDTH/HEIGHT 1024.
         // Réduction du nb de tiles fetched par 16× (4× linéaire, 16× quad).
         // Pour animation SST 8 validités : ~960 tiles → ~60 tiles GS-side.
-        // Tradeoff : chaque tile 16× plus grosse à render server-side, mais
-        // total throughput largement gagnant. SST 4km grid = pas de perte
-        // visuelle visible à zoom < 6.
+        // G42c (2026-05-23) — `&tiled=true` route vers GWC cache (Direct WMS
+        // Integration enabled via Job PostSync). Cf headers response qui
+        // afficheront `geowebcache-cache-result: HIT|MISS`.
         map.addSource(sourceId, {
           type: 'raster',
           tiles: [
             '/geoserver/aetherwx/wms' +
               '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
               '&LAYERS=aetherwx:sst-daily&STYLES=sst-direct&FORMAT=image/png&TRANSPARENT=true' +
-              '&INTERPOLATIONS=bicubic' +
+              '&INTERPOLATIONS=bicubic&tiled=true' +
               '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=1024&HEIGHT=1024',
           ],
           tileSize: 1024,
