@@ -2999,14 +2999,13 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       `&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256`;
   }
 
-  /** G53c (2026-05-24) — fix v2 : les events `dataloading`/`data` avec
-   *  tile field N'ONT PAS de sourceId direct (vérifié dans le runtime
-   *  MapLibre). Le sourceId est sur `event.target?.id` (Evented target).
-   *  Sync via `map.areTilesLoaded()` au lieu de `src.loaded()` qui mesure
-   *  le metadata loading, pas le tile loading pour les raster sources.
-   *
-   *  Tile-level tracking : `dataloading` incrémente totalDispatched,
-   *  `data` (tile.state=loaded|errored|expired) incrémente totalCompleted. */
+  /** G53d (2026-05-24) — fix v3 : abandon des MapLibre events (target
+   *  overwritten au bubble Evented → sourceId perdu). Approche bulletproof :
+   *  monkey-patch window.fetch pendant le preload. On filtre les URL
+   *  GeoServer WMS qui matchent les gsName de nos targets actives. Chaque
+   *  fetch dispatched = totalDispatched++. Chaque promise résolue (ok ou
+   *  ko) = totalCompleted++. Immune aux abstractions MapLibre. Restore
+   *  window.fetch après le preload. */
   private async preloadAllRasterFrames(masterKey: string, timestamps: Date[]): Promise<void> {
     const map = this.map;
     if (!map) return;
@@ -3015,8 +3014,14 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     const targets = this.buildRasterTargets();
     if (targets.length === 0) return;
 
-    const watchedSources = new Set(targets.map((t) => t.layerId));
-    const inFlight = new Set<string>();
+    // Build regex matchant les gsName watched. Encoded form : `aetherwx%3A`.
+    const watchedGsNames = targets.map((t) => t.gsName.replace(/:/g, '%3A'));
+    const isWatchedUrl = (url: string | undefined): boolean => {
+      if (!url || !/\/geoserver\/.*wms/i.test(url)) return false;
+      if (!/REQUEST=GetMap/i.test(url)) return false;
+      return watchedGsNames.some((gsName) => url.includes(gsName));
+    };
+
     let totalDispatched = 0;
     let totalCompleted = 0;
     const updateState = () => {
@@ -3024,67 +3029,47 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       if (st) this.animLoadingState.set({ ...st, done: totalCompleted, total: totalDispatched });
     };
 
-    // Le sourceId arrive via `event.target?.id` (Evented target = la source
-    // qui a fire l'event). Cast en `any` car MapLibre n'expose pas target.id
-    // dans le type public, mais c'est garanti par l'implem Evented.
-    const onLoading = (e: maplibregl.MapDataEvent) => {
-      const ev = e as unknown as { dataType?: string; tile?: { tileID: { key: string }; state: string }; target?: { id?: string } };
-      if (ev.dataType !== 'source' || !ev.tile) return;
-      const sourceId = ev.target?.id;
-      if (!sourceId || !watchedSources.has(sourceId)) return;
-      const k = `${sourceId}:${ev.tile.tileID.key}`;
-      if (!inFlight.has(k)) {
-        inFlight.add(k);
+    const origFetch = window.fetch.bind(window);
+    const patchedFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (isWatchedUrl(url)) {
         totalDispatched++;
         updateState();
+        return origFetch(input, init).finally(() => {
+          totalCompleted++;
+          updateState();
+        });
       }
+      return origFetch(input, init);
     };
-    const onData = (e: maplibregl.MapDataEvent) => {
-      const ev = e as unknown as { dataType?: string; tile?: { tileID: { key: string }; state: string }; target?: { id?: string } };
-      if (ev.dataType !== 'source' || !ev.tile) return;
-      const st = ev.tile.state;
-      if (st !== 'loaded' && st !== 'errored' && st !== 'expired') return;
-      const sourceId = ev.target?.id;
-      if (!sourceId || !watchedSources.has(sourceId)) return;
-      const k = `${sourceId}:${ev.tile.tileID.key}`;
-      if (inFlight.has(k)) {
-        inFlight.delete(k);
-        totalCompleted++;
-        updateState();
-      }
-    };
-    map.on('dataloading', onLoading);
-    map.on('data', onData);
-    map.on('dataabort', onData);  // dataabort = aussi un terminal state (counter completion)
+    window.fetch = patchedFetch;
 
     this.animLoadingState.set({ phase: 'tiles', done: 0, total: 0, label: this.masterLayerLabel() ?? 'Animation' });
 
-    // ── Ordre : master en 1er (priorité visuelle), puis subs ──
-    const ordered = [
-      ...targets.filter((t) => t.key === masterKey),
-      ...targets.filter((t) => t.key !== masterKey),
-    ];
-    for (const target of ordered) {
-      const src = map.getSource(target.layerId) as maplibregl.RasterTileSource | undefined;
-      if (!src || typeof src.setTiles !== 'function') continue;
-      for (const ts of timestamps) {
-        src.setTiles([this.buildAnimFrameUrl(target, ts)]);
-        // Force MapLibre à recompute les tiles à fetcher (sinon setTiles
-        // peut être différé jusqu'au prochain repaint).
-        map.triggerRepaint();
-        await this.waitForAllTilesLoaded(map, 10_000);
+    try {
+      // ── Ordre : master en 1er (priorité visuelle), puis subs ──
+      const ordered = [
+        ...targets.filter((t) => t.key === masterKey),
+        ...targets.filter((t) => t.key !== masterKey),
+      ];
+      for (const target of ordered) {
+        const src = map.getSource(target.layerId) as maplibregl.RasterTileSource | undefined;
+        if (!src || typeof src.setTiles !== 'function') continue;
+        for (const ts of timestamps) {
+          src.setTiles([this.buildAnimFrameUrl(target, ts)]);
+          map.triggerRepaint();
+          await this.waitForAllTilesLoaded(map, 10_000);
+        }
       }
+
+      // Restore TIME courant du cursor sur tous les rasters.
+      this.refreshWmsTimeForActiveLayers();
+      await this.waitForAllTilesLoaded(map, 5_000);
+    } finally {
+      // Restore le fetch original (sinon les fetches d'API post-preload
+      // continueraient d'incrémenter notre compteur orphelin).
+      window.fetch = origFetch;
     }
-
-    // Restore TIME courant du cursor (sinon la dernière setTiles laisse les
-    // sub rasters sur le timestamp final, désync avec le master qui va
-    // démarrer en frame 0 via AnimationPlayer).
-    this.refreshWmsTimeForActiveLayers();
-    await this.waitForAllTilesLoaded(map, 5_000);
-
-    map.off('dataloading', onLoading);
-    map.off('data', onData);
-    map.off('dataabort', onData);
   }
 
   /** G53c — attend que `map.areTilesLoaded()` retourne true (TOUTES les
