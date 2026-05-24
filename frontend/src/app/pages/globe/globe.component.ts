@@ -3096,25 +3096,57 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
 
     this.animLoadingState.set({ phase: 'tiles', done: 0, total: 0, label: this.masterLayerLabel() ?? 'Animation' });
 
+    const masterTarget = targets.find((t) => t.key === masterKey);
+    const subTargets = targets.filter((t) => t.key !== masterKey);
+    const layerIds: string[] = [];
+    let mainLayerId = '';
+
     try {
-      // ── Ordre : master en 1er (priorité visuelle), puis subs ──
-      const ordered = [
-        ...targets.filter((t) => t.key === masterKey),
-        ...targets.filter((t) => t.key !== masterKey),
-      ];
-      for (const target of ordered) {
+      // ── G55 (2026-05-24) — N-source pattern pour le master layer ──
+      // Crée N raster sources (1 par TS), visibility:visible + opacity:0
+      // pour forcer le fetch sans visuel. Pendant playback, swap atomic
+      // opacity entre sources → zéro re-fetch, zéro bottom-up draw.
+      if (masterTarget && timestamps.length > 1) {
+        mainLayerId = masterTarget.layerId;
+        // Masque le layer original pendant l'animation
+        if (map.getLayer(mainLayerId)) map.setLayoutProperty(mainLayerId, 'visibility', 'none');
+        for (let i = 0; i < timestamps.length; i++) {
+          if (abortSignal?.aborted) return;
+          const sourceId = `anim-${masterKey}-${i}`;
+          const url = this.buildAnimFrameUrl(masterTarget, timestamps[i]);
+          map.addSource(sourceId, { type: 'raster', tiles: [url], tileSize: 256 });
+          map.addLayer({
+            id: sourceId, type: 'raster', source: sourceId,
+            // visible mais opacity 0 pendant le preload → MapLibre fetch
+            // les tuiles mais rien n'est rendu à l'écran.
+            layout: { visibility: 'visible' },
+            paint: { 'raster-opacity': 0, 'raster-fade-duration': 0 },
+          });
+          layerIds.push(sourceId);
+        }
+        // Attend que toutes les tuiles master soient chargées
+        await this.waitForAllTilesLoaded(map, 30_000, abortSignal);
         if (abortSignal?.aborted) return;
-        const src = map.getSource(target.layerId) as maplibregl.RasterTileSource | undefined;
+        // Stocke les frames preloadées
+        this.preloadedFrames = { masterKey, timestamps, layerIds, mainLayerId };
+        // Affiche frame 0
+        this.switchAnimationFrame(0);
+      }
+
+      // ── Sub rasters : warm GWC via setTiles rotation (tick playback HIT) ──
+      for (const sub of subTargets) {
+        if (abortSignal?.aborted) return;
+        const src = map.getSource(sub.layerId) as maplibregl.RasterTileSource | undefined;
         if (!src || typeof src.setTiles !== 'function') continue;
         for (const ts of timestamps) {
           if (abortSignal?.aborted) return;
-          src.setTiles([this.buildAnimFrameUrl(target, ts)]);
+          src.setTiles([this.buildAnimFrameUrl(sub, ts)]);
           map.triggerRepaint();
           await this.waitForAllTilesLoaded(map, 10_000, abortSignal);
         }
       }
 
-      // Restore TIME courant du cursor sur tous les rasters.
+      // Restore TIME courant du cursor sur les sub rasters (master est géré par swap).
       this.refreshWmsTimeForActiveLayers();
       await this.waitForAllTilesLoaded(map, 5_000, abortSignal);
     } finally {
@@ -3144,15 +3176,17 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     });
   }
 
-  /** G41 — switch la visibility sur la frame correspondante. Appelé par
-   *  l'animation player tick via frameIndex. */
+  /** G55 (2026-05-24) — swap raster-opacity entre N sources pré-chargées.
+   *  Toutes les sources restent visibility:visible (sinon MapLibre purge
+   *  leurs tuiles) ; on alterne opacity 0/0.7 entre celles-ci. Atomic
+   *  côté GPU, aucun re-fetch, zéro bottom-up draw. */
   private switchAnimationFrame(idx: number): void {
     const map = this.map;
     if (!map || !this.preloadedFrames) return;
     const { layerIds } = this.preloadedFrames;
     for (let i = 0; i < layerIds.length; i++) {
       if (map.getLayer(layerIds[i])) {
-        map.setLayoutProperty(layerIds[i], 'visibility', i === idx ? 'visible' : 'none');
+        map.setPaintProperty(layerIds[i], 'raster-opacity', i === idx ? 0.7 : 0);
       }
     }
   }
