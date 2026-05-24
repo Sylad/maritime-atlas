@@ -3198,6 +3198,31 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       return out;
     }
     if (!master.gsLayerName) return [];
+    // G54 (2026-05-24) — cascade-realtime bypass GS GetCapabilities :
+    // GS skip silencieusement les WMSLayerInfo cascade dans GetCap à cause
+    // d'un bug `JDBCResourceStore.file()` ("Directory not a file") sur le
+    // SLD lookup proxy LocalWorkspaceCatalog. GetMap fonctionne quand même,
+    // donc on synthétise les TIMEs client-side à partir du kind du produit
+    // (5min RSS, 10min MTG, 15min HRV, 5min radar) ancrés sur now - 15min
+    // (buffer pour le lag d'ingestion upstream EUMETSAT/DWD/KNMI).
+    const shortName = master.gsLayerName.replace(/^aetherwx:/, '');
+    const product = SAT_PRODUCTS.find((p) => p.gsName === shortName);
+    if (product?.kind === 'cascade-realtime') {
+      const stepMs = this.cascadeStepMs(product.key);
+      const buffered = Math.floor((Date.now() - 15 * 60_000) / stepMs) * stepMs;
+      const out: Date[] = [];
+      for (let t = start.getTime(); t <= end.getTime(); t += stepMs) {
+        if (t > buffered) break;
+        out.push(new Date(t));
+      }
+      // Si la window dépasse buffered, on synthétise quand même les N
+      // derniers timestamps avant buffered pour donner du contenu animable.
+      if (out.length === 0) {
+        const n = Math.min(24, Math.max(1, Math.floor((end.getTime() - start.getTime()) / stepMs)));
+        for (let i = n - 1; i >= 0; i--) out.push(new Date(buffered - i * stepMs));
+      }
+      return out;
+    }
     try {
       const url = '/geoserver/aetherwx/wms?service=WMS&version=1.3.0&request=GetCapabilities';
       const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
@@ -3209,6 +3234,16 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       console.warn('[globe-anim] GetCapabilities échec :', err);
       return [];
     }
+  }
+
+  /** G54 — step natif des cascade WMS upstream, dérivé du label.
+   *  EUMETSAT MSG RSS = 5min, MTG FCI = 10min, HRV = 15min.
+   *  DWD/KNMI radar = 5min. */
+  private cascadeStepMs(productKey: string): number {
+    if (productKey === 'satEuIrRss' || productKey === 'radarDwd' || productKey === 'radarKnmi') return 5 * 60_000;
+    if (productKey === 'satGlobalIrMtg') return 10 * 60_000;
+    if (productKey === 'satEuHrvRgb') return 15 * 60_000;
+    return 15 * 60_000;
   }
 
   private parseTimeDimension(xml: string, layerName: string): Date[] {
