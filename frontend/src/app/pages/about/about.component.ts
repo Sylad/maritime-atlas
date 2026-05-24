@@ -60,7 +60,7 @@ import { RouterLink } from '@angular/router';
             j'ai commencé par "AIS sur la Bretagne", j'ai fini avec un atlas
             multi-source (AIS, météo NOAA, ARPEGE Météo-France, radar pluie,
             foudre Blitzortung), un moteur d'alertes RabbitMQ, un cluster
-            GeoServer 3 replicas avec catalog partagé en Postgres, et des
+            GeoServer 2 replicas synchronisés Hazelcast avec catalog Postgres + cache GWC S3 sur SeaweedFS, et des
             particules de vent style windy.com.
           </p>
           <p class="emphasis">
@@ -87,6 +87,7 @@ import { RouterLink } from '@angular/router';
               <li>SCSS pur, theme custom dark — mode simple mobile (6 toggles essentiels)</li>
               <li>Canvas 2D pour les particules de vent (~2500 advectées par IDW sur 4 plus-proches voisins)</li>
               <li>Prefs layers + ordre + contours isolignes synchronisés en DB multi-device</li>
+              <li>Signal <code>isAnimating</code> (vue Globe) — verrouille le drawer et la nav pendant les animations raster (prévient les race conditions de re-render)</li>
             </ul>
           </div>
           <div class="stack-card">
@@ -103,8 +104,9 @@ import { RouterLink } from '@angular/router';
             <div class="stack-eyebrow">Infra & data</div>
             <ul>
               <li>PostgreSQL 16 + PostGIS + TimescaleDB (hypertables vessels, lightning, alerts)</li>
-              <li>GeoServer 2.28.3 cluster 3 replicas + JDBCConfig + JDBCStore (catalog Postgres-backed, stateless replicas)</li>
-              <li>SeaweedFS (S3-compatible, backend GWC tiles)</li>
+              <li>GeoServer 2.28.3 cluster 2 replicas + JDBCConfig + JDBCStore (catalog Postgres-backed) + Hazelcast gs-hz-cluster (sync in-memory state entre replicas)</li>
+              <li>SeaweedFS S3 — GWC S3 blobstore (gwc-s3-plugin baked in image, cache tiles partagé multi-replica) + coverage data. Workspaces séparés : <code>aetherwx</code> (layers opéra) + <code>aetherwx-sat</code> (7 NASA sat layers, GetCap cold 250 ms vs 36 s avant split)</li>
+              <li>Plugin Java <code>maritime-gwc-init</code> baked dans <code>WEB-INF/lib/</code> — Spring <code>@PostConstruct</code> idempotent : crée le BlobStore S3 + assigne 16 layers GWC à chaque boot. Config GS reproductible 100% gitops, persistance garantie cross-restart.</li>
               <li>RabbitMQ 3.13 (topic exchanges, fanout raster.ready)</li>
               <li>K8s Mini-Blue + ArgoCD GitOps (Helm chart, prod 2026-05-19). Docker Compose conservé en local dev.</li>
             </ul>

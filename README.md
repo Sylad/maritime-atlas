@@ -135,11 +135,13 @@ https://github.com/Sylad/maritime-atlas/raw/main/docs/screenshots/07-particles.m
 |---|---|
 | Storage | PostgreSQL 16 + PostGIS 3.4 + TimescaleDB (hypertable retention 30j) |
 | Messaging | RabbitMQ 3.13 (`ais.raw` direct, `ais.positions` topic) |
-| Tile/WFS server | GeoServer 2.28.3 (cluster 3 replicas + LB nginx + image mosaic time-aware) avec extensions stable WPS / control-flow / gwc-s3 et community JDBCConfig / JDBCStore (catalog Postgres) |
+| Tile/WFS server | GeoServer 2.28.3 (cluster 2 replicas K8s + Hazelcast `gs-hz-cluster` sync + image mosaic time-aware) avec extensions stable WPS / control-flow / gwc-s3 et community JDBCConfig / JDBCStore (catalog Postgres) |
+| Tile cache | GeoWebCache S3 blobstore sur SeaweedFS K8s (bucket `maritime-gwc-tiles`, partagé multi-replica). Workspaces séparés `aetherwx` + `aetherwx-sat` (GetCap cold 250 ms vs 36 s avant le split). |
+| GS custom plugin | **`maritime-gwc-init`** (Maven sub-module sous `geoserver/maritime-gwc-init/`) — Spring `@PostConstruct` baked dans `WEB-INF/lib/` qui crée idempotemment le BlobStore S3 + assigne 16 layers GWC à chaque boot. Config GS reproductible 100% gitops (vs ancien REST PUT non-persistant). |
 | SLD rendering plugin | Plugin Java 17 `gs-idw-process` (Maven + SPI) — 2 SLD functions : `idwInterpolate` (densification IDW parallel) + `idwContour` (densify + extraction isolignes combinés). **Pattern `CoverageReadingTransformation`** (cf `FootprintsTransformation` GeoTools officiel) : la fonction lit elle-même le coverage à sa résolution NATIVE plutôt que d'être servie un upsample du pipeline GS → 0 double interpolation, smooth garanti à toutes les échelles |
 | Backend | NestJS 11 + TypeScript 5, Drizzle ORM (api), amqplib (ais), node-cron (track-builder) |
 | Raster pipeline | Python 3 + xarray + rioxarray + cfgrib + gdal natif |
-| Frontend | Angular 19 + OpenLayers 10 + nginx alpine |
+| Frontend | Angular 19 + OpenLayers 10 (route `/legacy-map`) + MapLibre 5.24 (route `/globe`, projection sphère + WebGL particles) + nginx alpine |
 | Sources externes | aisstream.io · NOAA OISST · NOAA GFS · NOAA WaveWatch III · Météo-France ARPEGE (data.gouv.fr) · Météo-France AROME · RainViewer · EMODnet Physics (WFS public) · **NASA GIBS** (cascade WMS, 7 produits satellite) · **EUMETSAT** (cascade WMS : MSG RSS, MTG, MSG HRV) · **DWD** (radar cascade WMS, Allemagne) · **KNMI** (radar cascade WMS, Pays-Bas) · NOAA Aviation Weather (METAR) · Eaufrance Hub'eau (hydrologie) |
 | Auth | JWT (`@nestjs/jwt`) 24h · bcrypt · vérification email via **Resend SDK** · Google OAuth 2.0 (`passport-google-oauth20`) · RBAC 2 rôles (`user` / `admin`) · cron dormants 90j (`DormantCleanupService`) |
 | Build | Docker multi-stage par service |
@@ -160,6 +162,8 @@ https://github.com/Sylad/maritime-atlas/raw/main/docs/screenshots/07-particles.m
 | **Sprint Europe** (2026-05-12, 5 chantiers) | bbox Europe étroite, ARPEGE 0.1° activé, EMODnet 612 plateformes, clustering OpenLayers, compression TimescaleDB 88.7% |
 | **GeoServer V3 IDW** (2026-05-13) | Plugin Java custom `idw:IDW` (densify parallel sur quad-core) + `idw:IDWContour` (combiné, contourne bug GeoTools chaining post-2.26.2) + extensions WPS / control-flow / JDBCConfig · isolignes lisses sur SST / wave-hs / wind-speed · burst test 30 req parallèles validé (P95 6s, zéro 502) |
 | **GeoServer V4 IDW native preservation** (2026-05-15) | Migration WPS `@DescribeProcess` → SLD Function `CoverageReadingTransformation`. Avant : pipeline GS upsamplait native (16×8 cells GFS Europe) à target res (532×533) en NN avant IDW → blocky visible. Après : la function lit native directement via `ReaderAndParams`, IDW densifie à factor=12 sur native pure → smooth à tous zooms. Bonus : wind plein écran 2560×1271 passe de **OOM JVM 6GB heap** à **0.9s + 50 MB peak** |
+| **Globe 3D** (2026-05-22, Phase 5a+5b) | Route `/globe` MapLibre 5.24 projection sphère + WebGL custom layer wind particles (port `webgl-wind` Mapbox ISC). SST WMS + 12 satellites (NASA GIBS + EUMETSAT cascade + radar DWD/KNMI) + 3 vector layers (lightning + alerts + vessels AIS cluster). Cohabite avec `/legacy-map` OL10 sans abstraction MapEngine prématurée. |
+| **Cluster ready — Marathon G56→G64** (2026-05-24, 12 commits) | (G56) Workspace `aetherwx-sat` split → GetCap 36s → 250ms ; (G57+G58) SeaweedFS K8s déployée + GWC S3 blobstore (gwc-s3-plugin baked) ; (G60) Hazelcast `gs-hz-cluster` activé, 2 replicas GS sync RBAC pod-reader ; (G61+G62) cascade buffer per-product (RSS 30 / MTG 45 / HRV 75 min) + `MAX_FRAMES=150` cap UI ; (G63) **plugin Java `maritime-gwc-init`** baked dans `WEB-INF/lib/` qui crée idempotemment S3 BlobStore + 16 layers GWC au boot — config GS durable cross-restart, pattern pro éprouvé en prod ; (G64) verrou UI animation (drawer + nav désactivés via signal `isAnimating`). Migration Hetzner CAX41 directement prête (bump 2→3 replicas, heap 4g→8g). |
 
 ## Bbox
 
