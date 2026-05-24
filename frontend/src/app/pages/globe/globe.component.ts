@@ -2999,110 +2999,120 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       `&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256`;
   }
 
-  /** G53 (2026-05-24) — pre-load complet AVANT playback. Master : crée N
-   *  raster sources (swap visibility instantané pendant ticks). Sub rasters
-   *  actifs : rotate setTiles à travers les N TIMEs pour warm GWC (les
-   *  ticks ultérieurs HIT). Progression incrémentée event-driven sur
-   *  MapLibre `data` { dataType:'source', isSourceLoaded:true }.
-   *  Tradeoff : 2-5s d'attente initial vs playback 100% smooth (GWC HIT). */
+  /** G53b (2026-05-24) — pre-load complet AVANT playback. Pour CHAQUE
+   *  raster actif (master + subs), rotate setTiles à travers les N TIMEs.
+   *  La source originale reste visible donc MapLibre fetch réellement les
+   *  tiles (vs hidden source = pas de fetch dans le bug G53 v1). Tile-level
+   *  tracking : `dataloading` incrémente totalDispatched, `data` avec
+   *  tile.state='loaded'|'errored' incrémente totalCompleted. Barre dispose
+   *  quand tous in-flight drained. Trade-off vs G41 N-sources : playback
+   *  frame change = 1 fetch GWC HIT (~50ms) au lieu de swap visibility
+   *  instantané, mais à 1× speed (1s/frame) c'est invisible. */
   private async preloadAllRasterFrames(masterKey: string, timestamps: Date[]): Promise<void> {
     const map = this.map;
     if (!map) return;
     this.cleanupAnimationFrames();
 
     const targets = this.buildRasterTargets();
-    const masterTarget = targets.find((t) => t.key === masterKey);
-    const subTargets = targets.filter((t) => t.key !== masterKey);
+    if (targets.length === 0) return;
 
-    // Total = (master frames créées) + (sub × N rotations setTiles)
-    const masterFrames = masterTarget ? timestamps.length : 0;
-    const subFrames = subTargets.length * timestamps.length;
-    const total = masterFrames + subFrames;
-    this.animLoadingState.set({ phase: 'tiles', done: 0, total, label: this.masterLayerLabel() ?? 'Animation' });
-
-    let done = 0;
-    const tick = () => {
-      done++;
+    const watchedSources = new Set(targets.map((t) => t.layerId));
+    const inFlight = new Set<string>();
+    let totalDispatched = 0;
+    let totalCompleted = 0;
+    const updateState = () => {
       const st = this.animLoadingState();
-      if (st) this.animLoadingState.set({ ...st, done });
+      if (st) this.animLoadingState.set({ ...st, done: totalCompleted, total: totalDispatched });
     };
 
-    // ── Master : crée N raster sources, attend que chacune soit loaded ──
-    let mainLayerId = '';
-    const layerIds: string[] = [];
-    if (masterTarget) {
-      mainLayerId = masterTarget.layerId;
-      if (map.getLayer(mainLayerId)) map.setLayoutProperty(mainLayerId, 'visibility', 'none');
-
-      const pendingMaster = new Set<string>();
-      for (let i = 0; i < timestamps.length; i++) {
-        const sourceId = `anim-${masterKey}-${i}`;
-        const url = this.buildAnimFrameUrl(masterTarget, timestamps[i]);
-        map.addSource(sourceId, { type: 'raster', tiles: [url], tileSize: 256 });
-        map.addLayer({
-          id: sourceId, type: 'raster', source: sourceId,
-          layout: { visibility: 'none' },
-          paint: { 'raster-opacity': 0.7 },
-        });
-        layerIds.push(sourceId);
-        pendingMaster.add(sourceId);
+    type RawTileEvent = maplibregl.MapDataEvent & {
+      sourceId?: string;
+      tile?: { tileID: { key: string }; state: string };
+    };
+    const onLoading = (e: maplibregl.MapDataEvent) => {
+      const ev = e as RawTileEvent;
+      if (ev.dataType !== 'source' || !ev.tile || !ev.sourceId || !watchedSources.has(ev.sourceId)) return;
+      const k = `${ev.sourceId}:${ev.tile.tileID.key}`;
+      if (!inFlight.has(k)) {
+        inFlight.add(k);
+        totalDispatched++;
+        updateState();
       }
-
-      await new Promise<void>((resolve) => {
-        const handler = (e: maplibregl.MapDataEvent & { sourceId?: string; isSourceLoaded?: boolean }) => {
-          if (e.dataType !== 'source' || !e.isSourceLoaded || !e.sourceId) return;
-          if (pendingMaster.delete(e.sourceId)) {
-            tick();
-            if (pendingMaster.size === 0) { map.off('data', handler); resolve(); }
-          }
-        };
-        map.on('data', handler);
-        // Safety timeout : 15s. Si certaines sources ne loaded jamais (GS
-        // down ou tile 404), on continue quand même avec ce qu'on a.
-        setTimeout(() => { map.off('data', handler); pendingMaster.forEach(() => tick()); pendingMaster.clear(); resolve(); }, 15_000);
-      });
-    }
-
-    this.preloadedFrames = { masterKey, timestamps, layerIds, mainLayerId };
-
-    // ── Sub rasters : rotate setTiles pour warm GWC ──
-    // On itère séquentiellement par sub × frame pour éviter d'écraser
-    // setTiles avant que MapLibre ait fini de fetch la précédente.
-    for (const sub of subTargets) {
-      const src = map.getSource(sub.layerId) as maplibregl.RasterTileSource | undefined;
-      if (!src || typeof src.setTiles !== 'function') {
-        // Source absente (layer toggled off entre temps) → tick total des frames manquantes.
-        for (let i = 0; i < timestamps.length; i++) tick();
-        continue;
+    };
+    const onData = (e: maplibregl.MapDataEvent) => {
+      const ev = e as RawTileEvent;
+      if (ev.dataType !== 'source' || !ev.tile || !ev.sourceId || !watchedSources.has(ev.sourceId)) return;
+      if (ev.tile.state !== 'loaded' && ev.tile.state !== 'errored') return;
+      const k = `${ev.sourceId}:${ev.tile.tileID.key}`;
+      if (inFlight.has(k)) {
+        inFlight.delete(k);
+        totalCompleted++;
+        updateState();
       }
+    };
+    map.on('dataloading', onLoading);
+    map.on('data', onData);
+
+    this.animLoadingState.set({ phase: 'tiles', done: 0, total: 0, label: this.masterLayerLabel() ?? 'Animation' });
+
+    // ── Ordre : master en 1er (priorité visuelle), puis subs ──
+    const ordered = [
+      ...targets.filter((t) => t.key === masterKey),
+      ...targets.filter((t) => t.key !== masterKey),
+    ];
+    for (const target of ordered) {
+      const src = map.getSource(target.layerId) as maplibregl.RasterTileSource | undefined;
+      if (!src || typeof src.setTiles !== 'function') continue;
       for (const ts of timestamps) {
-        const url = this.buildAnimFrameUrl(sub, ts);
-        src.setTiles([url]);
-        await this.waitForSourceLoadedOnce(sub.layerId, 6_000);
-        tick();
+        src.setTiles([this.buildAnimFrameUrl(target, ts)]);
+        // Attend que cette source soit idle (loaded() true = pas de tile pending)
+        await this.waitForSourceIdle(target.layerId, 8_000);
       }
-      // Restore TIME courant du cursor sur le sub layer (refreshWmsTime…
-      // sera rappelé par le 1er tick animation pour propager la frame 0).
     }
 
-    // Affiche la 1ère frame master.
-    if (masterTarget) this.switchAnimationFrame(0);
+    // Restore TIME courant du cursor (sinon la dernière setTiles laisse les
+    // sub rasters sur le timestamp final, désync avec le master qui va
+    // démarrer en frame 0 via AnimationPlayer).
+    this.refreshWmsTimeForActiveLayers();
+    // Attend le drain final pour aligner master+subs sur t0
+    await this.waitForInFlightDrained(inFlight, 5_000);
+
+    map.off('dataloading', onLoading);
+    map.off('data', onData);
   }
 
-  /** G53 — attend qu'une source MapLibre signale `isSourceLoaded` une fois
-   *  (suite à un setTiles). Timeout safety pour éviter de bloquer le preload
-   *  si une tile 404 ou GS lent. */
-  private waitForSourceLoadedOnce(sourceId: string, timeoutMs: number): Promise<void> {
+  /** G53b — attend que `src.loaded()` retourne true (toutes les tiles
+   *  pending de cette source sont fetchées) OU timeout. Polling 80ms pour
+   *  réactivité ; le check est cheap (un simple boolean MapLibre interne). */
+  private waitForSourceIdle(sourceId: string, timeoutMs: number): Promise<void> {
     const map = this.map;
     if (!map) return Promise.resolve();
     return new Promise((resolve) => {
-      let resolved = false;
-      const finish = () => { if (!resolved) { resolved = true; map.off('data', handler); resolve(); } };
-      const handler = (e: maplibregl.MapDataEvent & { sourceId?: string; isSourceLoaded?: boolean }) => {
-        if (e.dataType === 'source' && e.sourceId === sourceId && e.isSourceLoaded) finish();
+      const start = Date.now();
+      const check = () => {
+        const src = map.getSource(sourceId) as maplibregl.RasterTileSource | undefined;
+        if (!src) { resolve(); return; }
+        if (typeof (src as { loaded?: () => boolean }).loaded === 'function' && (src as { loaded: () => boolean }).loaded()) {
+          resolve(); return;
+        }
+        if (Date.now() - start > timeoutMs) { resolve(); return; }
+        setTimeout(check, 80);
       };
-      map.on('data', handler);
-      setTimeout(finish, timeoutMs);
+      // Petit délai initial pour laisser MapLibre enregistrer la nouvelle
+      // setTiles avant de check loaded() (sinon premier check passe vide).
+      setTimeout(check, 60);
+    });
+  }
+
+  /** G53b — attend que le Set d'in-flight tiles atteigne 0 OU timeout. */
+  private waitForInFlightDrained(inFlight: Set<string>, timeoutMs: number): Promise<void> {
+    return new Promise((resolve) => {
+      const start = Date.now();
+      const check = () => {
+        if (inFlight.size === 0 || Date.now() - start > timeoutMs) { resolve(); return; }
+        setTimeout(check, 80);
+      };
+      check();
     });
   }
 
