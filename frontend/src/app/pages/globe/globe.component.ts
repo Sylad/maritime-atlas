@@ -2796,6 +2796,21 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         timestamps = allTs.filter((t) => t.getTime() >= start.getTime() && t.getTime() <= end.getTime());
       } catch { /* fallback step 1h */ }
     }
+    // G49 (2026-05-24) — Fail loud si pas de validité (au lieu du fallback
+    // step 1h legacy qui masquait les bugs en amont). User feedback explicite :
+    // animation DOIT itérer validity-by-validity, sinon afficher message UI.
+    if (timestamps.length === 0) {
+      console.error('[globe-anim] No validities found for master', master?.label, 'in window');
+      alert(
+        `Aucune validité trouvée pour ${master?.label ?? 'le layer master'}.\n\n`
+        + `Causes possibles :\n`
+        + `• GS GetCapabilities trop lent (timeout 10s)\n`
+        + `• Fenêtre d'animation hors plage des données disponibles\n`
+        + `• Pas de master layer animatable actif\n\n`
+        + `Essaie une durée plus large (7 jours).`,
+      );
+      return;
+    }
     // G41 (2026-05-23) — Pre-load TOUTES les frames SST en mémoire MapLibre
     // (1 raster source par TS, fetched en parallèle AVANT le play). Pendant
     // l'animation, on switch juste la visibility = 0 fetch GS, animation 100%
@@ -2803,7 +2818,12 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (masterKey === 'sst' && timestamps.length > 1) {
       await this.preloadFrames('sst', 'aetherwx:sst-daily', 'sst-direct', timestamps);
     }
-    this.animPlayer.start({ ...effectiveOpts, timestamps, masterLayerLabel: master?.label ?? undefined });
+    try {
+      this.animPlayer.start({ ...effectiveOpts, timestamps, masterLayerLabel: master?.label ?? undefined });
+    } catch (err) {
+      console.error('[globe-anim] animPlayer.start failed:', err);
+      alert(`Animation impossible : ${(err as Error).message}`);
+    }
   }
 
   /** G41 — frames pré-chargées : map<masterKey, { timestamps, layerIds }> */

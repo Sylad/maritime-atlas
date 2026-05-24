@@ -146,9 +146,23 @@ export class AnimationPlayerService {
   }
 
   /** Démarre une animation. Si une animation tourne déjà, on l'arrête
-   *  proprement avant. */
+   *  proprement avant.
+   *
+   *  G49 (2026-05-24) — fail loud si timestamps vide. Avant cette version,
+   *  un fallback "step 1h legacy" se déclenchait silencieusement quand
+   *  fetchTimestamps renvoyait [] (GS timeout, window mismatch, parser
+   *  raté). Résultat user : cursor glisse heure-par-heure mais aucun tile
+   *  ne change → 7h de debug stérile. Maintenant on throw, le caller
+   *  doit afficher un message UI explicite. Cf memory
+   *  [[feedback_animation_no_silent_fallback]]. */
   start(opts: AnimationOptions): void {
     this.stop();
+    if (!opts.timestamps || opts.timestamps.length === 0) {
+      throw new Error(
+        `Animation requires non-empty timestamps from master layer (${opts.masterLayerLabel ?? '?'}).`
+        + ` Check GS GetCapabilities + window range.`
+      );
+    }
     this.config.set(opts);
     this.currentSpeed.set(opts.speed);
 
@@ -157,20 +171,19 @@ export class AnimationPlayerService {
     this.rangeEnd = end;
     this.frameIndex.set(0);
 
-    // Phase 1 : si timestamps fourni, on garde QUE ceux qui tombent
-    // dans la fenêtre [start, end] (le master peut publier au-delà,
-    // on ne veut pas dépasser ce que l'user a demandé).
-    if (opts.timestamps && opts.timestamps.length > 0) {
-      this.setTimestamps(opts.timestamps
-        .filter((t) => t.getTime() >= start.getTime() && t.getTime() <= end.getTime())
-        .sort((a, b) => a.getTime() - b.getTime()));
-    } else {
-      this.setTimestamps(null);
+    // Garde QUE les timestamps qui tombent dans la fenêtre [start, end]
+    // (le master peut publier au-delà, on ne veut pas dépasser).
+    const filtered = opts.timestamps
+      .filter((t) => t.getTime() >= start.getTime() && t.getTime() <= end.getTime())
+      .sort((a, b) => a.getTime() - b.getTime());
+    if (filtered.length === 0) {
+      throw new Error(
+        `No master validities fall within the requested window`
+        + ` [${start.toISOString()} → ${end.toISOString()}]. Try a longer duration.`
+      );
     }
-
-    // Première frame : 1er timestamp si dispo, sinon start (legacy).
-    const firstFrame = this.timestamps?.[0] ?? start;
-    this.emitFrame(firstFrame);
+    this.setTimestamps(filtered);
+    this.emitFrame(filtered[0]);
     this.state.set('playing');
     this.scheduleNextTick();
   }
@@ -260,36 +273,23 @@ export class AnimationPlayerService {
 
   /** Avance d'une frame. Si fin atteinte : loop, stop ou return-to-now.
    *
-   *  2 modes :
-   *  - timestamps-driven (Phase 1, master layer) : on itère
-   *    this.timestamps[i] ; frameIndex = position dans le tableau.
-   *  - legacy step 1h (fallback si pas de master ou pas de timestamps
-   *    dispo) : on avance d'1 heure depuis rangeStart.
-   */
+   *  G49 (2026-05-24) — timestamps-driven UNIQUEMENT. Le legacy step 1h
+   *  a été retiré car il masquait silencieusement les bugs fetchTimestamps.
+   *  start() throw maintenant si timestamps vide → tick() peut assumer
+   *  this.timestamps non-null. */
   private async tick(): Promise<void> {
     const cfg = this.config();
-    if (!cfg || !this.rangeStart || !this.rangeEnd) {
+    if (!cfg || !this.rangeStart || !this.rangeEnd || !this.timestamps) {
       this.stop();
       return;
     }
 
-    const usingTimestamps = this.timestamps !== null && this.timestamps.length > 0;
     const nextIndex = this.frameIndex() + 1;
-
-    if (usingTimestamps) {
-      const list = this.timestamps!;
-      if (nextIndex < list.length) {
-        this.frameIndex.set(nextIndex);
-        this.emitFrame(list[nextIndex]);
-        return;
-      }
-    } else {
-      const nextTime = new Date(this.rangeStart.getTime() + nextIndex * HOUR_MS);
-      if (nextTime.getTime() <= this.rangeEnd.getTime()) {
-        this.frameIndex.set(nextIndex);
-        this.emitFrame(nextTime);
-        return;
-      }
+    const list = this.timestamps;
+    if (nextIndex < list.length) {
+      this.frameIndex.set(nextIndex);
+      this.emitFrame(list[nextIndex]);
+      return;
     }
 
     // ── Fin de séquence atteinte ───────────────────────────────────
