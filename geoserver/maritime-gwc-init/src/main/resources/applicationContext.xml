@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Maritime GWC Initializer Spring config (G63).
+  GeoServer scanne tous les applicationContext.xml dans le classpath
+  WEB-INF/lib/*.jar au boot. Avec ce fichier dans la racine du JAR, le
+  bean MaritimeGwcInitializer est auto-discovered. @Autowired câble
+  BlobStoreAggregator + GWC depuis le contexte parent GS.
+-->
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:context="http://www.springframework.org/schema/context"
+       xsi:schemaLocation="
+         http://www.springframework.org/schema/beans
+         http://www.springframework.org/schema/beans/spring-beans.xsd
+         http://www.springframework.org/schema/context
+         http://www.springframework.org/schema/context/spring-context.xsd">
+
+  <!-- Active la détection des annotations @PostConstruct + @Autowired -->
+  <context:annotation-config/>
+
+  <!-- Bean MaritimeGwcInitializer.
+       No-arg constructor + @PostConstruct + GeoServerExtensions.bean()
+       lookup au lieu de constructor injection. Plus robuste aux
+       changements de bean names entre versions GS / GWC. -->
+  <bean id="maritimeGwcInitializer"
+        class="fr.sladoire.maritime.gwc.init.MaritimeGwcInitializer"/>
+</beans>

@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Plugin GeoServer custom : Maritime GWC Initializer (G63 — 2026-05-24).
+
+  Au boot de GS (via Spring @PostConstruct), crée idempotemment :
+    1) S3 BlobStore "maritime-s3" pointant vers SeaweedFS (cluster K8s).
+    2) Configure 16 GWC tile layers cibles avec :
+       - blobStoreId = maritime-s3 (cache S3-compatible partagé multi-replica)
+       - expireCache=3600 / expireClients=3600 (1h TTL)
+       - parameterFilters STYLES/TIME/ENV/VIEWPARAMS/INTERPOLATIONS regex .*
+       - gridSubsets EPSG:3857 / EPSG:4326 / EPSG:900913
+
+  Approche pro recommandée par Sylvain (2026-05-24) : "j'utilise des
+  plugins Java Spring dans WEB-INF/lib, ils créent workspaces/stores/
+  layers/blobstores dans la phase d'init. Si conf doit être faite avant
+  démarrage GS, scripts dans setenv.sh tomcat/bin."
+
+  Ce plugin remplace les REST PUT (qui ont un bug de persistence : in-memory
+  seulement, perdu au restart pod). Avec @PostConstruct, la config est
+  re-appliquée à chaque boot → persistance garantie + reproductible
+  100% gitops (config baked dans l'image).
+
+  Dépendances :
+    - gs-gwc-core (BlobStoreAggregator + GeoServerTileLayer)
+    - gwc-s3-storage (S3BlobStoreInfo, baked dans WEB-INF/lib G58)
+    - gs-main (GeoServerExtensions pour DI)
+    - spring-context (PostConstruct, Component)
+
+  Config via env vars (Deployment) :
+    GWC_S3_ENDPOINT       (default http://seaweedfs-filer:8333)
+    GWC_S3_BUCKET         (default maritime-gwc-tiles)
+    GWC_S3_ACCESS_KEY     (Secret maritime-seaweedfs-s3)
+    GWC_S3_SECRET_KEY     (Secret maritime-seaweedfs-s3)
+    GWC_S3_BLOBSTORE_ID   (default maritime-s3)
+    GWC_TARGET_LAYERS     (csv default, voir MaritimeGwcInitializer.DEFAULT_LAYERS)
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>fr.sladoire.maritime</groupId>
+  <artifactId>gs-gwc-init</artifactId>
+  <version>0.1.0</version>
+  <packaging>jar</packaging>
+  <name>maritime-atlas GWC init plugin</name>
+  <description>Initialise programmatiquement BlobStore S3 + layer configs au boot GS</description>
+
+  <properties>
+    <maven.compiler.source>17</maven.compiler.source>
+    <maven.compiler.target>17</maven.compiler.target>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <geoserver.version>2.28.3</geoserver.version>
+    <gwc.version>1.28.2</gwc.version>
+    <spring.version>5.3.39</spring.version>
+  </properties>
+
+  <repositories>
+    <repository>
+      <id>osgeo</id>
+      <name>OSGeo Release Repository</name>
+      <url>https://repo.osgeo.org/repository/release/</url>
+      <releases><enabled>true</enabled></releases>
+      <snapshots><enabled>false</enabled></snapshots>
+    </repository>
+  </repositories>
+
+  <dependencies>
+    <!-- GeoServer GWC core : BlobStoreAggregator, GWC singleton, GeoServerTileLayer -->
+    <dependency>
+      <groupId>org.geoserver</groupId>
+      <artifactId>gs-gwc</artifactId>
+      <version>${geoserver.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <!-- GeoWebCache core : BlobStoreInfo, layer config -->
+    <dependency>
+      <groupId>org.geowebcache</groupId>
+      <artifactId>gwc-core</artifactId>
+      <version>${gwc.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <!-- GWC S3 backend : S3BlobStoreInfo -->
+    <dependency>
+      <groupId>org.geowebcache</groupId>
+      <artifactId>gwc-s3-storage</artifactId>
+      <version>${gwc.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <!-- GeoServer platform : GeoServerExtensions pour DI manuelle -->
+    <dependency>
+      <groupId>org.geoserver</groupId>
+      <artifactId>gs-platform</artifactId>
+      <version>${geoserver.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.geoserver</groupId>
+      <artifactId>gs-main</artifactId>
+      <version>${geoserver.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <!-- Spring DI annotations (@Component, @PostConstruct via javax) -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-context</artifactId>
+      <version>${spring.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>javax.annotation</groupId>
+      <artifactId>javax.annotation-api</artifactId>
+      <version>1.3.2</version>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+      </plugin>
+    </plugins>
+  </build>
+</project>

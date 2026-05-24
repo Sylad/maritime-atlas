@@ -1,0 +1,241 @@
+package fr.sladoire.maritime.gwc.init;
+
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import javax.annotation.PostConstruct;
+
+import org.geoserver.gwc.GWC;
+import org.geoserver.gwc.layer.GeoServerTileLayer;
+import org.geoserver.platform.GeoServerExtensions;
+import org.geowebcache.config.BlobStoreInfo;
+import org.geowebcache.s3.S3BlobStoreInfo;
+import org.geowebcache.storage.BlobStoreAggregator;
+
+/**
+ * Maritime GWC Initializer (G63 — 2026-05-24).
+ *
+ * <p>Au démarrage de GeoServer (Spring @PostConstruct), initialise
+ * programmatiquement la config GWC nécessaire pour le clustering
+ * multi-replica avec cache S3 partagé :
+ *
+ * <ol>
+ *   <li>Crée le BlobStore S3 "maritime-s3" pointant vers SeaweedFS
+ *       (cluster K8s interne, bucket maritime-gwc-tiles).</li>
+ *   <li>Configure chaque GeoServerTileLayer cible avec :
+ *     <ul>
+ *       <li>blobStoreId = maritime-s3 → tuiles écrites dans S3</li>
+ *       <li>expireCache=3600 / expireClients=3600 (TTL 1h)</li>
+ *       <li>parameterFilters .* pour STYLES/TIME/ENV/VIEWPARAMS/INTERPOLATIONS</li>
+ *     </ul>
+ *   </li>
+ * </ol>
+ *
+ * <p>Idempotent : check d'existence du blobstore avant POST, check de
+ * `getBlobStoreId()` avant override sur les layers.
+ *
+ * <p>Pourquoi ce plugin plutôt que REST PUT (bash bootstrap) ? Le bug GS
+ * connu : REST PUT sur /gwc/rest/blobstores et /gwc/rest/layers met à
+ * jour l'état in-memory mais ne persiste PAS dans
+ * /opt/geoserver_data/gwc/geowebcache.xml ni dans gwc-layers/UUID.xml.
+ * Au prochain restart pod (rollout, OOMKilled, etc.) la config est
+ * perdue. Avec @PostConstruct, elle est re-appliquée à chaque boot →
+ * persistance déterministe + reproductibilité gitops 100%.
+ *
+ * <p>Config via env vars du pod GS (Deployment Helm) :
+ * <pre>
+ *   GWC_S3_ENDPOINT     http://seaweedfs-filer:8333
+ *   GWC_S3_BUCKET       maritime-gwc-tiles
+ *   GWC_S3_ACCESS_KEY   (Secret maritime-seaweedfs-s3.S3_ACCESS_KEY)
+ *   GWC_S3_SECRET_KEY   (Secret maritime-seaweedfs-s3.S3_SECRET_KEY)
+ *   GWC_S3_BLOBSTORE_ID maritime-s3
+ *   GWC_TARGET_LAYERS   (csv, default = DEFAULT_LAYERS ci-dessous)
+ * </pre>
+ */
+public class MaritimeGwcInitializer {
+
+    private static final Logger LOG =
+        Logger.getLogger(MaritimeGwcInitializer.class.getName());
+
+    private static final String DEFAULT_BLOBSTORE_ID = "maritime-s3";
+    private static final String DEFAULT_ENDPOINT = "http://seaweedfs-filer:8333";
+    private static final String DEFAULT_BUCKET = "maritime-gwc-tiles";
+
+    /**
+     * Layers à configurer par défaut (workspace-scoped names). Override
+     * via env var GWC_TARGET_LAYERS (csv).
+     */
+    private static final List<String> DEFAULT_LAYERS = Arrays.asList(
+        // aetherwx workspace (local raster + cascade)
+        "aetherwx:sst-daily",
+        "aetherwx:wind-speed",
+        "aetherwx:wave-hs",
+        "aetherwx:wave-dir",
+        "aetherwx:sat-eu-ir-rss",
+        "aetherwx:sat-global-ir-mtg",
+        "aetherwx:sat-eu-hrv-rgb",
+        "aetherwx:radar-dwd-de",
+        "aetherwx:radar-knmi-nl",
+        // aetherwx-sat workspace (NASA GIBS local raster)
+        "aetherwx-sat:sat-modis-true-color",
+        "aetherwx-sat:sat-viirs-true-color",
+        "aetherwx-sat:sat-modis-ir",
+        "aetherwx-sat:sat-airs-air-temp",
+        "aetherwx-sat:sat-modis-cloud-top",
+        "aetherwx-sat:sat-modis-aerosol",
+        "aetherwx-sat:sat-viirs-day-night"
+    );
+
+    private BlobStoreAggregator blobStoreAggregator;
+    private GWC gwc;
+
+    @PostConstruct
+    public void initialize() {
+        try {
+            // Lookup via GeoServerExtensions (plus robuste aux changements
+            // de bean names entre versions GS qu'un @Autowired par type).
+            this.blobStoreAggregator =
+                GeoServerExtensions.bean(BlobStoreAggregator.class);
+            this.gwc = GeoServerExtensions.bean(GWC.class);
+
+            if (blobStoreAggregator == null || gwc == null) {
+                LOG.warning("MaritimeGwcInitializer: GWC/BlobStoreAggregator "
+                    + "bean not found, skip (GWC plugin probably absent)");
+                return;
+            }
+
+            ensureS3BlobStore();
+            ensureLayerConfigs();
+            LOG.info("MaritimeGwcInitializer: init complete");
+        } catch (Throwable t) {
+            // Ne JAMAIS bloquer le boot GS sur une erreur de cache config.
+            LOG.log(Level.SEVERE, "MaritimeGwcInitializer: init failed (non-fatal)", t);
+        }
+    }
+
+    // ─── BlobStore S3 ──────────────────────────────────────────────────
+
+    private void ensureS3BlobStore() throws Exception {
+        String id = env("GWC_S3_BLOBSTORE_ID", DEFAULT_BLOBSTORE_ID);
+        String endpoint = env("GWC_S3_ENDPOINT", DEFAULT_ENDPOINT);
+        String bucket = env("GWC_S3_BUCKET", DEFAULT_BUCKET);
+        String accessKey = env("GWC_S3_ACCESS_KEY", null);
+        String secretKey = env("GWC_S3_SECRET_KEY", null);
+
+        if (accessKey == null || secretKey == null) {
+            LOG.warning(
+                "MaritimeGwcInitializer: GWC_S3_ACCESS_KEY/SECRET_KEY absent, "
+                + "skip S3 blobstore creation (cache local fs fallback)");
+            return;
+        }
+
+        BlobStoreInfo existing = null;
+        try {
+            existing = blobStoreAggregator.getBlobStore(id);
+        } catch (Exception e) {
+            // Not found = OK
+        }
+
+        S3BlobStoreInfo info = new S3BlobStoreInfo();
+        info.setName(id);
+        info.setEnabled(true);
+        info.setBucket(bucket);
+        info.setPrefix("gwc");
+        info.setAwsAccessKey(accessKey);
+        info.setAwsSecretKey(secretKey);
+        info.setEndpoint(endpoint);
+        info.setAccess(S3BlobStoreInfo.Access.PRIVATE);
+        info.setMaxConnections(50);
+        info.setUseHttps(false);
+        info.setUseGzip(true);
+
+        if (existing == null) {
+            blobStoreAggregator.addBlobStore(info);
+            LOG.info("MaritimeGwcInitializer: created S3 BlobStore '" + id
+                + "' bucket=" + bucket + " endpoint=" + endpoint);
+        } else {
+            // Replace pour pousser éventuelles updates de creds/endpoint
+            blobStoreAggregator.modifyBlobStore(info);
+            LOG.info("MaritimeGwcInitializer: updated S3 BlobStore '" + id + "'");
+        }
+    }
+
+    // ─── Layer configs ────────────────────────────────────────────────
+
+    private void ensureLayerConfigs() {
+        String blobStoreId = env("GWC_S3_BLOBSTORE_ID", DEFAULT_BLOBSTORE_ID);
+        String layersCsv = env("GWC_TARGET_LAYERS", null);
+        List<String> targetLayers = layersCsv != null
+            ? Arrays.asList(layersCsv.split(","))
+            : DEFAULT_LAYERS;
+
+        Set<String> done = new HashSet<>();
+        for (String layerName : targetLayers) {
+            String trimmed = layerName.trim();
+            if (trimmed.isEmpty()) continue;
+            try {
+                ensureLayerConfig(trimmed, blobStoreId);
+                done.add(trimmed);
+            } catch (Throwable t) {
+                LOG.log(Level.WARNING,
+                    "MaritimeGwcInitializer: failed to configure layer " + trimmed,
+                    t);
+            }
+        }
+        LOG.info("MaritimeGwcInitializer: configured "
+            + done.size() + "/" + targetLayers.size() + " layers");
+    }
+
+    private void ensureLayerConfig(String layerName, String blobStoreId) {
+        GeoServerTileLayer layer;
+        try {
+            layer = (GeoServerTileLayer) gwc.getTileLayerByName(layerName);
+        } catch (Exception e) {
+            LOG.warning("MaritimeGwcInitializer: layer " + layerName
+                + " not found in GWC, skip");
+            return;
+        }
+        if (layer == null) {
+            LOG.warning("MaritimeGwcInitializer: layer " + layerName + " null, skip");
+            return;
+        }
+
+        org.geoserver.gwc.layer.GeoServerTileLayerInfo info = layer.getInfo();
+        boolean changed = false;
+        if (!blobStoreId.equals(info.getBlobStoreId())) {
+            info.setBlobStoreId(blobStoreId);
+            changed = true;
+        }
+        if (info.getExpireCache(0) != 3600) {
+            info.setExpireCache(3600);
+            changed = true;
+        }
+        if (info.getExpireClients(0) != 3600) {
+            info.setExpireClients(3600);
+            changed = true;
+        }
+        info.setInMemoryCached(true);
+
+        if (changed) {
+            try {
+                gwc.save(layer);
+                LOG.info("MaritimeGwcInitializer: layer " + layerName
+                    + " → blobStore=" + blobStoreId + " expireCache=3600");
+            } catch (Exception e) {
+                LOG.log(Level.WARNING,
+                    "MaritimeGwcInitializer: save failed for " + layerName, e);
+            }
+        }
+    }
+
+    // ─── Helpers ──────────────────────────────────────────────────────
+
+    private static String env(String key, String def) {
+        String v = System.getenv(key);
+        return (v != null && !v.isEmpty()) ? v : def;
+    }
+}

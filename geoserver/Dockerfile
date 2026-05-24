@@ -53,6 +53,17 @@ RUN mkdir -p /hz-jars && \
     cp /hz-deps/metrics-core*.jar /hz-jars/ 2>/dev/null || true && \
     ls -lh /hz-jars/
 
+# ── Builder stage : maritime GWC init plugin (G63) ──────────────────
+# Compile le plugin Java fr.sladoire.maritime.gwc.init qui crée
+# programmatiquement le S3 BlobStore + assigne les layers au boot GS.
+# Source dans services/geoserver-gwc-init/. Le JAR final ~5KB est baked
+# dans WEB-INF/lib/ et auto-discovered par Spring via applicationContext.xml.
+FROM maven:3.9-eclipse-temurin-17 AS gwc-init-builder
+COPY maritime-gwc-init/ /src/
+WORKDIR /src
+RUN mvn -B -DskipTests package && \
+    ls -lh target/*.jar
+
 # ── Runtime stage ───────────────────────────────────────────────────
 FROM docker.osgeo.org/geoserver:${GS_VERSION}
 
@@ -147,6 +158,13 @@ RUN if ls /tmp/idw-plugins/*.jar 1> /dev/null 2>&1; then \
 # hazelcast.xml + cluster.properties est montée par un ConfigMap (voir
 # templates/geoserver-hz-config.yaml).
 COPY --from=hz-builder /hz-jars/*.jar /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/
+
+# ── maritime GWC init plugin (G63) ──────────────────────────────────
+# Plugin Java Spring qui crée le BlobStore S3 + assigne les layers au
+# boot GS (via @PostConstruct). Évite le bug REST PUT non-persistant.
+# Config via env vars : GWC_S3_ACCESS_KEY/SECRET_KEY/ENDPOINT/BUCKET
+# (injectées dans le Deployment depuis Secret maritime-seaweedfs-s3).
+COPY --from=gwc-init-builder /src/target/gs-gwc-init-*.jar /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/
 
 # Sanity check
 RUN ls -lh /usr/local/tomcat/lib/postgresql-*.jar /usr/local/tomcat/conf/context.xml.tpl && \
