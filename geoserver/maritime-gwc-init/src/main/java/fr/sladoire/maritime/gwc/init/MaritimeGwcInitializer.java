@@ -237,26 +237,18 @@ public class MaritimeGwcInitializer {
         }
 
         org.geoserver.gwc.layer.GeoServerTileLayerInfo info = layer.getInfo();
-        boolean changed = false;
+        // Note : on touche uniquement blobStoreId pour le moment.
+        // expireCache + inMemoryCached restent via gwc-sat-config-job (REST)
+        // car l'API GS 2.28+ a changé les signatures (getExpireClients
+        // no-arg, setInMemoryCached supprimé). Le vrai win du plugin Java =
+        // BlobStore persistance (la config layer survit via gwc-layers/
+        // disk persistence GS normale).
         if (!blobStoreId.equals(info.getBlobStoreId())) {
             info.setBlobStoreId(blobStoreId);
-            changed = true;
-        }
-        if (info.getExpireCache(0) != 3600) {
-            info.setExpireCache(3600);
-            changed = true;
-        }
-        if (info.getExpireClients(0) != 3600) {
-            info.setExpireClients(3600);
-            changed = true;
-        }
-        info.setInMemoryCached(true);
-
-        if (changed) {
             try {
                 gwc.save(layer);
                 LOG.info("MaritimeGwcInitializer: layer " + layerName
-                    + " → blobStore=" + blobStoreId + " expireCache=3600");
+                    + " → blobStore=" + blobStoreId);
             } catch (Exception e) {
                 LOG.log(Level.WARNING,
                     "MaritimeGwcInitializer: save failed for " + layerName, e);
