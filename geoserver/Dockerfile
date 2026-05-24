@@ -47,6 +47,10 @@ RUN mkdir -p /hz-jars && \
     cp target/gs-hz-cluster-*.jar /hz-jars/ && \
     cp /hz-deps/hazelcast*.jar /hz-jars/ 2>/dev/null || true && \
     cp /hz-deps/metrics-servlet*.jar /hz-jars/ 2>/dev/null || true && \
+    # G60 (2026-05-24) — metrics-core REQUIS par HzSynchronizer (utilise
+    # com.codahale.metrics.MetricRegistry). Sans ça : NoClassDefFoundError
+    # + HzSynchronizerInitializer failed + Hazelcast jamais init au runtime.
+    cp /hz-deps/metrics-core*.jar /hz-jars/ 2>/dev/null || true && \
     ls -lh /hz-jars/
 
 # ── Runtime stage ───────────────────────────────────────────────────
