@@ -1122,6 +1122,32 @@ function gibsDailyDate(): string {
       <!-- G21 — controls floattants (play/pause/stop/speed) au-dessus du slider.
            Visibilité gérée en interne par le composant via animPlayer.state(). -->
       <app-animation-controls />
+
+      <!-- G53 (2026-05-24) — overlay préparation animation. Phase 1 :
+           GetCapabilities (récup validités master). Phase 2 : pré-chargement
+           des tuiles WMS (master + sub rasters actifs). backdrop-filter blur
+           masque la map pendant la prépa, barre de progression event-driven
+           via MapLibre data events sur source loaded. -->
+      @if (animLoadingState(); as st) {
+        <div class="anim-loading-overlay" role="alert" aria-busy="true">
+          <div class="anim-loading-card">
+            <div class="anim-loading-title">Préparation animation</div>
+            <div class="anim-loading-label">{{ st.label }}</div>
+            <div class="anim-loading-bar">
+              <div
+                class="anim-loading-bar-fill"
+                [style.width.%]="(st.total > 0 ? st.done / st.total : 0) * 100"></div>
+            </div>
+            <div class="anim-loading-count">
+              @if (st.phase === 'capabilities') {
+                Récupération des validités GeoServer…
+              } @else {
+                {{ st.done }} / {{ st.total }} tuiles chargées
+              }
+            </div>
+          </div>
+        </div>
+      }
     </div>
   `,
   styles: `
@@ -2128,6 +2154,68 @@ function gibsDailyDate(): string {
       background: rgba(220, 38, 38, 0.4) !important;
       color: #fff !important;
     }
+    /* G53 (2026-05-24) — overlay préparation animation. backdrop blur cache
+       la map pendant que les frames se chargent. Carte centrée avec barre
+       progression linear-gradient cyan→indigo (parité reste du UI globe). */
+    .anim-loading-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 10000;
+      background: rgba(10, 14, 26, 0.55);
+      backdrop-filter: blur(10px) saturate(120%);
+      -webkit-backdrop-filter: blur(10px) saturate(120%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: anim-loading-fade-in 0.18s ease-out;
+    }
+    @keyframes anim-loading-fade-in { from { opacity: 0 } to { opacity: 1 } }
+    .anim-loading-card {
+      min-width: 320px;
+      max-width: 480px;
+      padding: 28px 36px;
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid hsl(224 85% 55% / 0.4);
+      border-radius: 12px;
+      box-shadow:
+        0 0 0 1px hsl(224 95% 60% / 0.12),
+        0 12px 40px rgba(0, 0, 0, 0.4),
+        0 0 30px -4px hsl(224 90% 55% / 0.25);
+      text-align: center;
+    }
+    .anim-loading-title {
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: hsl(224 90% 75% / 0.9);
+      margin-bottom: 10px;
+    }
+    .anim-loading-label {
+      font-size: 1.05rem;
+      font-weight: 500;
+      color: #e2e8f0;
+      margin-bottom: 16px;
+    }
+    .anim-loading-bar {
+      height: 6px;
+      background: hsl(224 85% 55% / 0.18);
+      border-radius: 999px;
+      overflow: hidden;
+      margin-bottom: 10px;
+    }
+    .anim-loading-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, hsl(195 95% 55%) 0%, hsl(224 85% 60%) 100%);
+      border-radius: 999px;
+      transition: width 0.18s ease-out;
+    }
+    .anim-loading-count {
+      font-size: 0.78rem;
+      color: rgba(148, 163, 184, 0.85);
+      font-variant-numeric: tabular-nums;
+    }
   `,
 })
 export class GlobeComponent implements AfterViewInit, OnDestroy {
@@ -2738,6 +2826,17 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
    *  spec sub-agent A5d87 pour wiring détaillé. Public pour template binding. */
   readonly animPlayer = inject(AnimationPlayerService);
   readonly animPanelOpen = signal<boolean>(false);
+  /** G53 (2026-05-24) — état overlay "Préparation animation". `null` = caché.
+   *  phase=capabilities : GetCapabilities en cours (récup validités master).
+   *  phase=tiles : pre-load tuiles WMS (master en N raster sources pour swap
+   *  instantané + sub rasters via setTiles rotation pour warm GWC). done/total
+   *  incrémenté event-driven via MapLibre `data` events sur source loaded. */
+  readonly animLoadingState = signal<{
+    phase: 'capabilities' | 'tiles';
+    done: number;
+    total: number;
+    label: string;
+  } | null>(null);
 
   isForecastActive(): boolean {
     return this.showWindForecast() || this.showWavesForecast() || this.showWindArrows() || this.showWaveArrows();
@@ -2771,6 +2870,14 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     this.closeAnimationPanel();
     const masterKey = this.effectiveMasterLayerKey();
     const master = masterKey ? this.animatableLayersGlobe.find((l) => l.key === masterKey) : undefined;
+    // G53 (2026-05-24) — Phase 1 overlay : GetCapabilities en cours.
+    // Affiche le blur + spinner indéterminé avant qu'on connaisse les validités.
+    this.animLoadingState.set({
+      phase: 'capabilities',
+      done: 0,
+      total: 1,
+      label: master?.label ?? 'Animation',
+    });
     let timestamps: Date[] = [];
     let effectiveOpts = opts;
     if (master) {
@@ -2794,12 +2901,13 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         }
         const { start, end } = this.computeAnimationWindow(effectiveOpts);
         timestamps = allTs.filter((t) => t.getTime() >= start.getTime() && t.getTime() <= end.getTime());
-      } catch { /* fallback step 1h */ }
+      } catch { /* fail-loud G49 ci-dessous */ }
     }
     // G49 (2026-05-24) — Fail loud si pas de validité (au lieu du fallback
     // step 1h legacy qui masquait les bugs en amont). User feedback explicite :
     // animation DOIT itérer validity-by-validity, sinon afficher message UI.
     if (timestamps.length === 0) {
+      this.animLoadingState.set(null);
       console.error('[globe-anim] No validities found for master', master?.label, 'in window');
       alert(
         `Aucune validité trouvée pour ${master?.label ?? 'le layer master'}.\n\n`
@@ -2811,13 +2919,16 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       );
       return;
     }
-    // G41 (2026-05-23) — Pre-load TOUTES les frames SST en mémoire MapLibre
-    // (1 raster source par TS, fetched en parallèle AVANT le play). Pendant
-    // l'animation, on switch juste la visibility = 0 fetch GS, animation 100%
-    // lisse. Pattern radar (RainViewer). Tradeoff : 2-3s d'attente initial.
-    if (masterKey === 'sst' && timestamps.length > 1) {
-      await this.preloadFrames('sst', 'aetherwx:sst-daily', 'sst-direct', timestamps);
+    // G53 (2026-05-24) — Phase 2 overlay : pre-load tuiles WMS pour
+    // master (N raster sources, swap instantané pendant playback) + sub
+    // rasters actifs (rotate setTiles pour warm GWC). Barre progression
+    // event-driven via map.on('data', ...). Quand tous loaded → close
+    // overlay + start playback. Tradeoff : 2-5s d'attente initial pour
+    // 100% smooth playback ensuite (GWC HIT garanti, cf invariant I-4).
+    if (masterKey && timestamps.length > 1) {
+      await this.preloadAllRasterFrames(masterKey, timestamps);
     }
+    this.animLoadingState.set(null);
     try {
       this.animPlayer.start({ ...effectiveOpts, timestamps, masterLayerLabel: master?.label ?? undefined });
     } catch (err) {
@@ -2826,58 +2937,172 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  /** G41 — frames pré-chargées : map<masterKey, { timestamps, layerIds }> */
+  /** G41/G53 — frames pré-chargées : map<masterKey, { timestamps, layerIds }>
+   *  layerIds = sources créées pour le MASTER uniquement (swap instantané
+   *  pendant playback). Les sub rasters sont pré-warmés via setTiles rotation
+   *  (warm GWC) puis pilotés par refreshWmsTimeForActiveLayers pendant les
+   *  ticks animation (HIT GWC). */
   private preloadedFrames?: { masterKey: string; timestamps: Date[]; layerIds: string[]; mainLayerId: string };
 
-  /** G41 — pre-load N frames comme raster sources séparés. Chaque source
-   *  a son TIME bake dans l'URL → MapLibre cache les tiles in-memory.
-   *  Pendant animation : switch visibility = 0 fetch. */
-  private async preloadFrames(masterKey: string, gsName: string, style: string, timestamps: Date[]): Promise<void> {
+  /** G53 (2026-05-24) — descriptor d'un raster animable. dateFormatter applique
+   *  le bon format au TIME selon le type (daily YYYY-MM-DD vs ISO hourly). */
+  private readonly rasterTargets: Record<string, {
+    layerId: string;
+    gsName: string;
+    style?: string;
+    interpolations?: string;
+    daily: boolean;
+    visible: () => boolean;
+  } | undefined> = {};
+
+  /** G53 — construit la liste des descriptors raster à pre-loader. Appelé
+   *  à la volée car les show* signals changent. Inclut master + tous sub
+   *  rasters actifs (contours, multi-sat stack, etc.). */
+  private buildRasterTargets(): Array<NonNullable<typeof this.rasterTargets[string]> & { key: string }> {
+    const out: Array<NonNullable<typeof this.rasterTargets[string]> & { key: string }> = [];
+    if (this.showSst()) out.push({ key: 'sst', layerId: 'sst-wms', gsName: 'aetherwx:sst-daily', style: 'sst-direct', interpolations: 'bicubic', daily: true, visible: () => this.showSst() });
+    if (this.showSstContours()) out.push({ key: 'sstContours', layerId: 'sst-contours-wms', gsName: 'aetherwx:sst-daily', style: 'aetherwx:sst-contours-only', interpolations: 'bicubic', daily: true, visible: () => this.showSstContours() });
+    if (this.showWindForecast()) out.push({ key: 'windForecast', layerId: 'wind-forecast-wms', gsName: 'aetherwx:wind-speed', interpolations: 'bicubic', daily: false, visible: () => this.showWindForecast() });
+    if (this.showWindContours()) out.push({ key: 'windContours', layerId: 'wind-contours-wms', gsName: 'aetherwx:wind-speed', style: 'aetherwx:wind-speed-contours-only', interpolations: 'bicubic', daily: false, visible: () => this.showWindContours() });
+    if (this.showWavesForecast()) out.push({ key: 'wavesForecast', layerId: 'waves-forecast-wms', gsName: 'aetherwx:wave-hs', interpolations: 'bicubic', daily: false, visible: () => this.showWavesForecast() });
+    if (this.showWaveContours()) out.push({ key: 'waveContours', layerId: 'wave-contours-wms', gsName: 'aetherwx:wave-hs', style: 'aetherwx:wave-hs-contours-only', interpolations: 'bicubic', daily: false, visible: () => this.showWaveContours() });
+    for (const [satKey, sig] of Object.entries(this.satShowSignals())) {
+      if (!sig()) continue;
+      const product = SAT_PRODUCTS.find((p) => p.key === satKey);
+      if (!product) continue;
+      out.push({
+        key: satKey,
+        layerId: `sat-${satKey}`,
+        gsName: `aetherwx:${product.gsName}`,
+        daily: product.kind === 'gibs-daily',
+        visible: () => !!this.satShowSignals()[satKey]?.(),
+      });
+    }
+    return out;
+  }
+
+  private formatWmsTime(ts: Date, daily: boolean): string {
+    if (daily) {
+      return `${ts.getUTCFullYear()}-${String(ts.getUTCMonth() + 1).padStart(2, '0')}-${String(ts.getUTCDate()).padStart(2, '0')}`;
+    }
+    return ts.toISOString().split('.')[0] + 'Z';
+  }
+
+  private buildAnimFrameUrl(t: { gsName: string; style?: string; interpolations?: string; daily: boolean }, ts: Date): string {
+    const time = this.formatWmsTime(ts, t.daily);
+    return '/geoserver/aetherwx/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
+      `&LAYERS=${encodeURIComponent(t.gsName)}` +
+      `&STYLES=${t.style ? encodeURIComponent(t.style) : ''}` +
+      `&FORMAT=image/png&TRANSPARENT=true&tiled=true` +
+      (t.interpolations ? `&INTERPOLATIONS=${t.interpolations}` : '') +
+      `&TIME=${encodeURIComponent(time)}` +
+      `&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256`;
+  }
+
+  /** G53 (2026-05-24) — pre-load complet AVANT playback. Master : crée N
+   *  raster sources (swap visibility instantané pendant ticks). Sub rasters
+   *  actifs : rotate setTiles à travers les N TIMEs pour warm GWC (les
+   *  ticks ultérieurs HIT). Progression incrémentée event-driven sur
+   *  MapLibre `data` { dataType:'source', isSourceLoaded:true }.
+   *  Tradeoff : 2-5s d'attente initial vs playback 100% smooth (GWC HIT). */
+  private async preloadAllRasterFrames(masterKey: string, timestamps: Date[]): Promise<void> {
     const map = this.map;
     if (!map) return;
     this.cleanupAnimationFrames();
-    // Cache le layer principal (sst-wms) pour le re-activer après l'animation.
-    const mainLayerId = `${masterKey}-wms`;
-    if (map.getLayer(mainLayerId)) map.setLayoutProperty(mainLayerId, 'visibility', 'none');
+
+    const targets = this.buildRasterTargets();
+    const masterTarget = targets.find((t) => t.key === masterKey);
+    const subTargets = targets.filter((t) => t.key !== masterKey);
+
+    // Total = (master frames créées) + (sub × N rotations setTiles)
+    const masterFrames = masterTarget ? timestamps.length : 0;
+    const subFrames = subTargets.length * timestamps.length;
+    const total = masterFrames + subFrames;
+    this.animLoadingState.set({ phase: 'tiles', done: 0, total, label: this.masterLayerLabel() ?? 'Animation' });
+
+    let done = 0;
+    const tick = () => {
+      done++;
+      const st = this.animLoadingState();
+      if (st) this.animLoadingState.set({ ...st, done });
+    };
+
+    // ── Master : crée N raster sources, attend que chacune soit loaded ──
+    let mainLayerId = '';
     const layerIds: string[] = [];
-    for (let i = 0; i < timestamps.length; i++) {
-      const ts = timestamps[i];
-      const date = ts.toISOString().split('T')[0];
-      const sourceId = `anim-${masterKey}-${i}`;
-      const url = '/geoserver/aetherwx/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
-        `&LAYERS=${encodeURIComponent(gsName)}&STYLES=${encodeURIComponent(style)}` +
-        `&FORMAT=image/png&TRANSPARENT=true&INTERPOLATIONS=bicubic&tiled=true` +
-        `&TIME=${encodeURIComponent(date)}` +
-        `&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256`;
-      map.addSource(sourceId, { type: 'raster', tiles: [url], tileSize: 256 });
-      map.addLayer({
-        id: sourceId, type: 'raster', source: sourceId,
-        layout: { visibility: 'none' },
-        paint: { 'raster-opacity': 0.7 },
+    if (masterTarget) {
+      mainLayerId = masterTarget.layerId;
+      if (map.getLayer(mainLayerId)) map.setLayoutProperty(mainLayerId, 'visibility', 'none');
+
+      const pendingMaster = new Set<string>();
+      for (let i = 0; i < timestamps.length; i++) {
+        const sourceId = `anim-${masterKey}-${i}`;
+        const url = this.buildAnimFrameUrl(masterTarget, timestamps[i]);
+        map.addSource(sourceId, { type: 'raster', tiles: [url], tileSize: 256 });
+        map.addLayer({
+          id: sourceId, type: 'raster', source: sourceId,
+          layout: { visibility: 'none' },
+          paint: { 'raster-opacity': 0.7 },
+        });
+        layerIds.push(sourceId);
+        pendingMaster.add(sourceId);
+      }
+
+      await new Promise<void>((resolve) => {
+        const handler = (e: maplibregl.MapDataEvent & { sourceId?: string; isSourceLoaded?: boolean }) => {
+          if (e.dataType !== 'source' || !e.isSourceLoaded || !e.sourceId) return;
+          if (pendingMaster.delete(e.sourceId)) {
+            tick();
+            if (pendingMaster.size === 0) { map.off('data', handler); resolve(); }
+          }
+        };
+        map.on('data', handler);
+        // Safety timeout : 15s. Si certaines sources ne loaded jamais (GS
+        // down ou tile 404), on continue quand même avec ce qu'on a.
+        setTimeout(() => { map.off('data', handler); pendingMaster.forEach(() => tick()); pendingMaster.clear(); resolve(); }, 15_000);
       });
-      layerIds.push(sourceId);
     }
+
     this.preloadedFrames = { masterKey, timestamps, layerIds, mainLayerId };
-    // Attend que toutes les sources soient idle (tiles loaded).
-    await this.waitForSourcesIdle(layerIds, 10_000);
-    // Affiche la 1ère frame.
-    this.switchAnimationFrame(0);
+
+    // ── Sub rasters : rotate setTiles pour warm GWC ──
+    // On itère séquentiellement par sub × frame pour éviter d'écraser
+    // setTiles avant que MapLibre ait fini de fetch la précédente.
+    for (const sub of subTargets) {
+      const src = map.getSource(sub.layerId) as maplibregl.RasterTileSource | undefined;
+      if (!src || typeof src.setTiles !== 'function') {
+        // Source absente (layer toggled off entre temps) → tick total des frames manquantes.
+        for (let i = 0; i < timestamps.length; i++) tick();
+        continue;
+      }
+      for (const ts of timestamps) {
+        const url = this.buildAnimFrameUrl(sub, ts);
+        src.setTiles([url]);
+        await this.waitForSourceLoadedOnce(sub.layerId, 6_000);
+        tick();
+      }
+      // Restore TIME courant du cursor sur le sub layer (refreshWmsTime…
+      // sera rappelé par le 1er tick animation pour propager la frame 0).
+    }
+
+    // Affiche la 1ère frame master.
+    if (masterTarget) this.switchAnimationFrame(0);
   }
 
-  private waitForSourcesIdle(sourceIds: string[], timeoutMs: number): Promise<void> {
+  /** G53 — attend qu'une source MapLibre signale `isSourceLoaded` une fois
+   *  (suite à un setTiles). Timeout safety pour éviter de bloquer le preload
+   *  si une tile 404 ou GS lent. */
+  private waitForSourceLoadedOnce(sourceId: string, timeoutMs: number): Promise<void> {
     const map = this.map;
     if (!map) return Promise.resolve();
     return new Promise((resolve) => {
-      const start = Date.now();
-      const check = () => {
-        const allLoaded = sourceIds.every((id) => {
-          const src = map.getSource(id) as any;
-          return src && (typeof src.loaded === 'function' ? src.loaded() : true);
-        });
-        if (allLoaded || Date.now() - start > timeoutMs) resolve();
-        else setTimeout(check, 200);
+      let resolved = false;
+      const finish = () => { if (!resolved) { resolved = true; map.off('data', handler); resolve(); } };
+      const handler = (e: maplibregl.MapDataEvent & { sourceId?: string; isSourceLoaded?: boolean }) => {
+        if (e.dataType === 'source' && e.sourceId === sourceId && e.isSourceLoaded) finish();
       };
-      setTimeout(check, 400);
+      map.on('data', handler);
+      setTimeout(finish, timeoutMs);
     });
   }
 
