@@ -13,8 +13,11 @@ import org.geoserver.gwc.GWC;
 import org.geoserver.gwc.layer.GeoServerTileLayer;
 import org.geoserver.platform.GeoServerExtensions;
 import org.geowebcache.config.BlobStoreInfo;
-import org.geowebcache.s3.S3BlobStoreInfo;
 import org.geowebcache.storage.BlobStoreAggregator;
+// org.geowebcache.s3.S3BlobStoreInfo : accédée via réflexion car
+// gwc-s3-storage n'est PAS publié sur Maven Central ni OSGeo (community
+// only). La classe est sur le classpath GS au runtime via gwc-s3-plugin.zip
+// baked dans WEB-INF/lib (G58 Dockerfile).
 
 /**
  * Maritime GWC Initializer (G63 — 2026-05-24).
@@ -140,28 +143,57 @@ public class MaritimeGwcInitializer {
             // Not found = OK
         }
 
-        S3BlobStoreInfo info = new S3BlobStoreInfo();
-        info.setName(id);
-        info.setEnabled(true);
-        info.setBucket(bucket);
-        info.setPrefix("gwc");
-        info.setAwsAccessKey(accessKey);
-        info.setAwsSecretKey(secretKey);
-        info.setEndpoint(endpoint);
-        info.setAccess(S3BlobStoreInfo.Access.PRIVATE);
-        info.setMaxConnections(50);
-        info.setUseHttps(false);
-        info.setUseGzip(true);
+        // Reflexion : org.geowebcache.s3.S3BlobStoreInfo n'est pas dispo en
+        // compile-time (community module, not on Maven Central). Mais elle
+        // est sur le classpath GS au runtime via gwc-s3-plugin.zip (G58).
+        Class<?> s3InfoClass;
+        try {
+            s3InfoClass = Class.forName("org.geowebcache.s3.S3BlobStoreInfo");
+        } catch (ClassNotFoundException e) {
+            LOG.warning("MaritimeGwcInitializer: S3BlobStoreInfo class NOT on "
+                + "classpath. Skip blobstore creation (gwc-s3-plugin manquant ?).");
+            return;
+        }
+        Object info = s3InfoClass.getDeclaredConstructor().newInstance();
+        invokeSetter(info, "setName", String.class, id);
+        invokeSetter(info, "setEnabled", boolean.class, Boolean.TRUE);
+        invokeSetter(info, "setBucket", String.class, bucket);
+        invokeSetter(info, "setPrefix", String.class, "gwc");
+        invokeSetter(info, "setAwsAccessKey", String.class, accessKey);
+        invokeSetter(info, "setAwsSecretKey", String.class, secretKey);
+        invokeSetter(info, "setEndpoint", String.class, endpoint);
+        invokeSetter(info, "setMaxConnections", int.class, 50);
+        invokeSetter(info, "setUseHttps", boolean.class, Boolean.FALSE);
+        invokeSetter(info, "setUseGzip", boolean.class, Boolean.TRUE);
+        // setAccess(S3BlobStoreInfo.Access.PRIVATE) via enum reflection
+        try {
+            Class<?> accessEnum = Class.forName("org.geowebcache.s3.S3BlobStoreInfo$Access");
+            Object[] accessConstants = accessEnum.getEnumConstants();
+            Object privateAccess = null;
+            for (Object c : accessConstants) {
+                if ("PRIVATE".equals(c.toString())) { privateAccess = c; break; }
+            }
+            if (privateAccess != null) {
+                s3InfoClass.getMethod("setAccess", accessEnum).invoke(info, privateAccess);
+            }
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "MaritimeGwcInitializer: setAccess skipped", e);
+        }
 
+        BlobStoreInfo blobInfo = (BlobStoreInfo) info;
         if (existing == null) {
-            blobStoreAggregator.addBlobStore(info);
+            blobStoreAggregator.addBlobStore(blobInfo);
             LOG.info("MaritimeGwcInitializer: created S3 BlobStore '" + id
                 + "' bucket=" + bucket + " endpoint=" + endpoint);
         } else {
-            // Replace pour pousser éventuelles updates de creds/endpoint
-            blobStoreAggregator.modifyBlobStore(info);
+            blobStoreAggregator.modifyBlobStore(blobInfo);
             LOG.info("MaritimeGwcInitializer: updated S3 BlobStore '" + id + "'");
         }
+    }
+
+    private static void invokeSetter(Object target, String method,
+                                     Class<?> paramType, Object value) throws Exception {
+        target.getClass().getMethod(method, paramType).invoke(target, value);
     }
 
     // ─── Layer configs ────────────────────────────────────────────────

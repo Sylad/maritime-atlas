@@ -80,13 +80,12 @@
       <version>${gwc.version}</version>
       <scope>provided</scope>
     </dependency>
-    <!-- GWC S3 backend : S3BlobStoreInfo -->
-    <dependency>
-      <groupId>org.geowebcache</groupId>
-      <artifactId>gwc-s3-storage</artifactId>
-      <version>${gwc.version}</version>
-      <scope>provided</scope>
-    </dependency>
+    <!-- GWC S3 backend : S3BlobStoreInfo
+         Note : gwc-s3-storage N'EST PAS publié sur Maven Central / OSGeo
+         (community module only). On accède à la classe via REFLEXION au
+         runtime — S3BlobStoreInfo est sur le classpath GS via gwc-s3-plugin.zip
+         baked dans WEB-INF/lib (G58 Dockerfile). -->
+    <!-- pas de dep compile-time, voir MaritimeGwcInitializer (reflection). -->
     <!-- GeoServer platform : GeoServerExtensions pour DI manuelle -->
     <dependency>
       <groupId>org.geoserver</groupId>
