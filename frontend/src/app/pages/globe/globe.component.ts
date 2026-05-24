@@ -1145,6 +1145,13 @@ function gibsDailyDate(): string {
                 {{ st.done }} / {{ st.total }} tuiles chargées
               }
             </div>
+            <button
+              type="button"
+              class="anim-loading-cancel"
+              (click)="cancelAnimLoading()"
+              title="Annuler le chargement et fermer">
+              Annuler
+            </button>
           </div>
         </div>
       }
@@ -2215,6 +2222,27 @@ function gibsDailyDate(): string {
       font-size: 0.78rem;
       color: rgba(148, 163, 184, 0.85);
       font-variant-numeric: tabular-nums;
+      margin-bottom: 18px;
+    }
+    .anim-loading-cancel {
+      padding: 8px 22px;
+      background: transparent;
+      border: 1px solid hsl(224 30% 50% / 0.5);
+      border-radius: 6px;
+      color: hsl(224 30% 80%);
+      font-size: 0.82rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 150ms, border-color 150ms, color 150ms;
+    }
+    .anim-loading-cancel:hover {
+      background: hsl(0 70% 50% / 0.15);
+      border-color: hsl(0 70% 60% / 0.6);
+      color: hsl(0 80% 85%);
+    }
+    .anim-loading-cancel:focus-visible {
+      outline: 2px solid hsl(0 70% 60%);
+      outline-offset: 2px;
     }
   `,
 })
@@ -2837,6 +2865,18 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     total: number;
     label: string;
   } | null>(null);
+  /** G53e (2026-05-24) — AbortController du preload courant. Permet à
+   *  l'utilisateur d'annuler via le bouton "Annuler" de l'overlay sans
+   *  attendre que GetCapabilities timeout ou que le preload se termine. */
+  private animPreloadAbort?: AbortController;
+
+  /** G53e — handler du bouton "Annuler" sur l'overlay loading. Abort le
+   *  preload courant + clear l'overlay. L'animation ne démarrera PAS. */
+  cancelAnimLoading(): void {
+    this.animPreloadAbort?.abort();
+    this.animPreloadAbort = undefined;
+    this.animLoadingState.set(null);
+  }
 
   isForecastActive(): boolean {
     return this.showWindForecast() || this.showWavesForecast() || this.showWindArrows() || this.showWaveArrows();
@@ -2868,6 +2908,11 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
 
   async onAnimationLaunch(opts: AnimationOptions): Promise<void> {
     this.closeAnimationPanel();
+    // G53e — abort tout preload courant orphelin (si user clique Lancer
+    // deux fois sans attendre, ou si une animation tourne déjà).
+    this.animPreloadAbort?.abort();
+    this.animPreloadAbort = new AbortController();
+    const abortSignal = this.animPreloadAbort.signal;
     const masterKey = this.effectiveMasterLayerKey();
     const master = masterKey ? this.animatableLayersGlobe.find((l) => l.key === masterKey) : undefined;
     // G53 (2026-05-24) — Phase 1 overlay : GetCapabilities en cours.
@@ -2903,6 +2948,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         timestamps = allTs.filter((t) => t.getTime() >= start.getTime() && t.getTime() <= end.getTime());
       } catch { /* fail-loud G49 ci-dessous */ }
     }
+    // G53e — user a cliqué Annuler pendant GetCapabilities : bail out silencieux.
+    if (abortSignal.aborted) { this.animLoadingState.set(null); return; }
     // G49 (2026-05-24) — Fail loud si pas de validité (au lieu du fallback
     // step 1h legacy qui masquait les bugs en amont). User feedback explicite :
     // animation DOIT itérer validity-by-validity, sinon afficher message UI.
@@ -2926,9 +2973,12 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // overlay + start playback. Tradeoff : 2-5s d'attente initial pour
     // 100% smooth playback ensuite (GWC HIT garanti, cf invariant I-4).
     if (masterKey && timestamps.length > 1) {
-      await this.preloadAllRasterFrames(masterKey, timestamps);
+      await this.preloadAllRasterFrames(masterKey, timestamps, abortSignal);
     }
+    // G53e — user a cliqué Annuler pendant le preload : bail out silencieux.
+    if (abortSignal.aborted) { this.animLoadingState.set(null); return; }
     this.animLoadingState.set(null);
+    this.animPreloadAbort = undefined;
     try {
       this.animPlayer.start({ ...effectiveOpts, timestamps, masterLayerLabel: master?.label ?? undefined });
     } catch (err) {
@@ -3006,7 +3056,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
    *  fetch dispatched = totalDispatched++. Chaque promise résolue (ok ou
    *  ko) = totalCompleted++. Immune aux abstractions MapLibre. Restore
    *  window.fetch après le preload. */
-  private async preloadAllRasterFrames(masterKey: string, timestamps: Date[]): Promise<void> {
+  private async preloadAllRasterFrames(masterKey: string, timestamps: Date[], abortSignal?: AbortSignal): Promise<void> {
     const map = this.map;
     if (!map) return;
     this.cleanupAnimationFrames();
@@ -3053,18 +3103,20 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         ...targets.filter((t) => t.key !== masterKey),
       ];
       for (const target of ordered) {
+        if (abortSignal?.aborted) return;
         const src = map.getSource(target.layerId) as maplibregl.RasterTileSource | undefined;
         if (!src || typeof src.setTiles !== 'function') continue;
         for (const ts of timestamps) {
+          if (abortSignal?.aborted) return;
           src.setTiles([this.buildAnimFrameUrl(target, ts)]);
           map.triggerRepaint();
-          await this.waitForAllTilesLoaded(map, 10_000);
+          await this.waitForAllTilesLoaded(map, 10_000, abortSignal);
         }
       }
 
       // Restore TIME courant du cursor sur tous les rasters.
       this.refreshWmsTimeForActiveLayers();
-      await this.waitForAllTilesLoaded(map, 5_000);
+      await this.waitForAllTilesLoaded(map, 5_000, abortSignal);
     } finally {
       // Restore le fetch original (sinon les fetches d'API post-preload
       // continueraient d'incrémenter notre compteur orphelin).
@@ -3077,10 +3129,11 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
    *  fiable que `source.loaded()` pour raster sources : ce dernier mesure
    *  le tileJSON loading state, pas les tiles individuelles.
    *  Initial delay 100ms pour laisser MapLibre dispatcher les fetches. */
-  private waitForAllTilesLoaded(map: maplibregl.Map, timeoutMs: number): Promise<void> {
+  private waitForAllTilesLoaded(map: maplibregl.Map, timeoutMs: number, abortSignal?: AbortSignal): Promise<void> {
     return new Promise((resolve) => {
       const start = Date.now();
       const check = () => {
+        if (abortSignal?.aborted) { resolve(); return; }
         try {
           if (map.areTilesLoaded()) { resolve(); return; }
         } catch { resolve(); return; }
