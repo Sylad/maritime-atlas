@@ -108,13 +108,16 @@ function gibsDailyDate(): string {
   imports: [CommonModule, RouterLink, TimeSliderComponent, IngestionMiniChartComponent, AnimationPanelComponent, AnimationControlsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="globe-root">
+    <div class="globe-root" [class.is-animating]="isAnimating()">
       <header class="globe-header">
         <div class="brand">
-          <!-- G27 — click sur icon globe = toggle drawer (remplace ☰ et ✕). -->
+          <!-- G27 — click sur icon globe = toggle drawer (remplace ☰ et ✕).
+               G64 (2026-05-24) — disabled pendant animation pour éviter
+               qu'on rouvre le panneau et qu'on perturbe les couches. -->
           <button type="button" class="brand-icon-btn"
                   (click)="toggleLegend()"
-                  [title]="legendOpen() ? 'Réduire les couches' : 'Afficher les couches'"
+                  [disabled]="isAnimating()"
+                  [title]="isAnimating() ? 'Verrouillé pendant l\\'animation' : (legendOpen() ? 'Réduire les couches' : 'Afficher les couches')"
                   [attr.aria-expanded]="legendOpen()"
                   aria-label="Afficher / masquer le panneau des couches">
             <img src="/AetherWX_logo_tap.png" alt="" class="brand-icon-img" aria-hidden="true" />
@@ -122,24 +125,28 @@ function gibsDailyDate(): string {
           <img src="/AetherWX_logo_text.png" alt="AetherWX" class="brand-text-img" />
           <span class="brand-mode">— Globe 3D <span class="brand-mode-pill">spike</span></span>
         </div>
-        <nav class="nav-links">
-          <a routerLink="/legacy-map" class="nav-link">Carte 2D (legacy)</a>
+        <!-- G64 (2026-05-24) — pendant animation : nav-links désactivés
+             (pointer-events:none + opacity via .is-animating sur globe-root)
+             pour empêcher navigation accidentelle ou logout en plein anim. -->
+        <nav class="nav-links" [attr.aria-disabled]="isAnimating()"
+             [title]="isAnimating() ? 'Navigation verrouillée pendant l\\'animation' : null">
+          <a routerLink="/legacy-map" class="nav-link" [attr.tabindex]="isAnimating() ? -1 : null">Carte 2D (legacy)</a>
           <span class="nav-sep">·</span>
-          <a routerLink="/about" class="nav-link">À propos</a>
+          <a routerLink="/about" class="nav-link" [attr.tabindex]="isAnimating() ? -1 : null">À propos</a>
           <!-- G18 M15 (audit G-7) — auth corner parité /legacy-map -->
           <span class="nav-sep">·</span>
           @if (currentUser(); as u) {
-            <a routerLink="/palettes" class="nav-link">{{ '@' + u.username }}</a>
+            <a routerLink="/palettes" class="nav-link" [attr.tabindex]="isAnimating() ? -1 : null">{{ '@' + u.username }}</a>
             @if (u.role === 'admin') {
               <span class="nav-sep">·</span>
-              <a routerLink="/admin/users" class="nav-link nav-admin-pill" title="Espace admin">ADMIN</a>
+              <a routerLink="/admin/users" class="nav-link nav-admin-pill" title="Espace admin" [attr.tabindex]="isAnimating() ? -1 : null">ADMIN</a>
             }
             <span class="nav-sep">·</span>
-            <button type="button" class="nav-btn" (click)="logout()">Déconnexion</button>
+            <button type="button" class="nav-btn" (click)="logout()" [disabled]="isAnimating()">Déconnexion</button>
           } @else {
-            <a routerLink="/auth/login" class="nav-link">Connexion</a>
+            <a routerLink="/auth/login" class="nav-link" [attr.tabindex]="isAnimating() ? -1 : null">Connexion</a>
             <span class="nav-sep">·</span>
-            <a routerLink="/auth/register" class="nav-link">Inscription</a>
+            <a routerLink="/auth/register" class="nav-link" [attr.tabindex]="isAnimating() ? -1 : null">Inscription</a>
           }
         </nav>
       </header>
@@ -152,8 +159,12 @@ function gibsDailyDate(): string {
 
       <!-- G19 (2026-05-22) — Template panneau gauche porté à l'identique de
            /legacy-map (template + CSS) pour parité visuelle 100%. Bindings
-           adaptés au modèle globe (showSst au lieu de showSST, etc.). -->
-      <div class="legend data-catalog" [class.legend--closed]="!legendOpen()">
+           adaptés au modèle globe (showSst au lieu de showSST, etc.).
+           G64 (2026-05-24) — masqué pendant animation (cf .legend--anim-hidden)
+           pour libérer la vue map en mode lecture animation. -->
+      <div class="legend data-catalog"
+           [class.legend--closed]="!legendOpen()"
+           [class.legend--anim-hidden]="isAnimating()">
         <!-- G27 — bouton ✕ retiré : le click sur l'icône globe header
              toggle le drawer (entry point unique). -->
 
@@ -1331,6 +1342,28 @@ function gibsDailyDate(): string {
     }
     .legend.legend--closed {
       display: none;
+    }
+
+    /* G64 (2026-05-24) — Pendant animation : legend masqué (slide-out left)
+       pour libérer la map. Animation ease 200ms pour ne pas surprendre. */
+    .legend.legend--anim-hidden {
+      transform: translateX(-110%);
+      opacity: 0;
+      pointer-events: none;
+      transition: transform 200ms ease, opacity 150ms ease;
+    }
+
+    /* G64 — nav-links + brand button désactivés pendant animation : opacity
+       réduite + cursor not-allowed + pointer-events none pour les <a>.
+       Le bouton .brand-icon-btn utilise [disabled] natif. */
+    .globe-root.is-animating .nav-links {
+      opacity: 0.35;
+      pointer-events: none;
+      cursor: not-allowed;
+    }
+    .globe-root.is-animating .brand-icon-btn[disabled] {
+      opacity: 0.4;
+      cursor: not-allowed;
     }
 
     /* Bouton hamburger réouverture (legend collapsed). */
@@ -2858,6 +2891,15 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
    *  spec sub-agent A5d87 pour wiring détaillé. Public pour template binding. */
   readonly animPlayer = inject(AnimationPlayerService);
   readonly animPanelOpen = signal<boolean>(false);
+
+  /** G64 (2026-05-24) — true pendant playback/pause d'animation. Drive :
+   *  - hide left drawer (.legend--anim-hidden)
+   *  - disable nav links + brand-icon button (pointer-events:none + opacity)
+   *  Inclut phase loading overlay (animLoadingState != null) pour bloquer
+   *  TOUT pendant le pré-chargement aussi. */
+  readonly isAnimating = computed(() =>
+    this.animPlayer.state() !== 'idle' || this.animLoadingState() !== null
+  );
   /** G53 (2026-05-24) — état overlay "Préparation animation". `null` = caché.
    *  phase=capabilities : GetCapabilities en cours (récup validités master).
    *  phase=tiles : pre-load tuiles WMS (master en N raster sources pour swap
