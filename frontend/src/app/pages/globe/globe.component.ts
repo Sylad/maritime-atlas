@@ -72,22 +72,26 @@ type SatProduct = {
   key: string;
   label: string;
   gsName: string;
+  /** G56 (2026-05-24) — workspace GS où le layer est publié. NASA GIBS
+   *  sat dans `aetherwx-sat` (split pour accélérer GetCap principal),
+   *  cascade EUMETSAT/radar dans `aetherwx`. */
+  workspace: 'aetherwx' | 'aetherwx-sat';
   kind: 'gibs-daily' | 'cascade-realtime';
   attribution: string;
 };
 const SAT_PRODUCTS: SatProduct[] = [
-  { key: 'satTrueColor',      label: 'Vrai couleur MODIS',         gsName: 'sat-modis-true-color',  kind: 'gibs-daily',       attribution: 'NASA GIBS MODIS Terra' },
-  { key: 'satTrueColorVIIRS', label: 'Vrai couleur VIIRS',         gsName: 'sat-viirs-true-color',  kind: 'gibs-daily',       attribution: 'NASA GIBS VIIRS SNPP' },
-  { key: 'satIR',             label: 'Infrarouge thermique',       gsName: 'sat-modis-ir',          kind: 'gibs-daily',       attribution: 'NASA GIBS MODIS Band 31' },
-  { key: 'satWaterVapor',     label: 'Température air',            gsName: 'sat-airs-air-temp',     kind: 'gibs-daily',       attribution: 'NASA GIBS AIRS' },
-  { key: 'satCloudTop',       label: 'Sommet des nuages',          gsName: 'sat-modis-cloud-top',   kind: 'gibs-daily',       attribution: 'NASA GIBS MODIS' },
-  { key: 'satAerosol',        label: 'Aérosols / poussières',      gsName: 'sat-modis-aerosol',     kind: 'gibs-daily',       attribution: 'NASA GIBS MODIS AOD' },
-  { key: 'satDayNight',       label: 'VIIRS jour/nuit',            gsName: 'sat-viirs-day-night',   kind: 'gibs-daily',       attribution: 'NASA GIBS VIIRS DayNight' },
-  { key: 'satEuIrRss',        label: 'EUMETSAT IR Europe (5 min)', gsName: 'sat-eu-ir-rss',         kind: 'cascade-realtime', attribution: 'EUMETSAT MSG SEVIRI Rapid Scan' },
-  { key: 'satGlobalIrMtg',    label: 'EUMETSAT MTG IR global',     gsName: 'sat-global-ir-mtg',     kind: 'cascade-realtime', attribution: 'EUMETSAT MTG FCI' },
-  { key: 'satEuHrvRgb',       label: 'EUMETSAT HRV RGB Europe',    gsName: 'sat-eu-hrv-rgb',        kind: 'cascade-realtime', attribution: 'EUMETSAT MSG SEVIRI HRV' },
-  { key: 'radarDwd',          label: 'Radar Allemagne (DWD)',      gsName: 'radar-dwd-de',          kind: 'cascade-realtime', attribution: 'DWD Open Data Radar' },
-  { key: 'radarKnmi',         label: 'Radar Pays-Bas (KNMI)',      gsName: 'radar-knmi-nl',         kind: 'cascade-realtime', attribution: 'KNMI Open Geo Radar' },
+  { key: 'satTrueColor',      label: 'Vrai couleur MODIS',         gsName: 'sat-modis-true-color',  workspace: 'aetherwx-sat', kind: 'gibs-daily',       attribution: 'NASA GIBS MODIS Terra' },
+  { key: 'satTrueColorVIIRS', label: 'Vrai couleur VIIRS',         gsName: 'sat-viirs-true-color',  workspace: 'aetherwx-sat', kind: 'gibs-daily',       attribution: 'NASA GIBS VIIRS SNPP' },
+  { key: 'satIR',             label: 'Infrarouge thermique',       gsName: 'sat-modis-ir',          workspace: 'aetherwx-sat', kind: 'gibs-daily',       attribution: 'NASA GIBS MODIS Band 31' },
+  { key: 'satWaterVapor',     label: 'Température air',            gsName: 'sat-airs-air-temp',     workspace: 'aetherwx-sat', kind: 'gibs-daily',       attribution: 'NASA GIBS AIRS' },
+  { key: 'satCloudTop',       label: 'Sommet des nuages',          gsName: 'sat-modis-cloud-top',   workspace: 'aetherwx-sat', kind: 'gibs-daily',       attribution: 'NASA GIBS MODIS' },
+  { key: 'satAerosol',        label: 'Aérosols / poussières',      gsName: 'sat-modis-aerosol',     workspace: 'aetherwx-sat', kind: 'gibs-daily',       attribution: 'NASA GIBS MODIS AOD' },
+  { key: 'satDayNight',       label: 'VIIRS jour/nuit',            gsName: 'sat-viirs-day-night',   workspace: 'aetherwx-sat', kind: 'gibs-daily',       attribution: 'NASA GIBS VIIRS DayNight' },
+  { key: 'satEuIrRss',        label: 'EUMETSAT IR Europe (5 min)', gsName: 'sat-eu-ir-rss',         workspace: 'aetherwx',     kind: 'cascade-realtime', attribution: 'EUMETSAT MSG SEVIRI Rapid Scan' },
+  { key: 'satGlobalIrMtg',    label: 'EUMETSAT MTG IR global',     gsName: 'sat-global-ir-mtg',     workspace: 'aetherwx',     kind: 'cascade-realtime', attribution: 'EUMETSAT MTG FCI' },
+  { key: 'satEuHrvRgb',       label: 'EUMETSAT HRV RGB Europe',    gsName: 'sat-eu-hrv-rgb',        workspace: 'aetherwx',     kind: 'cascade-realtime', attribution: 'EUMETSAT MSG SEVIRI HRV' },
+  { key: 'radarDwd',          label: 'Radar Allemagne (DWD)',      gsName: 'radar-dwd-de',          workspace: 'aetherwx',     kind: 'cascade-realtime', attribution: 'DWD Open Data Radar' },
+  { key: 'radarKnmi',         label: 'Radar Pays-Bas (KNMI)',      gsName: 'radar-knmi-nl',         workspace: 'aetherwx',     kind: 'cascade-realtime', attribution: 'KNMI Open Geo Radar' },
 ];
 
 /** Date du jour J-2 capped pour NASA GIBS (lag ~24-48h selon ingest GS).
@@ -2627,10 +2631,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (key === 'sst')           return 'aetherwx:sst-daily';
     if (key === 'windForecast')  return 'aetherwx:wind-speed';
     if (key === 'wavesForecast') return 'aetherwx:wave-hs';
-    // Sat keys : préfixe 'aetherwx:' + gsName du catalogue
-    if (key.startsWith('sat')) {
+    // G56 — workspace dépend du kind : gibs-daily → aetherwx-sat, cascade → aetherwx
+    if (key.startsWith('sat') || key.startsWith('radar')) {
       const product = SAT_PRODUCTS.find((p) => p.key === key);
-      return product ? `aetherwx:${product.gsName}` : null;
+      return product ? `${product.workspace}:${product.gsName}` : null;
     }
     return null;
   }
@@ -2894,7 +2898,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     { key: 'sst',           label: 'SST',             type: 'wms', gsLayerName: 'aetherwx:sst-daily' },
     { key: 'windForecast',  label: 'Vent forecast',   type: 'wms', gsLayerName: 'aetherwx:wind-speed' },
     { key: 'wavesForecast', label: 'Vagues forecast', type: 'wms', gsLayerName: 'aetherwx:wave-hs' },
-    ...SAT_PRODUCTS.map((p) => ({ key: p.key, label: p.label, type: 'wms' as const, gsLayerName: `aetherwx:${p.gsName}` })),
+    ...SAT_PRODUCTS.map((p) => ({ key: p.key, label: p.label, type: 'wms' as const, gsLayerName: `${p.workspace}:${p.gsName}` })),
     { key: 'lightning',     label: 'Foudre',          type: 'vector' as const },
     { key: 'alerts',        label: 'Alertes',         type: 'vector' as const },
     { key: 'vessels',       label: 'Navires',         type: 'vector' as const },
@@ -3023,7 +3027,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       out.push({
         key: satKey,
         layerId: `sat-${satKey}`,
-        gsName: `aetherwx:${product.gsName}`,
+        gsName: `${product.workspace}:${product.gsName}`,
         daily: product.kind === 'gibs-daily',
         visible: () => !!this.satShowSignals()[satKey]?.(),
       });
@@ -3040,7 +3044,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
 
   private buildAnimFrameUrl(t: { gsName: string; style?: string; interpolations?: string; daily: boolean }, ts: Date): string {
     const time = this.formatWmsTime(ts, t.daily);
-    return '/geoserver/aetherwx/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
+    // G56 — workspace dérivé du préfixe du gsName (aetherwx-sat: → /geoserver/aetherwx-sat/wms)
+    const ws = t.gsName.split(':')[0];
+    return `/geoserver/${ws}/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap` +
       `&LAYERS=${encodeURIComponent(t.gsName)}` +
       `&STYLES=${t.style ? encodeURIComponent(t.style) : ''}` +
       `&FORMAT=image/png&TRANSPARENT=true&tiled=true` +
@@ -3239,7 +3245,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // donc on synthétise les TIMEs client-side à partir du kind du produit
     // (5min RSS, 10min MTG, 15min HRV, 5min radar) ancrés sur now - 15min
     // (buffer pour le lag d'ingestion upstream EUMETSAT/DWD/KNMI).
-    const shortName = master.gsLayerName.replace(/^aetherwx:/, '');
+    // G56 — supprime n'importe quel préfixe workspace (aetherwx:, aetherwx-sat:)
+    const shortName = master.gsLayerName.replace(/^[^:]+:/, '');
     const product = SAT_PRODUCTS.find((p) => p.gsName === shortName);
     if (product?.kind === 'cascade-realtime') {
       const stepMs = this.cascadeStepMs(product.key);
@@ -3258,8 +3265,11 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       return out;
     }
     try {
-      const url = '/geoserver/aetherwx/wms?service=WMS&version=1.3.0&request=GetCapabilities';
-      const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+      // G56 — workspace dépend du layer prefix (aetherwx-sat: → /geoserver/aetherwx-sat/wms).
+      // GetCap workspace-scoped est plus rapide (moins de layers à agréger côté serveur).
+      const ws = master.gsLayerName.split(':')[0];
+      const url = `/geoserver/${ws}/wms?service=WMS&version=1.3.0&request=GetCapabilities`;
+      const resp = await fetch(url, { signal: AbortSignal.timeout(30_000) });
       if (!resp.ok) throw new Error(`GetCapabilities HTTP ${resp.status}`);
       const xml = await resp.text();
       return this.parseTimeDimension(xml, master.gsLayerName)
@@ -3281,7 +3291,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   }
 
   private parseTimeDimension(xml: string, layerName: string): Date[] {
-    const shortName = layerName.replace(/^aetherwx:/, '');
+    // G56 — supprime le préfixe workspace quel qu'il soit (aetherwx: ou aetherwx-sat:)
+    const shortName = layerName.replace(/^[^:]+:/, '');
     const doc = new DOMParser().parseFromString(xml, 'application/xml');
     if (doc.querySelector('parsererror')) return [];
     const layers = Array.from(doc.querySelectorAll('Layer'));
@@ -4021,7 +4032,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       } else {
         timeParam = t.toISOString().split('.')[0] + 'Z';
       }
-      const url = this.buildWmsTileUrl(`aetherwx:${product.gsName}`, timeParam);
+      const url = this.buildWmsTileUrl(`${product.workspace}:${product.gsName}`, timeParam);
       (src as maplibregl.RasterTileSource).setTiles([url]);
     }
   }
@@ -4035,7 +4046,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // GWC. GWC cache compense le nombre de fetches.
     const size = 256;
     // G42c (2026-05-23) — `tiled=true` route vers GWC cache.
-    return '/geoserver/aetherwx/wms' +
+    // G56 — workspace dérivé du préfixe layerName (aetherwx-sat: → /geoserver/aetherwx-sat/wms).
+    const ws = layerName.split(':')[0];
+    return `/geoserver/${ws}/wms` +
       '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
       `&LAYERS=${encodeURIComponent(layerName)}&STYLES=${encodeURIComponent(styleParam)}&FORMAT=image/png&TRANSPARENT=true&tiled=true` +
       `&TIME=${encodeURIComponent(time)}` +
@@ -4873,9 +4886,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         : new Date(Date.now() - 5 * 60_000).toISOString().split('.')[0] + 'Z';
 
     const url =
-      '/geoserver/aetherwx/wms' +
+      `/geoserver/${product.workspace}/wms` +
       '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
-      `&LAYERS=aetherwx:${product.gsName}` +
+      `&LAYERS=${product.workspace}:${product.gsName}` +
       `&TIME=${encodeURIComponent(timeParam)}` +
       '&STYLES=&FORMAT=image/png&TRANSPARENT=true' +
       '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256';
