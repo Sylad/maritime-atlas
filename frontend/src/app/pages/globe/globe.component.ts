@@ -2999,15 +2999,14 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       `&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256`;
   }
 
-  /** G53b (2026-05-24) — pre-load complet AVANT playback. Pour CHAQUE
-   *  raster actif (master + subs), rotate setTiles à travers les N TIMEs.
-   *  La source originale reste visible donc MapLibre fetch réellement les
-   *  tiles (vs hidden source = pas de fetch dans le bug G53 v1). Tile-level
-   *  tracking : `dataloading` incrémente totalDispatched, `data` avec
-   *  tile.state='loaded'|'errored' incrémente totalCompleted. Barre dispose
-   *  quand tous in-flight drained. Trade-off vs G41 N-sources : playback
-   *  frame change = 1 fetch GWC HIT (~50ms) au lieu de swap visibility
-   *  instantané, mais à 1× speed (1s/frame) c'est invisible. */
+  /** G53c (2026-05-24) — fix v2 : les events `dataloading`/`data` avec
+   *  tile field N'ONT PAS de sourceId direct (vérifié dans le runtime
+   *  MapLibre). Le sourceId est sur `event.target?.id` (Evented target).
+   *  Sync via `map.areTilesLoaded()` au lieu de `src.loaded()` qui mesure
+   *  le metadata loading, pas le tile loading pour les raster sources.
+   *
+   *  Tile-level tracking : `dataloading` incrémente totalDispatched,
+   *  `data` (tile.state=loaded|errored|expired) incrémente totalCompleted. */
   private async preloadAllRasterFrames(masterKey: string, timestamps: Date[]): Promise<void> {
     const map = this.map;
     if (!map) return;
@@ -3025,14 +3024,15 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       if (st) this.animLoadingState.set({ ...st, done: totalCompleted, total: totalDispatched });
     };
 
-    type RawTileEvent = maplibregl.MapDataEvent & {
-      sourceId?: string;
-      tile?: { tileID: { key: string }; state: string };
-    };
+    // Le sourceId arrive via `event.target?.id` (Evented target = la source
+    // qui a fire l'event). Cast en `any` car MapLibre n'expose pas target.id
+    // dans le type public, mais c'est garanti par l'implem Evented.
     const onLoading = (e: maplibregl.MapDataEvent) => {
-      const ev = e as RawTileEvent;
-      if (ev.dataType !== 'source' || !ev.tile || !ev.sourceId || !watchedSources.has(ev.sourceId)) return;
-      const k = `${ev.sourceId}:${ev.tile.tileID.key}`;
+      const ev = e as unknown as { dataType?: string; tile?: { tileID: { key: string }; state: string }; target?: { id?: string } };
+      if (ev.dataType !== 'source' || !ev.tile) return;
+      const sourceId = ev.target?.id;
+      if (!sourceId || !watchedSources.has(sourceId)) return;
+      const k = `${sourceId}:${ev.tile.tileID.key}`;
       if (!inFlight.has(k)) {
         inFlight.add(k);
         totalDispatched++;
@@ -3040,10 +3040,13 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       }
     };
     const onData = (e: maplibregl.MapDataEvent) => {
-      const ev = e as RawTileEvent;
-      if (ev.dataType !== 'source' || !ev.tile || !ev.sourceId || !watchedSources.has(ev.sourceId)) return;
-      if (ev.tile.state !== 'loaded' && ev.tile.state !== 'errored') return;
-      const k = `${ev.sourceId}:${ev.tile.tileID.key}`;
+      const ev = e as unknown as { dataType?: string; tile?: { tileID: { key: string }; state: string }; target?: { id?: string } };
+      if (ev.dataType !== 'source' || !ev.tile) return;
+      const st = ev.tile.state;
+      if (st !== 'loaded' && st !== 'errored' && st !== 'expired') return;
+      const sourceId = ev.target?.id;
+      if (!sourceId || !watchedSources.has(sourceId)) return;
+      const k = `${sourceId}:${ev.tile.tileID.key}`;
       if (inFlight.has(k)) {
         inFlight.delete(k);
         totalCompleted++;
@@ -3052,6 +3055,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     };
     map.on('dataloading', onLoading);
     map.on('data', onData);
+    map.on('dataabort', onData);  // dataabort = aussi un terminal state (counter completion)
 
     this.animLoadingState.set({ phase: 'tiles', done: 0, total: 0, label: this.masterLayerLabel() ?? 'Animation' });
 
@@ -3065,8 +3069,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       if (!src || typeof src.setTiles !== 'function') continue;
       for (const ts of timestamps) {
         src.setTiles([this.buildAnimFrameUrl(target, ts)]);
-        // Attend que cette source soit idle (loaded() true = pas de tile pending)
-        await this.waitForSourceIdle(target.layerId, 8_000);
+        // Force MapLibre à recompute les tiles à fetcher (sinon setTiles
+        // peut être différé jusqu'au prochain repaint).
+        map.triggerRepaint();
+        await this.waitForAllTilesLoaded(map, 10_000);
       }
     }
 
@@ -3074,45 +3080,29 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // sub rasters sur le timestamp final, désync avec le master qui va
     // démarrer en frame 0 via AnimationPlayer).
     this.refreshWmsTimeForActiveLayers();
-    // Attend le drain final pour aligner master+subs sur t0
-    await this.waitForInFlightDrained(inFlight, 5_000);
+    await this.waitForAllTilesLoaded(map, 5_000);
 
     map.off('dataloading', onLoading);
     map.off('data', onData);
+    map.off('dataabort', onData);
   }
 
-  /** G53b — attend que `src.loaded()` retourne true (toutes les tiles
-   *  pending de cette source sont fetchées) OU timeout. Polling 80ms pour
-   *  réactivité ; le check est cheap (un simple boolean MapLibre interne). */
-  private waitForSourceIdle(sourceId: string, timeoutMs: number): Promise<void> {
-    const map = this.map;
-    if (!map) return Promise.resolve();
+  /** G53c — attend que `map.areTilesLoaded()` retourne true (TOUTES les
+   *  tiles de TOUTES les sources visibles sont chargées) OU timeout. Plus
+   *  fiable que `source.loaded()` pour raster sources : ce dernier mesure
+   *  le tileJSON loading state, pas les tiles individuelles.
+   *  Initial delay 100ms pour laisser MapLibre dispatcher les fetches. */
+  private waitForAllTilesLoaded(map: maplibregl.Map, timeoutMs: number): Promise<void> {
     return new Promise((resolve) => {
       const start = Date.now();
       const check = () => {
-        const src = map.getSource(sourceId) as maplibregl.RasterTileSource | undefined;
-        if (!src) { resolve(); return; }
-        if (typeof (src as { loaded?: () => boolean }).loaded === 'function' && (src as { loaded: () => boolean }).loaded()) {
-          resolve(); return;
-        }
+        try {
+          if (map.areTilesLoaded()) { resolve(); return; }
+        } catch { resolve(); return; }
         if (Date.now() - start > timeoutMs) { resolve(); return; }
         setTimeout(check, 80);
       };
-      // Petit délai initial pour laisser MapLibre enregistrer la nouvelle
-      // setTiles avant de check loaded() (sinon premier check passe vide).
-      setTimeout(check, 60);
-    });
-  }
-
-  /** G53b — attend que le Set d'in-flight tiles atteigne 0 OU timeout. */
-  private waitForInFlightDrained(inFlight: Set<string>, timeoutMs: number): Promise<void> {
-    return new Promise((resolve) => {
-      const start = Date.now();
-      const check = () => {
-        if (inFlight.size === 0 || Date.now() - start > timeoutMs) { resolve(); return; }
-        setTimeout(check, 80);
-      };
-      check();
+      setTimeout(check, 100);
     });
   }
 
