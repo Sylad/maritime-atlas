@@ -9,6 +9,12 @@ import java.util.logging.Logger;
 
 import javax.annotation.PostConstruct;
 
+import org.geoserver.catalog.Catalog;
+import org.geoserver.catalog.DimensionInfo;
+import org.geoserver.catalog.DimensionPresentation;
+import org.geoserver.catalog.ResourceInfo;
+import org.geoserver.catalog.WMSLayerInfo;
+import org.geoserver.catalog.impl.DimensionInfoImpl;
 import org.geoserver.gwc.GWC;
 import org.geoserver.gwc.layer.GeoServerTileLayer;
 import org.geoserver.platform.GeoServerExtensions;
@@ -95,6 +101,7 @@ public class MaritimeGwcInitializer {
 
     private BlobStoreAggregator blobStoreAggregator;
     private GWC gwc;
+    private Catalog catalog;
 
     @PostConstruct
     public void initialize() {
@@ -104,19 +111,73 @@ public class MaritimeGwcInitializer {
             this.blobStoreAggregator =
                 GeoServerExtensions.bean(BlobStoreAggregator.class);
             this.gwc = GeoServerExtensions.bean(GWC.class);
+            this.catalog = GeoServerExtensions.bean(Catalog.class);
 
-            if (blobStoreAggregator == null || gwc == null) {
-                LOG.warning("MaritimeGwcInitializer: GWC/BlobStoreAggregator "
-                    + "bean not found, skip (GWC plugin probably absent)");
+            if (blobStoreAggregator == null || gwc == null || catalog == null) {
+                LOG.warning("MaritimeGwcInitializer: GWC/BlobStoreAggregator/Catalog "
+                    + "bean not found, skip");
                 return;
             }
 
             ensureS3BlobStore();
             ensureLayerConfigs();
+            ensureCascadeTimeDimensions();
             LOG.info("MaritimeGwcInitializer: init complete");
         } catch (Throwable t) {
             // Ne JAMAIS bloquer le boot GS sur une erreur de cache config.
             LOG.log(Level.SEVERE, "MaritimeGwcInitializer: init failed (non-fatal)", t);
+        }
+    }
+
+    // ─── Cascade time dimensions (G63b — fix HRV "même image en boucle") ──
+
+    /**
+     * Pour les WMSLayerInfo cascade (EUMETSAT/DWD/KNMI), set le metadata
+     * `time` DimensionInfo pour que GS forwarde le TIME param à l'upstream.
+     * Sans ça, GS sert un PNG default identique peu importe le TIME demandé
+     * (test 2026-05-24 : HRV cascade renvoyait 2 PNGs alternants pour 7 TIMEs
+     * différents alors qu'upstream EUMETSAT renvoyait 7 PNGs distincts).
+     *
+     * REST PUT pour set ce metadata retourne 500 UnsupportedOperationException
+     * sur GS 2.28, d'où l'usage de Java API ici (le seul chemin qui marche).
+     */
+    private static final List<String> CASCADE_LAYERS = Arrays.asList(
+        "aetherwx:sat-eu-ir-rss",
+        "aetherwx:sat-global-ir-mtg",
+        "aetherwx:sat-eu-hrv-rgb",
+        "aetherwx:radar-dwd-de",
+        "aetherwx:radar-knmi-nl"
+    );
+
+    private void ensureCascadeTimeDimensions() {
+        for (String fullName : CASCADE_LAYERS) {
+            try {
+                String[] parts = fullName.split(":", 2);
+                String ws = parts[0];
+                String name = parts[1];
+                ResourceInfo resource = catalog.getResourceByName(ws, name, ResourceInfo.class);
+                if (!(resource instanceof WMSLayerInfo)) {
+                    LOG.warning("MaritimeGwcInitializer: " + fullName
+                        + " not a WMSLayerInfo, skip time dim");
+                    continue;
+                }
+                WMSLayerInfo wmsLayer = (WMSLayerInfo) resource;
+                Object existing = wmsLayer.getMetadata().get("time");
+                if (existing instanceof DimensionInfo
+                    && ((DimensionInfo) existing).isEnabled()) {
+                    continue; // already set
+                }
+                DimensionInfo timeDim = new DimensionInfoImpl();
+                timeDim.setEnabled(true);
+                timeDim.setPresentation(DimensionPresentation.LIST);
+                timeDim.setUnits("ISO8601");
+                wmsLayer.getMetadata().put("time", timeDim);
+                catalog.save(wmsLayer);
+                LOG.info("MaritimeGwcInitializer: enabled time dim on " + fullName);
+            } catch (Throwable t) {
+                LOG.log(Level.WARNING,
+                    "MaritimeGwcInitializer: failed time dim for " + fullName, t);
+            }
         }
     }
 
