@@ -111,6 +111,20 @@ RUN cd /tmp && \
            /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gt-xsd-wps* \
            /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-control-flow*
 
+# G58 (2026-05-24) — GWC S3 blobstore plugin. Permet de stocker le cache
+# de tuiles GWC dans SeaweedFS / S3-compatible au lieu de l'emptyDir
+# per-pod. Pré-requis pour clusteriser N replicas GS (G60). Sans ce
+# plugin, /gwc/rest/blobstores PUT renvoie CannotResolveClassException
+# S3BlobStore au runtime.
+RUN cd /tmp && \
+    curl -fL --retry 8 --retry-delay 5 --retry-all-errors \
+      -o gwc-s3-plugin.zip \
+      "${SF_RELEASE}/${GS_VERSION}/extensions/geoserver-${GS_VERSION}-gwc-s3-plugin.zip/download" && \
+    unzip -o gwc-s3-plugin.zip -d /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/ && \
+    rm -f /tmp/gwc-s3-plugin.zip && \
+    ls -lh /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-gwc-s3* \
+           /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/aws-java-sdk-s3* 2>&1 | head -5
+
 # Tomcat context.xml template — datasource JNDI jdbc/geoserver centralisée
 COPY tomcat-context.xml.tpl /usr/local/tomcat/conf/context.xml.tpl
 
