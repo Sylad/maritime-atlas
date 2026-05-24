@@ -3574,8 +3574,14 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       return product?.kind === 'gibs-daily' ? 24 * 3_600_000 : 5 * 60_000;
     }
     if (master === 'sst') return 24 * 3_600_000;
+    // G52 (2026-05-24) — wind/wave forecast = 24h step (pas 6h).
+    // Vérifié via GS GetCaps : wind-speed/wave-hs time-dim contient
+    // 14 dates daily (J-13 → J+1 à 00:00 UTC), pas 4×/jour comme GFS
+    // natif. weather-fetcher publie 1 GeoTIFF par day cycle, donc
+    // granularité GS effective = 24h. Si on bascule un jour vers
+    // 6h publishing → mettre à jour ici.
     if (master === 'windForecast' || master === 'wavesForecast' ||
-        master === 'windArrows' || master === 'waveArrows') return 6 * 3_600_000;
+        master === 'windArrows' || master === 'waveArrows') return 24 * 3_600_000;
     return 3_600_000;
   });
 
