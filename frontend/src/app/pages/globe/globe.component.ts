@@ -3250,7 +3250,16 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     const product = SAT_PRODUCTS.find((p) => p.gsName === shortName);
     if (product?.kind === 'cascade-realtime') {
       const stepMs = this.cascadeStepMs(product.key);
-      const buffered = Math.floor((Date.now() - 15 * 60_000) / stepMs) * stepMs;
+      // G61 (2026-05-24) — buffer par produit cascade selon lag upstream
+      // observé (EUMETSAT View Service GetCap default time vs now) :
+      //   RSS 5min  → lag ~13min → buffer 30min
+      //   MTG 10min → lag ~23min → buffer 45min
+      //   HRV 15min → lag ~38min → buffer 75min (HRV processing pipeline long)
+      //   radar    → lag ~10min → buffer 20min
+      // Bug user "HRV même image en boucle" = mon ancien buffer 15min était
+      // AHEAD du lag réel HRV → upstream renvoyait placeholder default.
+      const bufferMs = this.cascadeBufferMs(product.key);
+      const buffered = Math.floor((Date.now() - bufferMs) / stepMs) * stepMs;
       const out: Date[] = [];
       for (let t = start.getTime(); t <= end.getTime(); t += stepMs) {
         if (t > buffered) break;
@@ -3288,6 +3297,19 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (productKey === 'satGlobalIrMtg') return 10 * 60_000;
     if (productKey === 'satEuHrvRgb') return 15 * 60_000;
     return 15 * 60_000;
+  }
+
+  /** G61 (2026-05-24) — buffer par produit cascade, mesuré contre
+   *  EUMETSAT View Service GetCap default time vs now (2026-05-24) :
+   *    RSS lag 13min, MTG lag 23min, HRV lag 38min, radar lag ~10min.
+   *  On prend ~2× le lag observé pour marge variable.
+   *  Si le user voit "image en boucle" sur un produit, augmenter ici. */
+  private cascadeBufferMs(productKey: string): number {
+    if (productKey === 'satEuIrRss') return 30 * 60_000;
+    if (productKey === 'satGlobalIrMtg') return 45 * 60_000;
+    if (productKey === 'satEuHrvRgb') return 75 * 60_000;
+    if (productKey === 'radarDwd' || productKey === 'radarKnmi') return 20 * 60_000;
+    return 30 * 60_000;
   }
 
   private parseTimeDimension(xml: string, layerName: string): Date[] {
