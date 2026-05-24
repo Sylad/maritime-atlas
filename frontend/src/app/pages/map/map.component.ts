@@ -3128,13 +3128,14 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // pointant sur les coverages GeoServer auto-créées par grib-parser sidecar
     // depuis les GeoTIFFs NASA. Master-éligibles → time-bar apparaît même si
     // user n'active QUE des satellites.
-    { key: 'satTrueColor',      label: 'Satellite MODIS',     type: 'wms', gsLayerName: 'aetherwx:sat-modis-true-color', active: () => this.showSatTrueColor() },
-    { key: 'satTrueColorVIIRS', label: 'Satellite VIIRS',     type: 'wms', gsLayerName: 'aetherwx:sat-viirs-true-color', active: () => this.showSatTrueColorVIIRS() },
-    { key: 'satIR',             label: 'Satellite IR',        type: 'wms', gsLayerName: 'aetherwx:sat-modis-ir',         active: () => this.showSatIR() },
-    { key: 'satWaterVapor',     label: 'Satellite T° air',    type: 'wms', gsLayerName: 'aetherwx:sat-airs-air-temp',    active: () => this.showSatWaterVapor() },
-    { key: 'satCloudTop',       label: 'Satellite nuages',    type: 'wms', gsLayerName: 'aetherwx:sat-modis-cloud-top',  active: () => this.showSatCloudTop() },
-    { key: 'satAerosol',        label: 'Satellite aérosols',  type: 'wms', gsLayerName: 'aetherwx:sat-modis-aerosol',    active: () => this.showSatAerosol() },
-    { key: 'satDayNight',       label: 'Satellite jour/nuit', type: 'wms', gsLayerName: 'aetherwx:sat-viirs-day-night',  active: () => this.showSatDayNight() },
+    // G56 (2026-05-24) — NASA GIBS sat layers migrés dans workspace aetherwx-sat
+    { key: 'satTrueColor',      label: 'Satellite MODIS',     type: 'wms', gsLayerName: 'aetherwx-sat:sat-modis-true-color', active: () => this.showSatTrueColor() },
+    { key: 'satTrueColorVIIRS', label: 'Satellite VIIRS',     type: 'wms', gsLayerName: 'aetherwx-sat:sat-viirs-true-color', active: () => this.showSatTrueColorVIIRS() },
+    { key: 'satIR',             label: 'Satellite IR',        type: 'wms', gsLayerName: 'aetherwx-sat:sat-modis-ir',         active: () => this.showSatIR() },
+    { key: 'satWaterVapor',     label: 'Satellite T° air',    type: 'wms', gsLayerName: 'aetherwx-sat:sat-airs-air-temp',    active: () => this.showSatWaterVapor() },
+    { key: 'satCloudTop',       label: 'Satellite nuages',    type: 'wms', gsLayerName: 'aetherwx-sat:sat-modis-cloud-top',  active: () => this.showSatCloudTop() },
+    { key: 'satAerosol',        label: 'Satellite aérosols',  type: 'wms', gsLayerName: 'aetherwx-sat:sat-modis-aerosol',    active: () => this.showSatAerosol() },
+    { key: 'satDayNight',       label: 'Satellite jour/nuit', type: 'wms', gsLayerName: 'aetherwx-sat:sat-viirs-day-night',  active: () => this.showSatDayNight() },
     // RainViewer IR — type vector pour ne pas être master (validités gérées
     // via snapshot RainViewer, pas via GS GetCapabilities) ; visible dans
     // sliderLayerCoverage avec refreshIntervalMin=10.
@@ -7604,10 +7605,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     // déterministe (Phase 3 fix).
     const initialDate = this.currentSatDate();
     this.SAT_PRODUCTS.forEach((p, idx) => {
+      // G56 — NASA GIBS dans workspace aetherwx-sat
       const src = new TileWMS({
-        url: '/geoserver/aetherwx/wms',
+        url: '/geoserver/aetherwx-sat/wms',
         params: {
-          LAYERS: `aetherwx:${p.gsName}`,
+          LAYERS: `aetherwx-sat:${p.gsName}`,
           TIME: initialDate,
           FORMAT: 'image/png',
           TRANSPARENT: true,
