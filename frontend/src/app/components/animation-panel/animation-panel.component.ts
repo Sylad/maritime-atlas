@@ -60,7 +60,7 @@ import {
                       class="ap-btn"
                       [class.is-active]="duration() === d.value"
                       [disabled]="d.disabled"
-                      [title]="d.disabled ? 'Trop court pour ce layer (' + stepLabel() + ' par validité)' : ''"
+                      [title]="d.disabled ? (d.frames < 2 ? 'Trop court pour ce layer (' + stepLabel() + ' par validité)' : 'Trop de frames (' + d.frames + ' > 150 max) — choisir window plus courte') : ''"
                       (click)="!d.disabled && duration.set(d.value)">
                 {{ d.label }}
                 <small>{{ d.frames }} frame{{ d.frames > 1 ? 's' : '' }}</small>
@@ -125,7 +125,7 @@ import {
         <!-- Toggles -->
         <section class="ap-group ap-toggles">
           <label class="ap-toggle">
-            <input type="checkbox" [checked]="loop()" (change)="loop.set($any($event.target).checked)" />
+            <input type="checkbox" [checked]="loop()" (change)="onLoopToggle($any($event.target).checked)" />
             <span>Boucle infinie 🔁</span>
           </label>
           <label class="ap-toggle">
@@ -386,6 +386,9 @@ export class AnimationPanelComponent implements OnChanges {
   readonly direction = signal<AnimationDirection>('auto');
   readonly speed = signal<AnimationSpeed>(1);
   readonly loop = signal<boolean>(false);
+  /** G62 — flag pour savoir si user a manually toggle loop. Si non,
+   *  ngOnChanges adapte le default selon masterStepMs (cascade = true). */
+  private loopUserOverride = false;
   readonly followRealTime = signal<boolean>(true);
 
   // ── Constants ────────────────────────────────────────────────────
@@ -401,13 +404,21 @@ export class AnimationPanelComponent implements OnChanges {
   /** G36 — durées proposées filtrées : on garde uniquement celles qui
    *  produisent ≥ 2 frames pour le master courant. Avec SST (step 24h)
    *  → '6h' (0 frame) et '24h' (1 frame) sont cachés.
-   *  Toujours ≥1 option (sinon panneau inutile). */
+   *  G62 (2026-05-24) — cap max 150 frames (pour cascade step 5/10/15min,
+   *  "7 jours" génère 672/336/672 frames = 3000+ requêtes WMS = spam
+   *  browser. User feedback : "3300 requêtes, ça spam"). Disable durée
+   *  qui dépasse ce cap. Toujours ≥1 option (sinon panneau inutile). */
+  private readonly MAX_FRAMES = 150;
   readonly durations = computed<Array<{ value: AnimationDuration; label: string; frames: number; disabled: boolean }>>(() => {
     const stepH = this.masterStepMs / 3_600_000;
     return this.ALL_DURATIONS.map((value) => {
       const hours = this.DURATION_HOURS[value];
-      const frames = Math.max(1, Math.floor(hours / Math.max(stepH, 1)));
-      return { value, label: this.DURATION_LABELS[value], frames, disabled: frames < 2 };
+      const frames = Math.max(1, Math.floor(hours / Math.max(stepH, 1 / 60)));
+      // G62 — disable si trop peu frames (< 2) OU trop de frames (> MAX)
+      // Le calcul utilise le step REEL en heures (avec floor min 1min)
+      // pour ne pas sous-estimer le frame count pour cascade step 5/10/15min.
+      const disabled = frames < 2 || frames > this.MAX_FRAMES;
+      return { value, label: this.DURATION_LABELS[value], frames, disabled };
     });
   });
 
@@ -471,6 +482,21 @@ export class AnimationPanelComponent implements OnChanges {
       const firstOk = ds.find((d) => !d.disabled);
       if (firstOk) this.duration.set(firstOk.value);
     }
+    // G62 (2026-05-24) — loop default selon step natif master :
+    //   < 1h step (cascade RSS/MTG/HRV/radar) → loop=true par défaut
+    //     (frames cached browser au 2è cycle, anim continue jusqu'à Stop)
+    //   ≥ 1h step (SST daily, wind/wave forecast) → loop=false
+    //     (anim 1 cycle then return-to-now, classique météo)
+    // Override préservé si user a manuellement toggle.
+    if (!this.loopUserOverride) {
+      this.loop.set(this.masterStepMs < 3_600_000);
+    }
+  }
+
+  /** Tracking : on note quand user toggle manuellement loop. */
+  onLoopToggle(checked: boolean): void {
+    this.loopUserOverride = true;
+    this.loop.set(checked);
   }
 
   onLaunch(): void {
