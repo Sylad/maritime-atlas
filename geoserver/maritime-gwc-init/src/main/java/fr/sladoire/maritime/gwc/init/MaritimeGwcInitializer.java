@@ -247,9 +247,26 @@ public class MaritimeGwcInitializer
         }
     }
 
+    /** G64d (2026-05-25) — tolérant aux setters absents.
+     *  La version `org.geowebcache.s3.S3BlobStoreInfo` baked dans le pod
+     *  via gwc-s3-plugin.zip peut varier (G58 a fetch la release stable
+     *  GeoServer 2.28.3, mais le plugin community évolue indépendamment).
+     *  Si un setter optionnel manque (ex: setMaxConnections), on log et
+     *  continue les autres. Les setters critiques (bucket, accessKey,
+     *  secretKey, endpoint) qui manquent feront fail le addBlobStore()
+     *  plus loin de toute façon. */
     private static void invokeSetter(Object target, String method,
-                                     Class<?> paramType, Object value) throws Exception {
-        target.getClass().getMethod(method, paramType).invoke(target, value);
+                                     Class<?> paramType, Object value) {
+        try {
+            target.getClass().getMethod(method, paramType).invoke(target, value);
+        } catch (NoSuchMethodException e) {
+            LOG.warning("MaritimeGwcInitializer: setter " + method + "("
+                + paramType.getSimpleName() + ") not available on "
+                + target.getClass().getSimpleName() + ", skipping");
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "MaritimeGwcInitializer: setter " + method
+                + " threw, skipping", e);
+        }
     }
 
     // ─── Layer configs ────────────────────────────────────────────────
