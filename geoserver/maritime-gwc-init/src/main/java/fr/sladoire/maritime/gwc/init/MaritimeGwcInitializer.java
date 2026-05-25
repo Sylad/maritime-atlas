@@ -132,10 +132,16 @@ public class MaritimeGwcInitializer
         try {
             // Lookup via GeoServerExtensions (plus robuste aux changements
             // de bean names entre versions GS qu'un @Autowired par type).
+            //
+            // Pour Catalog : lookup par NOM ("catalog") car GS expose
+            // PLUSIEURS beans Catalog (catalog primaire, rawCatalog,
+            // secureCatalog, advertisedCatalog, etc.) → MultipleBeansException
+            // si lookup par type. Le bean "catalog" est l'instance primaire
+            // qui propage les events au cluster Hazelcast.
             this.blobStoreAggregator =
                 GeoServerExtensions.bean(BlobStoreAggregator.class);
             this.gwc = GeoServerExtensions.bean(GWC.class);
-            this.catalog = GeoServerExtensions.bean(Catalog.class);
+            this.catalog = (Catalog) GeoServerExtensions.bean("catalog");
 
             if (blobStoreAggregator == null || gwc == null || catalog == null) {
                 LOG.warning("MaritimeGwcInitializer: GWC/BlobStoreAggregator/Catalog "
