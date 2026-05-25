@@ -7,19 +7,14 @@ import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import javax.annotation.PostConstruct;
-
 import org.geoserver.catalog.Catalog;
-import org.geoserver.catalog.DimensionInfo;
-import org.geoserver.catalog.DimensionPresentation;
-import org.geoserver.catalog.ResourceInfo;
-import org.geoserver.catalog.WMSLayerInfo;
-import org.geoserver.catalog.impl.DimensionInfoImpl;
 import org.geoserver.gwc.GWC;
 import org.geoserver.gwc.layer.GeoServerTileLayer;
 import org.geoserver.platform.GeoServerExtensions;
 import org.geowebcache.config.BlobStoreInfo;
 import org.geowebcache.storage.BlobStoreAggregator;
+import org.springframework.context.ApplicationListener;
+import org.springframework.context.event.ContextRefreshedEvent;
 // org.geowebcache.s3.S3BlobStoreInfo : accédée via réflexion car
 // gwc-s3-storage n'est PAS publié sur Maven Central ni OSGeo (community
 // only). La classe est sur le classpath GS au runtime via gwc-s3-plugin.zip
@@ -65,7 +60,8 @@ import org.geowebcache.storage.BlobStoreAggregator;
  *   GWC_TARGET_LAYERS   (csv, default = DEFAULT_LAYERS ci-dessous)
  * </pre>
  */
-public class MaritimeGwcInitializer {
+public class MaritimeGwcInitializer
+        implements ApplicationListener<ContextRefreshedEvent> {
 
     private static final Logger LOG =
         Logger.getLogger(MaritimeGwcInitializer.class.getName());
@@ -103,8 +99,36 @@ public class MaritimeGwcInitializer {
     private GWC gwc;
     private Catalog catalog;
 
-    @PostConstruct
-    public void initialize() {
+    /** Garde anti-double exécution : ContextRefreshedEvent peut fire 2x
+     *  (root context puis child context). On ne veut init qu'une fois. */
+    private volatile boolean initialized = false;
+
+    /**
+     * G64b (2026-05-25) — refactored from @PostConstruct to
+     * ApplicationListener<ContextRefreshedEvent>.
+     *
+     * Raison : @PostConstruct fire durant la phase critique de bean init,
+     * avant que JDBCResourceStore/Hazelcast soient complètement up. Nos
+     * 16 gwc.save() + 5 catalog.save() bloquaient sur publish Hazelcast
+     * (cluster not initialized yet) → boot path stretched > 11min startup
+     * probe budget → pod killed.
+     *
+     * ContextRefreshedEvent fire APRÈS que tout le Spring root context
+     * soit ready (incluant Hazelcast cluster joined + JDBCResourceStore
+     * ready). Init devient non-bloquante pour le boot path critique.
+     *
+     * Cascade time dimensions setup REMOVED (G63b experiment) : confirmé
+     * inopérant car bug fondamental = GeoTools WMSCoverageReader/WMSLayer
+     * ne forward PAS le param TIME upstream (0 occurrence de "time" dans
+     * tout le source gt-wms). Le vrai fix sera G65 (custom HTTPClient SPI
+     * factory + DispatcherCallback ThreadLocal).
+     */
+    @Override
+    public void onApplicationEvent(ContextRefreshedEvent event) {
+        if (initialized) {
+            return; // déjà run sur le root context
+        }
+        initialized = true;
         try {
             // Lookup via GeoServerExtensions (plus robuste aux changements
             // de bean names entre versions GS qu'un @Autowired par type).
@@ -121,65 +145,30 @@ public class MaritimeGwcInitializer {
 
             ensureS3BlobStore();
             ensureLayerConfigs();
-            ensureCascadeTimeDimensions();
-            LOG.info("MaritimeGwcInitializer: init complete");
+            LOG.info("MaritimeGwcInitializer: init complete (post-boot async)");
         } catch (Throwable t) {
             // Ne JAMAIS bloquer le boot GS sur une erreur de cache config.
             LOG.log(Level.SEVERE, "MaritimeGwcInitializer: init failed (non-fatal)", t);
         }
     }
 
-    // ─── Cascade time dimensions (G63b — fix HRV "même image en boucle") ──
-
-    /**
-     * Pour les WMSLayerInfo cascade (EUMETSAT/DWD/KNMI), set le metadata
-     * `time` DimensionInfo pour que GS forwarde le TIME param à l'upstream.
-     * Sans ça, GS sert un PNG default identique peu importe le TIME demandé
-     * (test 2026-05-24 : HRV cascade renvoyait 2 PNGs alternants pour 7 TIMEs
-     * différents alors qu'upstream EUMETSAT renvoyait 7 PNGs distincts).
-     *
-     * REST PUT pour set ce metadata retourne 500 UnsupportedOperationException
-     * sur GS 2.28, d'où l'usage de Java API ici (le seul chemin qui marche).
-     */
-    private static final List<String> CASCADE_LAYERS = Arrays.asList(
-        "aetherwx:sat-eu-ir-rss",
-        "aetherwx:sat-global-ir-mtg",
-        "aetherwx:sat-eu-hrv-rgb",
-        "aetherwx:radar-dwd-de",
-        "aetherwx:radar-knmi-nl"
-    );
-
-    private void ensureCascadeTimeDimensions() {
-        for (String fullName : CASCADE_LAYERS) {
-            try {
-                String[] parts = fullName.split(":", 2);
-                String ws = parts[0];
-                String name = parts[1];
-                ResourceInfo resource = catalog.getResourceByName(ws, name, ResourceInfo.class);
-                if (!(resource instanceof WMSLayerInfo)) {
-                    LOG.warning("MaritimeGwcInitializer: " + fullName
-                        + " not a WMSLayerInfo, skip time dim");
-                    continue;
-                }
-                WMSLayerInfo wmsLayer = (WMSLayerInfo) resource;
-                Object existing = wmsLayer.getMetadata().get("time");
-                if (existing instanceof DimensionInfo
-                    && ((DimensionInfo) existing).isEnabled()) {
-                    continue; // already set
-                }
-                DimensionInfo timeDim = new DimensionInfoImpl();
-                timeDim.setEnabled(true);
-                timeDim.setPresentation(DimensionPresentation.LIST);
-                timeDim.setUnits("ISO8601");
-                wmsLayer.getMetadata().put("time", timeDim);
-                catalog.save(wmsLayer);
-                LOG.info("MaritimeGwcInitializer: enabled time dim on " + fullName);
-            } catch (Throwable t) {
-                LOG.log(Level.WARNING,
-                    "MaritimeGwcInitializer: failed time dim for " + fullName, t);
-            }
-        }
-    }
+    // G63b ensureCascadeTimeDimensions() REMOVED (2026-05-25).
+    //
+    // Le set metadata.time sur WMSLayerInfo cascade n'a AUCUN effet sur le
+    // forward de TIME upstream. Cause racine confirmée par lecture de
+    // gt-wms 34.x : `WMSCoverageReader.java` (538 lignes) + `WMSLayer.java`
+    // (215 lignes) ont 0 occurrence de "time" / "TIME" (case-insensitive).
+    // `WMSCoverageReader.read(GeneralParameterValue...)` ne lit QUE
+    // `READ_GRIDGEOMETRY2D` et `BACKGROUND_COLOR` parmi les params, et
+    // `initMapRequest()` ne forward que `Layer.getVendorParameters()` via
+    // `setVendorSpecificParameter` — TIME n'est ni un vendor param ni
+    // pris en compte par le code path cascade par design.
+    //
+    // Le vrai fix → G65 plugin séparé `maritime-cascade-time-forward` :
+    // custom GeoTools HTTPClientFactory (SPI registered in META-INF/
+    // services/org.geotools.http.HTTPClientFactory) qui intercepte les
+    // URLs GetMap upstream + ré-écrit en injectant TIME depuis un
+    // ThreadLocal alimenté par un Spring DispatcherCallback côté GS.
 
     // ─── BlobStore S3 ──────────────────────────────────────────────────
 
