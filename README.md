@@ -129,6 +129,17 @@ https://github.com/Sylad/maritime-atlas/raw/main/docs/screenshots/07-particles.m
 | `grib-parser` | Python 3 + xarray + rioxarray + cfgrib + gdal | — | Sidecar HTTP (port 8500) appelé par l'orchestrator via `POST /parse` — absorbe les fetchers historiques dans le pipeline orchestrator sans réécrire la stack Python en Node |
 | `frontend` | Angular 19 + nginx | 4204 | UI map, nginx proxy `/api/` et `/geoserver/` (CORS-free) |
 
+## Diagnostic local Ollama
+
+Pour résumer des logs en mode read-only, sans accès `kubectl` ni GitOps :
+
+```bash
+node scripts/summarize-logs-ollama.mjs ./path/to/log.txt
+```
+
+Le script expurge les tokens évidents, envoie seulement les dernières lignes à
+Ollama et écrit le diagnostic dans `../tmp/`.
+
 ## Stack technique
 
 | Couche | Tech |
