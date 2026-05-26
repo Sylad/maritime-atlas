@@ -1191,7 +1191,13 @@ function gibsDailyDate(): string {
       /* G43 (2026-05-23) — padding compact 0.1em vertical + 1em horizontal. */
       padding: 0.1em 1em;
       gap: 0.1em;
-      background: rgba(10, 14, 26, 0.78);
+      background:
+        linear-gradient(90deg,
+          rgba(0, 2, 8, 0.96) 0,
+          rgba(0, 2, 8, 0.94) 310px,
+          rgba(7, 12, 24, 0.88) 430px,
+          rgba(10, 14, 26, 0.78) 620px),
+        rgba(10, 14, 26, 0.78);
       /* G26 — cyan glow (parité drawer + nav buttons) */
       border-bottom: 1px solid hsl(224 85% 55% / 0.5);
       box-shadow:
@@ -1200,7 +1206,15 @@ function gibsDailyDate(): string {
         0 0 30px -4px hsl(224 90% 55% / 0.18);
       backdrop-filter: blur(6px);
     }
-    .brand { display: flex; align-items: center; gap: 0.1em; font-size: 14px; }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.1em;
+      font-size: 14px;
+      padding-right: 1.2em;
+      background: linear-gradient(90deg, rgba(0, 2, 8, 0.48), rgba(0, 2, 8, 0));
+      border-radius: 999px;
+    }
     .brand-icon { font-size: 18px; }
     /* G27 — bouton clickable (toggle drawer) avec hover/focus glow */
     .brand-icon-btn {

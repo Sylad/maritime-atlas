@@ -106,7 +106,7 @@ import { RouterLink } from '@angular/router';
               <li>PostgreSQL 16 + PostGIS + TimescaleDB (hypertables vessels, lightning, alerts)</li>
               <li>GeoServer 2.28.3 cluster 2 replicas + JDBCConfig + JDBCStore (catalog Postgres-backed) + Hazelcast gs-hz-cluster (sync in-memory state entre replicas)</li>
               <li>SeaweedFS S3 — GWC S3 blobstore (gwc-s3-plugin baked in image, cache tiles partagé multi-replica) + coverage data. Workspaces séparés : <code>aetherwx</code> (layers opéra) + <code>aetherwx-sat</code> (7 NASA sat layers, GetCap cold 250 ms vs 36 s avant split)</li>
-              <li>Plugin Java <code>maritime-gwc-init</code> baked dans <code>WEB-INF/lib/</code> — Spring <code>@PostConstruct</code> idempotent : crée le BlobStore S3 + assigne 16 layers GWC à chaque boot. Config GS reproductible 100% gitops, persistance garantie cross-restart.</li>
+              <li>Plugin Java <code>maritime-gwc-init</code> baked dans <code>WEB-INF/lib/</code> — Spring <code>&#64;PostConstruct</code> idempotent : crée le BlobStore S3 + assigne 16 layers GWC à chaque boot. Config GS reproductible 100% gitops, persistance garantie cross-restart.</li>
               <li>RabbitMQ 3.13 (topic exchanges, fanout raster.ready)</li>
               <li>K8s Mini-Blue + ArgoCD GitOps (Helm chart, prod 2026-05-19). Docker Compose conservé en local dev.</li>
             </ul>
