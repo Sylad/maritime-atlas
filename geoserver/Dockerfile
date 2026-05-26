@@ -64,6 +64,17 @@ WORKDIR /src
 RUN mvn -B -DskipTests package && \
     ls -lh target/*.jar
 
+# ── Builder stage : maritime Cascade Time Forward plugin (G65) ──────
+# Compile le plugin Java fr.sladoire.maritime.cascade qui wrap le
+# HTTPClient des WMSStoreInfo pour injecter le param TIME dans les
+# URLs cascade GetMap upstream. Fix bug GeoTools WMSCoverageReader/
+# WMSLayer (0 forward de TIME par design, cf G64b).
+FROM maven:3.9-eclipse-temurin-17 AS cascade-time-builder
+COPY maritime-cascade-time-forward/ /src/
+WORKDIR /src
+RUN mvn -B -DskipTests package && \
+    ls -lh target/*.jar
+
 # ── Runtime stage ───────────────────────────────────────────────────
 FROM docker.osgeo.org/geoserver:${GS_VERSION}
 
@@ -161,12 +172,23 @@ COPY --from=hz-builder /hz-jars/*.jar /usr/local/tomcat/webapps/geoserver/WEB-IN
 
 # ── maritime GWC init plugin (G63) ──────────────────────────────────
 # Plugin Java Spring qui crée le BlobStore S3 + assigne les layers au
-# boot GS (via @PostConstruct). Évite le bug REST PUT non-persistant.
+# boot GS (via ContextRefreshedEvent post-boot async). Évite le bug
+# REST PUT non-persistant.
 # Config via env vars : GWC_S3_ACCESS_KEY/SECRET_KEY/ENDPOINT/BUCKET
 # (injectées dans le Deployment depuis Secret maritime-seaweedfs-s3).
 COPY --from=gwc-init-builder /src/target/gs-gwc-init-*.jar /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/
 
+# ── maritime Cascade Time Forward plugin (G65) ──────────────────────
+# Plugin Java Spring qui wrap le HTTPClient de chaque WMSStoreInfo
+# pour injecter TIME dans les URLs cascade GetMap upstream. Fix le
+# bug GeoTools `WMSCoverageReader` / `WMSLayer` (0 forward de TIME
+# par design, vu marathon G64b).
+COPY --from=cascade-time-builder /src/target/gs-cascade-time-forward-*.jar /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/
+
 # Sanity check
 RUN ls -lh /usr/local/tomcat/lib/postgresql-*.jar /usr/local/tomcat/conf/context.xml.tpl && \
-    ls -lh /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-hz-cluster* /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/hazelcast*.jar && \
-    echo "──── Build OK : pg-jdbc + context.xml.tpl + IDW + gs-hz-cluster ────"
+    ls -lh /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-hz-cluster* \
+            /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/hazelcast*.jar \
+            /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-gwc-init*.jar \
+            /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-cascade-time-forward*.jar && \
+    echo "──── Build OK : pg-jdbc + context.xml.tpl + IDW + gs-hz-cluster + maritime-gwc-init + maritime-cascade-time-forward ────"

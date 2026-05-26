@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Plugin GeoServer custom : Maritime Cascade Time Forward (G65 — 2026-05-25).
+
+  Fixe le bug "même image en boucle" sur les 5 cascade WMSLayerInfo
+  (sat-eu-hrv-rgb, sat-eu-ir-rss, sat-global-ir-mtg, radar-dwd-de,
+  radar-knmi-nl). Cause racine confirmée par lecture du source gt-wms
+  34.x : `WMSCoverageReader.java` (538 lignes) + `WMSLayer.java` (215
+  lignes) ont 0 mention de "time"/"TIME" — GeoTools ne forward PAS le
+  paramètre TIME upstream quand un cascade WMSLayer est servi.
+
+  Architecture :
+  1. CascadeTimeContext (ThreadLocal<String> CURRENT) — holder partagé
+     entre le request thread et le HTTPClient wrapper qui s'exécute
+     dans le même thread quand GS appelle issueRequest() upstream.
+  2. CascadeTimeDispatcherCallback (implements org.geoserver.ows.DispatcherCallback)
+     — sur init(Request) ou operationDispatched, extract le param TIME
+     depuis le KVP, stash dans CascadeTimeContext. Sur finished(), clear.
+  3. CascadeTimeForwardingHTTPClient (HTTPClient wrapper) — intercepte
+     get(URL). Si URL match `service=WMS&request=GetMap` ET ThreadLocal
+     TIME présent, ré-écrit l'URL en injectant ou remplaçant TIME=...
+     dans le query string. Délègue le reste au client wrappé.
+  4. CascadeTimeForwardInitializer (ApplicationListener<ContextRefreshedEvent>)
+     — au boot post-context-refresh, itère catalog.getStores(WMSStoreInfo)
+     et remplace le champ privé `httpClient` du WebMapServer cached
+     via réflexion (sur la classe parente AbstractOpenWebService). Hook
+     aussi un CatalogListener pour wrap les nouveaux stores créés à chaud.
+
+  Approche reflection-cache-wrap choisie plutôt que SPI HTTPClientFactory
+  car HTTPClientFinder.lookupClient() filtre via matchDefault qui ne
+  considère que DefaultHTTPClientFactory sauf hints/behaviors explicites
+  — ordering non garanti pour les factories custom. Le wrap direct du
+  champ `httpClient` est moins clean mais robuste et localisé.
+
+  Dépendances :
+    - gs-main (Catalog, GeoServerExtensions, CatalogListener)
+    - gs-ows (DispatcherCallback, Request, Operation)
+    - gt-wms (WebMapServer.httpClient via réflexion AbstractOpenWebService)
+    - spring-context (ApplicationListener, @Component)
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>fr.sladoire.maritime</groupId>
+  <artifactId>gs-cascade-time-forward</artifactId>
+  <version>0.1.0</version>
+  <packaging>jar</packaging>
+  <name>maritime-atlas Cascade Time Forward plugin</name>
+  <description>Inject TIME upstream pour cascade WMSLayerInfo (fix bug GeoTools)</description>
+
+  <properties>
+    <maven.compiler.source>17</maven.compiler.source>
+    <maven.compiler.target>17</maven.compiler.target>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <geoserver.version>2.28.3</geoserver.version>
+    <geotools.version>34.3</geotools.version>
+    <spring.version>5.3.39</spring.version>
+  </properties>
+
+  <repositories>
+    <repository>
+      <id>osgeo</id>
+      <name>OSGeo Release Repository</name>
+      <url>https://repo.osgeo.org/repository/release/</url>
+      <releases><enabled>true</enabled></releases>
+      <snapshots><enabled>false</enabled></snapshots>
+    </repository>
+  </repositories>
+
+  <dependencies>
+    <!-- Catalog + GeoServerExtensions + CatalogListener -->
+    <dependency>
+      <groupId>org.geoserver</groupId>
+      <artifactId>gs-main</artifactId>
+      <version>${geoserver.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.geoserver</groupId>
+      <artifactId>gs-platform</artifactId>
+      <version>${geoserver.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <!-- DispatcherCallback live dans gs-ows mais est ré-exporté par gs-main.
+         On peut compiler avec gs-main seul. -->
+    <!-- GeoTools WMS : HTTPClient interface + WebMapServer -->
+    <dependency>
+      <groupId>org.geotools</groupId>
+      <artifactId>gt-wms</artifactId>
+      <version>${geotools.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.geotools</groupId>
+      <artifactId>gt-http</artifactId>
+      <version>${geotools.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <!-- Spring bean lifecycle -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-context</artifactId>
+      <version>${spring.version}</version>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+      </plugin>
+    </plugins>
+  </build>
+</project>

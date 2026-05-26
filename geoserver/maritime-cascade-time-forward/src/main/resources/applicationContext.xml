@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Spring beans for maritime-cascade-time-forward plugin (G65 — 2026-05-25).
+
+  Registre 2 beans dans le context root GS :
+   1. cascadeTimeDispatcherCallback — DispatcherCallback qui stash le TIME
+      KVP entrant dans le ThreadLocal CascadeTimeContext (un par request).
+   2. cascadeTimeForwardInitializer — ApplicationListener<ContextRefreshedEvent>
+      qui wrap le HTTPClient de chaque WMSStoreInfo cached avec
+      CascadeTimeForwardingHTTPClient.
+
+  Pas de constructor injection — les beans utilisent GeoServerExtensions
+  lookup en runtime (plus robuste aux changements de bean names entre
+  versions GS, et évite les ordering deps avec Spring core GS).
+-->
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+                           http://www.springframework.org/schema/beans/spring-beans.xsd">
+
+    <bean id="cascadeTimeDispatcherCallback"
+          class="fr.sladoire.maritime.cascade.CascadeTimeDispatcherCallback" />
+
+    <bean id="cascadeTimeForwardInitializer"
+          class="fr.sladoire.maritime.cascade.CascadeTimeForwardInitializer" />
+
+</beans>
