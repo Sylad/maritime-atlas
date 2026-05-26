@@ -9,6 +9,7 @@ import org.geoserver.catalog.WMSStoreInfo;
 import org.geoserver.ows.AbstractDispatcherCallback;
 import org.geoserver.ows.Request;
 import org.geoserver.platform.GeoServerExtensions;
+import org.geoserver.platform.Operation;
 import org.geotools.http.HTTPClient;
 import org.geotools.ows.wms.WebMapServer;
 
@@ -34,40 +35,41 @@ public class CascadeTimeDispatcherCallback extends AbstractDispatcherCallback {
 
     @Override
     public Request init(Request request) {
-        // G65g (2026-05-26) — log UNCONDITIONAL au tout début pour prouver
-        // que le callback est bien invoqué par le Dispatcher (pas filtré
-        // par service/request). Si on voit jamais [G65 INIT], c'est que
-        // le bean n'est pas dans la liste callbacks du Dispatcher.
-        LOG.warning("[G65 INIT] DispatcherCallback.init called service="
-            + request.getService() + " request=" + request.getRequest()
-            + " context=" + request.getContext() + " path=" + request.getPath());
-
-        // Défense en profondeur : clear le ThreadLocal au début de CHAQUE
-        // request GS, même si la précédente a fait clear() proprement.
-        // Tomcat ré-utilise les threads du pool, un leak résiduel d'une
-        // request qui aurait by-passé finished() (ex: exception qui short-
-        // circuite le Dispatcher) ne contaminera pas la suivante.
+        // G65i (2026-05-26) — IMPORTANT : à init() time, GS n'a PAS encore
+        // parsé le KVP. request.getService() et request.getRequest() sont
+        // null. C'est en `serviceDispatched()` puis `operationDispatched()`
+        // que ces fields sont remplis.
+        //
+        // Donc le stash TIME doit se faire dans operationDispatched().
+        //
+        // init() = juste un clear ThreadLocal défensif (purge état leaké
+        // d'une request précédente qui aurait skippé finished()).
         CascadeTimeContext.clear();
+        return request;
+    }
+
+    @Override
+    public Operation operationDispatched(Request request, Operation operation) {
         try {
             if (!"WMS".equalsIgnoreCase(request.getService())) {
-                return request;
+                return operation;
             }
             if (!"GetMap".equalsIgnoreCase(request.getRequest())) {
-                return request;
+                return operation;
             }
             Map<String, Object> kvp = request.getRawKvp();
             if (kvp == null) {
-                return request;
+                return operation;
             }
             Object time = kvp.get("TIME");
             if (time == null) {
-                // try lowercase / mixed (KVP map is case-insensitive in GS,
-                // but rawKvp may be case-sensitive depending on GS version)
                 time = kvp.get("time");
             }
             if (time instanceof String s && !s.isEmpty()) {
                 CascadeTimeContext.set(s);
-                LOG.warning("[G65 STASH] CascadeTimeDispatcherCallback: stash TIME=" + s);
+                LOG.warning("[G65 STASH] operationDispatched: stash TIME=" + s);
+            } else {
+                LOG.warning("[G65 STASH-MISS] kvp keys=" + kvp.keySet() + " time=" + time);
             }
 
             // G65f (2026-05-26) — DIAGNOSTIC : inspecte le HTTPClient courant
@@ -88,7 +90,6 @@ public class CascadeTimeDispatcherCallback extends AbstractDispatcherCallback {
                             + " httpClient=" + hc.getClass().getSimpleName()
                             + " wrapped=" + wrapped);
                         if (!wrapped) {
-                            // Re-wrap immédiatement
                             wms.setHttpClient(new CascadeTimeForwardingHTTPClient(hc));
                             LOG.warning("[G65 REWRAP] store=" + store.getName() + " re-wrapped");
                         }
@@ -98,10 +99,9 @@ public class CascadeTimeDispatcherCallback extends AbstractDispatcherCallback {
                 LOG.log(Level.WARNING, "[G65 DIAG] failed", t);
             }
         } catch (Throwable t) {
-            // jamais bloquer la request sur une erreur de stash
-            LOG.warning("CascadeTimeDispatcherCallback init failed (non-fatal): " + t);
+            LOG.warning("[G65 STASH] operationDispatched failed (non-fatal): " + t);
         }
-        return request;
+        return operation;
     }
 
     @Override
