@@ -86,6 +86,8 @@ public class CascadeTimeDispatcherCallback extends AbstractDispatcherCallback {
                         HTTPClient hc = wms.getHTTPClient();
                         boolean wrapped = (hc instanceof CascadeTimeForwardingHTTPClient);
                         LOG.warning("[G65 DIAG] store=" + store.getName()
+                            + " storeId=" + store.getId()
+                            + " storeHash=" + System.identityHashCode(store)
                             + " wms=" + System.identityHashCode(wms)
                             + " httpClient=" + hc.getClass().getSimpleName()
                             + " wrapped=" + wrapped);
