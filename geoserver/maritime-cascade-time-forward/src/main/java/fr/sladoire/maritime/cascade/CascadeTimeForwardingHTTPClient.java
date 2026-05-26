@@ -56,11 +56,17 @@ public class CascadeTimeForwardingHTTPClient implements HTTPClient {
 
     @Override
     public HTTPResponse get(URL url) throws IOException {
+        // G65d (2026-05-26) — System.err pour bypass tout système de logging
+        // et confirmer que notre wrapper est bien appelé au runtime.
+        System.err.println("[G65 DEBUG] CascadeTimeForwardingHTTPClient.get(URL) called: "
+            + url + " ThreadLocal TIME=" + CascadeTimeContext.get());
         return delegate.get(maybeInjectTime(url));
     }
 
     @Override
     public HTTPResponse get(URL url, Map<String, String> headers) throws IOException {
+        System.err.println("[G65 DEBUG] CascadeTimeForwardingHTTPClient.get(URL, headers) called: "
+            + url + " ThreadLocal TIME=" + CascadeTimeContext.get());
         return delegate.get(maybeInjectTime(url), headers);
     }
 
