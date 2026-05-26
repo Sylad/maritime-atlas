@@ -105,7 +105,10 @@ public class CascadeTimeForwardingHTTPClient implements HTTPClient {
             String newQuery = buildQuery(params);
             URL rewritten = new URL(url.getProtocol(), url.getHost(), url.getPort(),
                 url.getPath() + "?" + newQuery);
-            LOG.fine(() -> "CascadeTimeForwardingHTTPClient: injected TIME="
+            // G65c (2026-05-26) — log INFO temporairement (au lieu de FINE)
+            // pour debug "3 TIMEs identiques en sortie" malgré 4 distincts
+            // upstream direct. Une fois validé, repassera en FINE.
+            LOG.info("CascadeTimeForwardingHTTPClient: injected TIME="
                 + currentTime + " into " + url.getHost() + url.getPath());
             return rewritten;
         } catch (MalformedURLException e) {
