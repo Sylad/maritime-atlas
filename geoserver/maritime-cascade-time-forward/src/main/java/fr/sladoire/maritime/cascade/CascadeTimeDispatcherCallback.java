@@ -34,6 +34,15 @@ public class CascadeTimeDispatcherCallback extends AbstractDispatcherCallback {
 
     @Override
     public Request init(Request request) {
+        // G65g (2026-05-26) — log UNCONDITIONAL au tout début pour prouver
+        // que le callback est bien invoqué par le Dispatcher (pas filtré
+        // par service/request). Si on voit jamais [G65 INIT], c'est que
+        // le bean n'est pas dans la liste callbacks du Dispatcher.
+        LOG.warning("[G65 INIT] DispatcherCallback.init called service="
+            + request.getService() + " request=" + request.getRequest()
+            + " path=" + (request.getHttpRequest() != null
+                ? request.getHttpRequest().getRequestURI() : "<null>"));
+
         // Défense en profondeur : clear le ThreadLocal au début de CHAQUE
         // request GS, même si la précédente a fait clear() proprement.
         // Tomcat ré-utilise les threads du pool, un leak résiduel d'une
