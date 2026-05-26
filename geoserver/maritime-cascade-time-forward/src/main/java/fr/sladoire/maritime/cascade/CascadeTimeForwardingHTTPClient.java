@@ -162,6 +162,9 @@ public class CascadeTimeForwardingHTTPClient implements HTTPClient {
     @Override public void setUser(String user) { delegate.setUser(user); }
     @Override public String getPassword() { return delegate.getPassword(); }
     @Override public void setPassword(String password) { delegate.setPassword(password); }
+    @Override public Map<String, String> getExtraParams() {
+        return delegate.getExtraParams();
+    }
     @Override public void setExtraParams(Map<String, String> extraParams) {
         delegate.setExtraParams(extraParams);
     }
