@@ -40,8 +40,7 @@ public class CascadeTimeDispatcherCallback extends AbstractDispatcherCallback {
         // le bean n'est pas dans la liste callbacks du Dispatcher.
         LOG.warning("[G65 INIT] DispatcherCallback.init called service="
             + request.getService() + " request=" + request.getRequest()
-            + " path=" + (request.getHttpRequest() != null
-                ? request.getHttpRequest().getRequestURI() : "<null>"));
+            + " context=" + request.getContext() + " path=" + request.getPath());
 
         // Défense en profondeur : clear le ThreadLocal au début de CHAQUE
         // request GS, même si la précédente a fait clear() proprement.
