@@ -114,15 +114,18 @@ export class OpenAIPService implements OnModuleInit {
     let skipped = 0;
     const seenIds: string[] = [];
     try {
-      // G66i — type=10 retourne 96 items mais seulement ~30 sont des vraies FIR
-      // (les autres sont des "LOCAL ATS" zones petit aéroport). Filter par regex
-      // sur le nom : convention "FIR <code ICAO>" ou "<region> FIR" globale.
-      const firNameRe = /\bFIR\b/i;
+      // G66j (2026-05-27) — meilleur filter : icaoClass=8 catch toutes les
+      // vraies FIR (peu importe leur convention nom : "FIR LFFF", "BEIJING",
+      // "EDGG" code ICAO direct, etc.) ET exclut les LOCAL ATS / sub-zones
+      // qui sont icaoClass=6. Live debug a montré que mon ancien regex
+      // `\bFIR\b` ratait ~25 FIR vraies (Beijing, Delhi, Jakarta, EDGG/EDMM/EDWW
+      // Germany, EHAA Netherlands, Kuala Lumpur, etc.) qui ne mettent pas le
+      // mot "FIR" dans leur nom.
       for (const [typeCode, typeLabel] of [[10, 'FIR']] as const) {
         const items = await this.fetchAllPages(typeCode);
         for (const item of items) {
           if (!item.geometry || !item._id) continue;
-          if (!firNameRe.test(item.name ?? '')) { skipped++; continue; }
+          if ((item as { icaoClass?: number }).icaoClass !== 8) { skipped++; continue; }
           seenIds.push(item._id);
           const id = item._id ?? item.id;
           if (!id) continue;
