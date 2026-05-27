@@ -5081,7 +5081,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       return await resp.json();
     }
     if (kind === 'taf') {
-      const resp = await fetch('/aviation-taf?format=geojson&hours=12');
+      // G66c (2026-05-27) — bbox obligatoire upstream sinon HTTP 400.
+      // Globe = bbox monde entier (lat0,lon0,lat1,lon1 selon aviationweather API).
+      const resp = await fetch('/aviation-taf?format=geojson&hours=12&bbox=-90,-180,90,180');
       if (!resp.ok) throw new Error(`TAF fetch HTTP ${resp.status}`);
       return await resp.json();
     }
