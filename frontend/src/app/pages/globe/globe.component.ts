@@ -4490,6 +4490,53 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
             'circle-opacity': 0.9,
           },
         });
+      } else if (kind === 'sigmet') {
+        // G66 (2026-05-27) — fill polygons rouge semi-transparent + outline.
+        map.addLayer({
+          id: 'vec-sigmet-fill',
+          type: 'fill',
+          source: sourceId,
+          paint: {
+            'fill-color': '#dc2626',
+            'fill-opacity': 0.18,
+          },
+        });
+        map.addLayer({
+          id: 'vec-sigmet-line',
+          type: 'line',
+          source: sourceId,
+          paint: {
+            'line-color': '#dc2626',
+            'line-width': 1.5,
+            'line-opacity': 0.85,
+          },
+        });
+      } else if (kind === 'taf') {
+        // G66 — cercles bleus airports.
+        map.addLayer({
+          id: 'vec-taf',
+          type: 'circle',
+          source: sourceId,
+          paint: {
+            'circle-radius': 4,
+            'circle-color': '#3b82f6',
+            'circle-stroke-width': 1,
+            'circle-stroke-color': '#1e3a8a',
+            'circle-opacity': 0.85,
+          },
+        });
+      } else if (kind === 'cables') {
+        // G66 — line layer câbles, jaune orange filaire.
+        map.addLayer({
+          id: 'vec-cables',
+          type: 'line',
+          source: sourceId,
+          paint: {
+            'line-color': '#f59e0b',
+            'line-width': 1.4,
+            'line-opacity': 0.75,
+          },
+        });
       } else {
         // Vessels : 3 layers (cluster bubbles + count + unclustered points).
         map.addLayer({
@@ -4544,53 +4591,6 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
             'circle-color': '#22c55e',
             'circle-stroke-color': '#0f172a',
             'circle-stroke-width': 1,
-          },
-        });
-      } else if (kind === 'sigmet') {
-        // G66 (2026-05-27) — fill polygons rouge semi-transparent + outline.
-        map.addLayer({
-          id: 'vec-sigmet-fill',
-          type: 'fill',
-          source: sourceId,
-          paint: {
-            'fill-color': '#dc2626',
-            'fill-opacity': 0.18,
-          },
-        });
-        map.addLayer({
-          id: 'vec-sigmet-line',
-          type: 'line',
-          source: sourceId,
-          paint: {
-            'line-color': '#dc2626',
-            'line-width': 1.5,
-            'line-opacity': 0.85,
-          },
-        });
-      } else if (kind === 'taf') {
-        // G66 — cercles bleus airports.
-        map.addLayer({
-          id: 'vec-taf',
-          type: 'circle',
-          source: sourceId,
-          paint: {
-            'circle-radius': 4,
-            'circle-color': '#3b82f6',
-            'circle-stroke-width': 1,
-            'circle-stroke-color': '#1e3a8a',
-            'circle-opacity': 0.85,
-          },
-        });
-      } else if (kind === 'cables') {
-        // G66 — line layer câbles, jaune orange filaire.
-        map.addLayer({
-          id: 'vec-cables',
-          type: 'line',
-          source: sourceId,
-          paint: {
-            'line-color': '#f59e0b',
-            'line-width': 1.4,
-            'line-opacity': 0.75,
           },
         });
       }
