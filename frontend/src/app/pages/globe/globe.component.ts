@@ -3561,6 +3561,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     push(this.showWind(),      'windParticles', 'wind-particles', '#10b981', 0, 168);
     push(this.showLightning(), 'lightning', 'lightning', '#facc15', 1, 0);
     push(this.showAlerts(),    'alerts',    'alerts',    '#ef4444', 1, 0);
+    // G66c (2026-05-27) — SIGMET valid 2h sliding window, TAF 12h future window.
+    push(this.showSigmet(),    'sigmet',    'sigmet',    '#dc2626', 2, 0);
+    push(this.showTaf(),       'taf',       'taf',       '#3b82f6', 0, 12);
     push(this.showVessels(),   'vessels',   'vessels',   '#06b6d4', 24, 0);
     push(this.showMetar(),     'metar',     'metar',     '#fbbf24', 6, 0);
     push(this.showHubeau(),    'hubeau',    'hubeau',    '#06b6d4', 24, 0);
@@ -5068,24 +5071,23 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
 
   private async _fetchVectorFc(kind: 'lightning' | 'alerts' | 'vessels' | 'metar' | 'hubeau' | 'piezo' | 'quakes' | 'firms' | 'buoys' | 'sigmet' | 'taf' | 'cables'): Promise<{ features: any[] }> {
     // G66 (2026-05-27) — 3 vector layers placeholders impl.
+    // G66c (2026-05-27) — bug CORS : aviationweather.gov + submarinecablemap.com
+    // ne renvoient pas Access-Control-Allow-Origin. Routés via nginx proxy
+    // (cf frontend/nginx.conf locations /aviation-airsigmet, /aviation-taf,
+    // /cables-geo) qui add_header CORS et cache la réponse.
     if (kind === 'sigmet') {
-      // AviationWeather.gov SIGMET + AIRMET GeoJSON. CORS allow-all per docs.
-      const resp = await fetch('https://aviationweather.gov/api/data/airsigmet?format=geojson&hours=2');
+      const resp = await fetch('/aviation-airsigmet?format=geojson&hours=2');
       if (!resp.ok) throw new Error(`SIGMET fetch HTTP ${resp.status}`);
       return await resp.json();
     }
     if (kind === 'taf') {
-      // AviationWeather.gov TAF (Terminal Aerodrome Forecast) GeoJSON points.
-      const resp = await fetch('https://aviationweather.gov/api/data/taf?format=geojson&hours=12');
+      const resp = await fetch('/aviation-taf?format=geojson&hours=12');
       if (!resp.ok) throw new Error(`TAF fetch HTTP ${resp.status}`);
       return await resp.json();
     }
     if (kind === 'cables') {
-      // submarinecablemap.com TeleGeography GeoJSON public. CORS allow-all
-      // (cf cdn.submarinecablemap.com headers). Fallback: 5 demo cables si
-      // upstream down ou CORS bloqué (rare).
       try {
-        const resp = await fetch('https://www.submarinecablemap.com/api/v3/cable/cable-geo.json');
+        const resp = await fetch('/cables-geo');
         if (resp.ok) return await resp.json();
       } catch { /* fallback ci-dessous */ }
       // Mini-fallback : 5 grands câbles trans-océaniques pour démo.
