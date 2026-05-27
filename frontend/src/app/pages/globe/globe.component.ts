@@ -1075,6 +1075,23 @@ function gibsDailyDate(): string {
                   </span>
                 </label>
               </div>
+              <!-- G66f (2026-05-27) — FIR/UIR airspaces (OpenAIP via API NestJS,
+                   PostGIS table fir_airspaces, sync weekly cron). -->
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showFir()">
+                  <input type="checkbox" [checked]="showFir()" (change)="toggleVector('fir')" />
+                  <span class="toggle-glyph"><span class="glyph-icon">✈</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">FIR / UIR airspaces</span>
+                    <span class="toggle-count">{{ vectorCounts()['fir'] ?? 0 }} zones · OpenAIP</span>
+                  </span>
+                </label>
+                @if (showFir()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('fir')"
+                         (input)="setLayerOpacity('fir', +$any($event.target).value)" />
+                }
+              </div>
             </div>
             }
           </div>
@@ -2579,6 +2596,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   readonly showCables = signal(false);
   readonly showSigmet = signal(false);
   readonly showTaf = signal(false);
+  /** G66f (2026-05-27) — FIR + UIR airspaces (OpenAIP via API NestJS proxy). */
+  readonly showFir = signal(false);
   readonly showTemp2m = signal(false);
   readonly showPressureMsl = signal(false);
   readonly showHumidity = signal(false);
@@ -4339,7 +4358,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  async toggleVector(kind: 'lightning' | 'alerts' | 'vessels' | 'metar' | 'hubeau' | 'piezo' | 'quakes' | 'firms' | 'buoys' | 'sigmet' | 'taf' | 'cables') {
+  async toggleVector(kind: 'lightning' | 'alerts' | 'vessels' | 'metar' | 'hubeau' | 'piezo' | 'quakes' | 'firms' | 'buoys' | 'sigmet' | 'taf' | 'cables' | 'fir') {
     const sigMap = {
       lightning: this.showLightning,
       alerts: this.showAlerts,
@@ -4353,6 +4372,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       sigmet: this.showSigmet,
       taf: this.showTaf,
       cables: this.showCables,
+      fir: this.showFir,
     } as const;
     const showSig = sigMap[kind];
     const turningOn = !showSig();
@@ -4377,6 +4397,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       sigmet: ['vec-sigmet-fill', 'vec-sigmet-line'],
       taf: ['vec-taf'],
       cables: ['vec-cables'],
+      // G66f (2026-05-27) — FIR/UIR outline (OpenAIP)
+      fir: ['vec-fir-line'],
     };
 
     // Toggle off : retire les layers + source
@@ -4538,6 +4560,19 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
             'line-color': '#f59e0b',
             'line-width': 1.4,
             'line-opacity': 0.75,
+          },
+        });
+      } else if (kind === 'fir') {
+        // G66f — line layer FIR/UIR (OpenAIP), outline gris bleu info-only.
+        map.addLayer({
+          id: 'vec-fir-line',
+          type: 'line',
+          source: sourceId,
+          paint: {
+            'line-color': ['match', ['get', 'type'], 'UIR', '#64748b', '#94a3b8'],
+            'line-width': 0.8,
+            'line-opacity': 0.55,
+            'line-dasharray': [2, 2],
           },
         });
       } else {
@@ -5069,7 +5104,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  private async _fetchVectorFc(kind: 'lightning' | 'alerts' | 'vessels' | 'metar' | 'hubeau' | 'piezo' | 'quakes' | 'firms' | 'buoys' | 'sigmet' | 'taf' | 'cables'): Promise<{ features: any[] }> {
+  private async _fetchVectorFc(kind: 'lightning' | 'alerts' | 'vessels' | 'metar' | 'hubeau' | 'piezo' | 'quakes' | 'firms' | 'buoys' | 'sigmet' | 'taf' | 'cables' | 'fir'): Promise<{ features: any[] }> {
     // G66 (2026-05-27) — 3 vector layers placeholders impl.
     // G66c (2026-05-27) — bug CORS : aviationweather.gov + submarinecablemap.com
     // ne renvoient pas Access-Control-Allow-Origin. Routés via nginx proxy
@@ -5085,6 +5120,13 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       // Globe = bbox monde entier (lat0,lon0,lat1,lon1 selon aviationweather API).
       const resp = await fetch('/aviation-taf?format=geojson&hours=12&bbox=-90,-180,90,180');
       if (!resp.ok) throw new Error(`TAF fetch HTTP ${resp.status}`);
+      return await resp.json();
+    }
+    if (kind === 'fir') {
+      // G66f (2026-05-27) — FIR/UIR depuis API NestJS qui lit PostGIS
+      // (synced weekly depuis OpenAIP).
+      const resp = await fetch('/api/fir-airspaces');
+      if (!resp.ok) throw new Error(`FIR fetch HTTP ${resp.status}`);
       return await resp.json();
     }
     if (kind === 'cables') {
@@ -5416,6 +5458,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         'vec-quakes', 'vec-firms', 'vec-buoys',
         // G66e (2026-05-27) — popups SIGMET (polygon fill) + TAF (circle) + Cables (line)
         'vec-sigmet-fill', 'vec-taf', 'vec-cables',
+        // G66f (2026-05-27) — FIR/UIR line
+        'vec-fir-line',
       ];
       const existing = allLayers.filter((id) => map.getLayer(id));
       if (existing.length === 0) return;
@@ -5655,6 +5699,27 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
             ${row('Validité', fmtRange(validFrom, validTo))}
             ${raw ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #2a3245;font-family:monospace;font-size:10px;color:#cfd6e2;white-space:pre-wrap;max-height:120px;overflow:auto">${raw}</div>` : ''}
           </div>`;
+      } else if (layerId === 'vec-fir-line') {
+        // G66f (2026-05-27) — FIR/UIR popup (OpenAIP via API).
+        const name = (p['name'] || 'FIR') as string;
+        const type = p['type'] as string | undefined;
+        const country = p['country'] as string | undefined;
+        const icaoClass = p['icaoClass'] as string | undefined;
+        const upperFt = p['upperLimitFt'] as number | undefined;
+        const lowerFt = p['lowerLimitFt'] as number | undefined;
+        const activity = p['activity'] as string | undefined;
+        const altStr = (upperFt != null || lowerFt != null)
+          ? `${lowerFt != null ? `${lowerFt} ft` : 'SFC'} → ${upperFt != null ? `${upperFt} ft` : 'UNL'}`
+          : null;
+        html = `
+          <div>
+            <div style="font-size:13px;font-weight:600;color:#94a3b8;border-bottom:1px solid #2a3245;padding-bottom:6px;margin-bottom:4px">✈ ${name}</div>
+            ${row('Type', type)}
+            ${row('Pays', country)}
+            ${row('Classe ICAO', icaoClass)}
+            ${row('Altitudes', altStr)}
+            ${row('Activité', activity)}
+          </div>`;
       } else if (layerId === 'vec-cables') {
         // G66e — Câbles sous-marins. Props TeleGeography : name, slug, length, owners.
         const name = (p['name'] || 'Câble sous-marin') as string;
@@ -5719,7 +5784,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
           layerId === 'vec-buoys' ? 'buoys' :
           layerId === 'vec-sigmet-fill' ? 'sigmet' :
           layerId === 'vec-taf' ? 'taf' :
-          layerId === 'vec-cables' ? 'cables' : 'other';
+          layerId === 'vec-cables' ? 'cables' :
+          layerId === 'vec-fir-line' ? 'fir' : 'other';
         this.activePopup = new maplibregl.Popup({ closeButton: true, maxWidth: '280px', offset: 12 })
           .setLngLat(coords)
           .setHTML(html)
@@ -5741,6 +5807,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       'vec-tracks',
       // G66e (2026-05-27) — cursor pointer sur SIGMET/TAF/Cables hover
       'vec-sigmet-fill', 'vec-taf', 'vec-cables',
+      // G66f (2026-05-27) — FIR/UIR
+      'vec-fir-line',
     ]) {
       map.on('mouseenter', layerId, setCursor('pointer'));
       map.on('mouseleave', layerId, setCursor(''));

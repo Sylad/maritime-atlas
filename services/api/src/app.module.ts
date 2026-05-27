@@ -15,6 +15,7 @@ import { GlofasModule } from './glofas/glofas.module';
 import { EarthquakesModule } from './earthquakes/earthquakes.module';
 import { FirmsModule } from './firms/firms.module';
 import { AvailabilityModule } from './availability/availability.module';
+import { OpenAIPModule } from './openaip/openaip.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { AvailabilityModule } from './availability/availability.module';
     EarthquakesModule,
     FirmsModule,
     AvailabilityModule,
+    OpenAIPModule,
   ],
 })
 export class AppModule {}

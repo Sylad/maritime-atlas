@@ -47,6 +47,11 @@ const configuration = () => ({
   /** Sprint N4 : sidecar Python qui parse GRIB/NetCDF. Réseau interne
       docker compose, pas d'auth (pas exposé en publique). */
   gribParserUrl: process.env.GRIB_PARSER_URL ?? 'http://grib-parser:8500',
+  // ─── G66f (2026-05-27) — OpenAIP FIR airspaces ───
+  /** OpenAIP API key (https://www.openaip.net/users/clients) — free tier.
+      Utilisée par OpenAIPController/Service pour fetch les FIR boundaries
+      avec header x-openaip-client-id. Vit dans Secret maritime-shared-env. */
+  openaipApiKey: process.env.OPENAIP_API_KEY ?? '',
 });
 
 export default configuration;

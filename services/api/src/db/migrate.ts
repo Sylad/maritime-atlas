@@ -591,6 +591,30 @@ INSERT INTO data_sources (
 )
 ON CONFLICT (name) DO NOTHING;
 
+-- ─── G66f (2026-05-27) — FIR/UIR airspaces (OpenAIP) ────────────────
+-- Donnée quasi-statique (AIRAC 28j cycle). Refresh cron hebdo via
+-- OpenAIPService.syncFromOpenAIP() — voir services/api/src/openaip/.
+-- ~250 FIR + UIR mondiaux. Stockés en PostGIS Polygon/MultiPolygon
+-- EPSG:4326 pour permettre des ST_Contains() futurs (ex: "quelle FIR
+-- contient ce navire"). Pas un hypertable (non time-series).
+CREATE TABLE IF NOT EXISTS fir_airspaces (
+  openaip_id     TEXT PRIMARY KEY,
+  name           TEXT NOT NULL,
+  country        TEXT,
+  icao_class     TEXT,
+  type           TEXT NOT NULL,             -- 'FIR' ou 'UIR'
+  upper_limit_ft INTEGER,
+  lower_limit_ft INTEGER,
+  activity       TEXT,
+  on_demand      BOOLEAN,
+  geom           GEOMETRY(Geometry, 4326) NOT NULL,
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS fir_airspaces_geom_gidx
+  ON fir_airspaces USING GIST (geom);
+CREATE INDEX IF NOT EXISTS fir_airspaces_type_idx
+  ON fir_airspaces (type);
+
 -- ─── APEX Satellites Phase 4 (2026-05-19) — NASA GIBS via GeoServer ─
 -- Refacto Phase 4 : on bascule du sink file_save (nginx static) vers le
 -- pattern canonique grib-parser sidecar + ImageMosaic GeoServer.
