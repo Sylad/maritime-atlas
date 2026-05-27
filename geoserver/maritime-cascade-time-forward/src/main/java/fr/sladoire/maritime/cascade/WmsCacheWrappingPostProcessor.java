@@ -44,9 +44,18 @@ public class WmsCacheWrappingPostProcessor implements BeanPostProcessor {
     @Override
     public Object postProcessAfterInitialization(Object bean, String beanName)
             throws BeansException {
+        // G65l (2026-05-27) — diagnostic : log les beans qui matchent "resource"
+        // pour identifier le bean ResourcePool (ou son équivalent proxifié).
+        if (beanName != null && (beanName.toLowerCase().contains("resourcepool")
+                || beanName.toLowerCase().contains("resource_pool"))) {
+            LOG.warning("[G65 BPP] bean='" + beanName + "' class="
+                + bean.getClass().getName());
+        }
         if (!(bean instanceof ResourcePool pool)) {
             return bean;
         }
+        LOG.warning("[G65 BPP] MATCH ResourcePool bean='" + beanName
+            + "' class=" + bean.getClass().getName());
         try {
             Field f = ResourcePool.class.getDeclaredField("wmsCache");
             f.setAccessible(true);
