@@ -52,7 +52,33 @@ public class CascadeTimeForwardInitializer
                 return;
             }
 
-            // Wrap les WMSStoreInfo déjà chargés
+            // G65m (2026-05-27) — fix structurel : remplacer ResourcePool.wmsCache
+            // par une WrappingWmsCache qui auto-wrap chaque put(). Garantit que
+            // toute future recréation de WebMapServer (Hazelcast event, GC,
+            // store modify, etc.) re-wrap automatiquement.
+            try {
+                org.geoserver.catalog.ResourcePool pool = catalog.getResourcePool();
+                java.lang.reflect.Field f =
+                    org.geoserver.catalog.ResourcePool.class.getDeclaredField("wmsCache");
+                f.setAccessible(true);
+                @SuppressWarnings("unchecked")
+                java.util.Map<String, org.geotools.ows.wms.WebMapServer> current =
+                    (java.util.Map<String, org.geotools.ows.wms.WebMapServer>) f.get(pool);
+                if (!(current instanceof WmsCacheWrappingPostProcessor.WrappingWmsCache)) {
+                    WmsCacheWrappingPostProcessor.WrappingWmsCache replacement =
+                        new WmsCacheWrappingPostProcessor.WrappingWmsCache(current);
+                    f.set(pool, replacement);
+                    LOG.warning("[G65 WMSCACHE-REPLACE] wmsCache replaced "
+                        + "(was=" + (current != null ? current.getClass().getSimpleName() + ":" + current.size() : "null")
+                        + " → WrappingWmsCache:" + replacement.size() + ")");
+                }
+            } catch (Throwable t) {
+                LOG.log(Level.SEVERE, "[G65 WMSCACHE-REPLACE] failed", t);
+            }
+
+            // Wrap les WMSStoreInfo déjà chargés (pour cover le cas où ils
+            // étaient en cache AVANT notre replace — déjà copiés mais double
+            // sécurité ne coûte rien).
             int wrapped = 0;
             for (WMSStoreInfo store : catalog.getStores(WMSStoreInfo.class)) {
                 if (wrapStoreClient(store)) {
