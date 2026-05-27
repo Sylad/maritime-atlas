@@ -42,7 +42,9 @@ interface OpenAIPAirspaceItem {
  * Type codes OpenAIP airspaces :
  *   - 14 = FIR (Flight Information Region)
  *   - 15 = UIR (Upper Information Region)
- * Cf https://api.core.openaip.net/api/docs (header `x-openaip-client-id`).
+ * Cf https://api.core.openaip.net/api/docs (header `x-openaip-api-key` — G66h
+ * 2026-05-27 : ancien `x-openaip-client-id` deprecated, renvoie 403
+ * "No authenticated user found. Verify user first").
  */
 @Injectable()
 export class OpenAIPService implements OnModuleInit {
@@ -170,7 +172,7 @@ export class OpenAIPService implements OnModuleInit {
       const url = `https://api.core.openaip.net/api/airspaces?type=${typeCode}&limit=${limit}&page=${page}`;
       const resp = await fetch(url, {
         headers: {
-          'x-openaip-client-id': this.apiKey,
+          'x-openaip-api-key': this.apiKey,
           'Accept': 'application/json',
           'User-Agent': 'aetherwx/openaip-sync',
         },
