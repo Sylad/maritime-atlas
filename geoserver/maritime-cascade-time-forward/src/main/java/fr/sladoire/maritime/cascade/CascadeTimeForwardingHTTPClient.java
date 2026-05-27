@@ -56,35 +56,12 @@ public class CascadeTimeForwardingHTTPClient implements HTTPClient {
 
     @Override
     public HTTPResponse get(URL url) throws IOException {
-        traceCall("get(URL)", url);
         return delegate.get(maybeInjectTime(url));
     }
 
     @Override
     public HTTPResponse get(URL url, Map<String, String> headers) throws IOException {
-        traceCall("get(URL,headers)", url);
         return delegate.get(maybeInjectTime(url), headers);
-    }
-
-    /** G65e (2026-05-26) — diagnostic multi-canal pour identifier où le
-     *  wrapper est appelé. Tous les canaux pour maximiser les chances :
-     *  - Logger INFO (juli)
-     *  - System.err.println (pipe to PID 1 stderr)
-     *  - File append on /tmp/cascade-wrap.log (kubectl exec readable) */
-    private static void traceCall(String method, URL url) {
-        String time = CascadeTimeContext.get();
-        String line = "[G65 TRACE " + System.currentTimeMillis() + "] " + method
-            + " url=" + url + " TIME=" + time;
-        // 1. java.util.logging
-        LOG.warning(line);
-        // 2. System.err direct
-        System.err.println(line);
-        // 3. File trace (durable, kubectl exec lisible)
-        try (java.io.FileWriter fw = new java.io.FileWriter("/tmp/cascade-wrap.log", true)) {
-            fw.write(line + "\n");
-        } catch (Exception ignored) {
-            // best effort
-        }
     }
 
     @Override
@@ -128,10 +105,7 @@ public class CascadeTimeForwardingHTTPClient implements HTTPClient {
             String newQuery = buildQuery(params);
             URL rewritten = new URL(url.getProtocol(), url.getHost(), url.getPort(),
                 url.getPath() + "?" + newQuery);
-            // G65c (2026-05-26) — log INFO temporairement (au lieu de FINE)
-            // pour debug "3 TIMEs identiques en sortie" malgré 4 distincts
-            // upstream direct. Une fois validé, repassera en FINE.
-            LOG.info("CascadeTimeForwardingHTTPClient: injected TIME="
+            LOG.fine(() -> "CascadeTimeForwardingHTTPClient: injected TIME="
                 + currentTime + " into " + url.getHost() + url.getPath());
             return rewritten;
         } catch (MalformedURLException e) {

@@ -44,18 +44,17 @@ public class WmsCacheWrappingPostProcessor implements BeanPostProcessor {
     @Override
     public Object postProcessAfterInitialization(Object bean, String beanName)
             throws BeansException {
-        // G65l (2026-05-27) — diagnostic : log les beans qui matchent "resource"
-        // pour identifier le bean ResourcePool (ou son équivalent proxifié).
-        if (beanName != null && (beanName.toLowerCase().contains("resourcepool")
-                || beanName.toLowerCase().contains("resource_pool"))) {
-            LOG.warning("[G65 BPP] bean='" + beanName + "' class="
-                + bean.getClass().getName());
-        }
+        // G65l (2026-05-27) — GS n'expose pas ResourcePool comme bean Spring
+        // direct (juste ResourcePoolInitializer). Donc cette branche n'est
+        // jamais empruntée en pratique. Le remplacement de wmsCache se fait
+        // depuis CascadeTimeForwardInitializer.onApplicationEvent() qui
+        // accède au pool via catalog.getResourcePool().
+        //
+        // On garde le BPP en place pour les déploiements futurs où GS
+        // pourrait exposer ResourcePool différemment + comme safety net.
         if (!(bean instanceof ResourcePool pool)) {
             return bean;
         }
-        LOG.warning("[G65 BPP] MATCH ResourcePool bean='" + beanName
-            + "' class=" + bean.getClass().getName());
         try {
             Field f = ResourcePool.class.getDeclaredField("wmsCache");
             f.setAccessible(true);
@@ -114,7 +113,7 @@ public class WmsCacheWrappingPostProcessor implements BeanPostProcessor {
             CascadeTimeForwardingHTTPClient w =
                 new CascadeTimeForwardingHTTPClient(current);
             wms.setHttpClient(w);
-            CLOG.warning("[G65 CACHE-WRAP] " + wms + " httpClient wrapped (was "
+            CLOG.info("WrappingWmsCache: " + wms + " httpClient wrapped (was "
                 + current.getClass().getSimpleName() + ")");
             return wms;
         }

@@ -1,17 +1,11 @@
 package fr.sladoire.maritime.cascade;
 
 import java.util.Map;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.geoserver.catalog.Catalog;
-import org.geoserver.catalog.WMSStoreInfo;
 import org.geoserver.ows.AbstractDispatcherCallback;
 import org.geoserver.ows.Request;
-import org.geoserver.platform.GeoServerExtensions;
 import org.geoserver.platform.Operation;
-import org.geotools.http.HTTPClient;
-import org.geotools.ows.wms.WebMapServer;
 
 /**
  * Stash le param TIME du KVP entrant dans le {@link CascadeTimeContext}
@@ -67,38 +61,7 @@ public class CascadeTimeDispatcherCallback extends AbstractDispatcherCallback {
             }
             if (time instanceof String s && !s.isEmpty()) {
                 CascadeTimeContext.set(s);
-                LOG.warning("[G65 STASH] operationDispatched: stash TIME=" + s);
-            } else {
-                LOG.warning("[G65 STASH-MISS] kvp keys=" + kvp.keySet() + " time=" + time);
-            }
-
-            // G65f (2026-05-26) — DIAGNOSTIC : inspecte le HTTPClient courant
-            // de chaque WMSStoreInfo pour vérifier que notre wrap est toujours
-            // en place au moment de la request. Si on voit "SimpleHttpClient"
-            // au lieu de "CascadeTimeForwardingHTTPClient", c'est que GS a
-            // recréé un WebMapServer entre le boot et la request → cache
-            // invalidé → notre wrap perdu → re-wrap nécessaire.
-            try {
-                Catalog catalog = (Catalog) GeoServerExtensions.bean("catalog");
-                if (catalog != null) {
-                    for (WMSStoreInfo store : catalog.getStores(WMSStoreInfo.class)) {
-                        WebMapServer wms = store.getWebMapServer(null);
-                        HTTPClient hc = wms.getHTTPClient();
-                        boolean wrapped = (hc instanceof CascadeTimeForwardingHTTPClient);
-                        LOG.warning("[G65 DIAG] store=" + store.getName()
-                            + " storeId=" + store.getId()
-                            + " storeHash=" + System.identityHashCode(store)
-                            + " wms=" + System.identityHashCode(wms)
-                            + " httpClient=" + hc.getClass().getSimpleName()
-                            + " wrapped=" + wrapped);
-                        if (!wrapped) {
-                            wms.setHttpClient(new CascadeTimeForwardingHTTPClient(hc));
-                            LOG.warning("[G65 REWRAP] store=" + store.getName() + " re-wrapped");
-                        }
-                    }
-                }
-            } catch (Throwable t) {
-                LOG.log(Level.WARNING, "[G65 DIAG] failed", t);
+                LOG.fine(() -> "CascadeTimeDispatcherCallback: stash TIME=" + s);
             }
         } catch (Throwable t) {
             LOG.warning("[G65 STASH] operationDispatched failed (non-fatal): " + t);
