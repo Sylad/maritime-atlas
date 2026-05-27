@@ -475,23 +475,22 @@ function gibsDailyDate(): string {
                          (input)="setLayerOpacity('quakes', +$any($event.target).value)" />
                 }
               </div>
-              <!-- ROADMAP SIGMET / AIRMET (G66+) — vector layer (alerts aero).
-                   Source = AviationWeather.gov API JSON (airsigmet endpoint, format=json).
-                   Pipeline :
-                   (1) NEW service services/aviation-fetcher Python : poll 5min, parse SIGMET/AIRMET,
-                       INSERT pg-features table aviation_alerts (id, type, hazard, geom, valid_from, valid_to, raw_text)
-                   (2) API /api/aviation/recent?at=ISO → returns FeatureCollection valid a linstant
-                   (3) frontend (ici) : new signal showAviationAlerts + toggleVector aviationAlerts,
-                       reutilise le pattern alerts (ligne ~3503 sliderLayerCoverage) avec pastH=1, futureH=12. -->
-              <div class="layer-row layer-soon">
-                <label class="layer-toggle dim">
-                  <input type="checkbox" disabled />
+              <!-- G66 (2026-05-27) — SIGMET / AIRMET impl : fetch direct
+                   aviationweather.gov GeoJSON (CORS ouvert). Vector polygons + lines. -->
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showSigmet()">
+                  <input type="checkbox" [checked]="showSigmet()" (change)="toggleVector('sigmet')" />
                   <span class="toggle-glyph"><span class="glyph-icon">⚠</span></span>
                   <span class="toggle-text">
-                    <span class="toggle-name">SIGMET / AIRMET <span class="soon-tag">à venir</span></span>
-                    <span class="toggle-count">avertissements aéro</span>
+                    <span class="toggle-name">SIGMET / AIRMET</span>
+                    <span class="toggle-count">{{ vectorCounts()['sigmet'] ?? 0 }} avertissements aéro</span>
                   </span>
                 </label>
+                @if (showSigmet()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('sigmet')"
+                         (input)="setLayerOpacity('sigmet', +$any($event.target).value)" />
+                }
               </div>
               <div class="layer-row">
                 <label class="layer-toggle" [class.dim]="!showFirms()"
@@ -836,74 +835,85 @@ function gibsDailyDate(): string {
                          (input)="setLayerOpacity('windParticles', +$any($event.target).value)" />
                 }
               </div>
-              <!-- Placeholders V2 — paramètres météo classiques.
-                   ROADMAP (G66+, post-2026-05-27) — chaque layer nécessite :
-                   (1) fetcher Python ajoute la variable GFS au filter_gfs_0p25.pl
-                       (TMP_2maboveground / PRMSL_meansealevel / RH_2maboveground / APCP_surface)
-                   (2) weather-fetcher écrit le GeoTIFF dans /coverage/<layer>/<ts>.tif
-                       et POST GS REST coverages workspace aetherwx
-                   (3) maritime-style-bootstrap (Python) crée le SLD dédié :
-                       - Temp2m : thermal colormap (-20°C bleu → +40°C rouge)
-                       - Pression MSL : isobares B/W 4hPa step
-                       - Humidité : monochrome blue (30-100%)
-                       - Précip : log colormap (0.1-100mm/h)
-                   (4) plugin Java maritime-gwc-init ajoute la layer à DEFAULT_LAYERS (cf G63)
-                   (5) frontend (ici) :
-                       - new signal showTemp2m / showPressureMsl / etc.
-                       - new toggle method (pattern toggleForecastLayer ligne 4480)
-                       - ajout dans animatableLayersGlobe (line ~2953) avec gsLayerName
-                       - ajout dans masterValidityList (ligne ~4012) sur les keys forecast
-                       - persist localStorage + persist DB
-                       - lance /check-layer-time-coherence post-merge -->
-              <div class="layer-row layer-soon">
-                <label class="layer-toggle dim">
-                  <input type="checkbox" disabled />
+              <!-- G66 (2026-05-27) — placeholders V2 paramètres météo activés.
+                   4 layers Forecast GFS scaffold côté frontend (WMS time-driven).
+                   Les coverages GS aetherwx:temp-2m / pressure-msl / humidity-2m /
+                   precipitation-6h doivent être publiées par weather-fetcher pour
+                   afficher de la data. Sinon : tiles vides silencieuses. -->
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showTemp2m()">
+                  <input type="checkbox" [checked]="showTemp2m()" (change)="toggleTemp2m(!showTemp2m())" />
                   <span class="toggle-glyph"><span class="glyph-icon">🌡</span></span>
                   <span class="toggle-text">
-                    <span class="toggle-name">Température 2m <span class="soon-tag">à venir</span></span>
-                    <span class="toggle-count">GFS / ARPEGE</span>
+                    <span class="toggle-name">Température 2m</span>
+                    <span class="toggle-count">GFS · raster · scaffold</span>
                   </span>
                 </label>
+                @if (showTemp2m()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('temp2m')"
+                         (input)="setLayerOpacity('temp2m', +$any($event.target).value)" />
+                }
               </div>
-              <div class="layer-row layer-soon">
-                <label class="layer-toggle dim">
-                  <input type="checkbox" disabled />
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showPressureMsl()">
+                  <input type="checkbox" [checked]="showPressureMsl()" (change)="togglePressureMsl(!showPressureMsl())" />
                   <span class="toggle-glyph"><span class="glyph-icon">⊙</span></span>
                   <span class="toggle-text">
-                    <span class="toggle-name">Pression MSL <span class="soon-tag">à venir</span></span>
-                    <span class="toggle-count">isobares + dépressions</span>
+                    <span class="toggle-name">Pression MSL</span>
+                    <span class="toggle-count">isobares + dépressions · scaffold</span>
                   </span>
                 </label>
+                @if (showPressureMsl()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('pressureMsl')"
+                         (input)="setLayerOpacity('pressureMsl', +$any($event.target).value)" />
+                }
               </div>
-              <div class="layer-row layer-soon">
-                <label class="layer-toggle dim">
-                  <input type="checkbox" disabled />
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showHumidity()">
+                  <input type="checkbox" [checked]="showHumidity()" (change)="toggleHumidity(!showHumidity())" />
                   <span class="toggle-glyph"><span class="glyph-icon">💧</span></span>
                   <span class="toggle-text">
-                    <span class="toggle-name">Humidité <span class="soon-tag">à venir</span></span>
-                    <span class="toggle-count">relative 2m</span>
+                    <span class="toggle-name">Humidité</span>
+                    <span class="toggle-count">relative 2m · scaffold</span>
                   </span>
                 </label>
+                @if (showHumidity()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('humidity')"
+                         (input)="setLayerOpacity('humidity', +$any($event.target).value)" />
+                }
               </div>
-              <div class="layer-row layer-soon">
-                <label class="layer-toggle dim">
-                  <input type="checkbox" disabled />
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showPrecipitation()">
+                  <input type="checkbox" [checked]="showPrecipitation()" (change)="togglePrecipitation(!showPrecipitation())" />
                   <span class="toggle-glyph"><span class="glyph-icon">🌧</span></span>
                   <span class="toggle-text">
-                    <span class="toggle-name">Précipitations <span class="soon-tag">à venir</span></span>
-                    <span class="toggle-count">forecast cumul 6h</span>
+                    <span class="toggle-name">Précipitations</span>
+                    <span class="toggle-count">forecast cumul 6h · scaffold</span>
                   </span>
                 </label>
+                @if (showPrecipitation()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('precipitation')"
+                         (input)="setLayerOpacity('precipitation', +$any($event.target).value)" />
+                }
               </div>
-              <div class="layer-row layer-soon">
-                <label class="layer-toggle dim">
-                  <input type="checkbox" disabled />
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showTaf()">
+                  <input type="checkbox" [checked]="showTaf()" (change)="toggleVector('taf')" />
                   <span class="toggle-glyph"><span class="glyph-icon">✈</span></span>
                   <span class="toggle-text">
-                    <span class="toggle-name">TAF <span class="soon-tag">à venir</span></span>
-                    <span class="toggle-count">prévisions aéroports</span>
+                    <span class="toggle-name">TAF</span>
+                    <span class="toggle-count">{{ vectorCounts()['taf'] ?? 0 }} aéroports</span>
                   </span>
                 </label>
+                @if (showTaf()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('taf')"
+                         (input)="setLayerOpacity('taf', +$any($event.target).value)" />
+                }
               </div>
             </div>
             }
@@ -1052,23 +1062,16 @@ function gibsDailyDate(): string {
                          (input)="setLayerOpacity('efas', +$any($event.target).value)" />
                 }
               </div>
-              <!-- ROADMAP Câbles sous-marins (G66+) — implementation 100% frontend :
-                   pas de backend ni GS. Source = submarinecablemap.com (TeleGeography
-                   GeoJSON public). Pipeline :
-                   (1) bundle le GeoJSON en assets/cables.geojson au build OU fetch via
-                       proxy nginx /cables-geo (éviter CORS direct)
-                   (2) new signal showCables + toggleCables
-                   (3) MapLibre line layer + style filaire #f59e0b weight 1.5
-                   (4) layer non time-driven → PAS dans animatableLayersGlobe.
-                       Push sliderLayerCoverage avec canBeMaster=false (info-only).
-                   (5) persist localStorage (showCables booléen). -->
-              <div class="layer-row layer-soon">
-                <label class="layer-toggle dim">
-                  <input type="checkbox" disabled />
+              <!-- G66 (2026-05-27) — Câbles sous-marins impl. Source =
+                   submarinecablemap.com (TeleGeography GeoJSON public, CORS ouvert
+                   sur cdn.submarinecablemap.com). MapLibre line layer #f59e0b. -->
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showCables()">
+                  <input type="checkbox" [checked]="showCables()" (change)="toggleVector('cables')" />
                   <span class="toggle-glyph"><span class="glyph-icon">━</span></span>
                   <span class="toggle-text">
-                    <span class="toggle-name">Câbles sous-marins <span class="soon-tag">à venir</span></span>
-                    <span class="toggle-count">TeleGeography</span>
+                    <span class="toggle-name">Câbles sous-marins</span>
+                    <span class="toggle-count">{{ vectorCounts()['cables'] ?? 0 }} câbles · TeleGeography</span>
                   </span>
                 </label>
               </div>
@@ -2566,6 +2569,20 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   readonly showEez = signal(false);
   readonly showMpa = signal(false);
   readonly showEfas = signal(false);
+  /** G66 (2026-05-27) — placeholders impl. Câbles sous-marins (TeleGeography
+   *  GeoJSON via proxy /cables-geo), SIGMET/AIRMET + TAF (AviationWeather.gov
+   *  GeoJSON CORS-ouvert). 4 layers GFS Forecast (Temp2m/Pression/Humidité/
+   *  Précip) en frontend scaffold — la requête WMS pointera vers les coverages
+   *  aetherwx:* qui seront publiées par weather-fetcher quand les variables
+   *  GFS seront ajoutées au subset (TMP_2maboveground/PRMSL/RH/APCP). Tant que
+   *  ça, MapLibre affichera des tiles 404 silencieusement. */
+  readonly showCables = signal(false);
+  readonly showSigmet = signal(false);
+  readonly showTaf = signal(false);
+  readonly showTemp2m = signal(false);
+  readonly showPressureMsl = signal(false);
+  readonly showHumidity = signal(false);
+  readonly showPrecipitation = signal(false);
   readonly vectorLoading = signal<string | null>(null);
   readonly vectorCounts = signal<Record<string, number | undefined>>({});
 
@@ -2990,6 +3007,11 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     { key: 'sst',           label: 'SST',             type: 'wms', gsLayerName: 'aetherwx:sst-daily' },
     { key: 'windForecast',  label: 'Vent forecast',   type: 'wms', gsLayerName: 'aetherwx:wind-speed' },
     { key: 'wavesForecast', label: 'Vagues forecast', type: 'wms', gsLayerName: 'aetherwx:wave-hs' },
+    // G66 (2026-05-27) — 4 GFS forecast layers (coverages backend à venir)
+    { key: 'temp2m',        label: 'Température 2m',  type: 'wms', gsLayerName: 'aetherwx:temp-2m' },
+    { key: 'pressureMsl',   label: 'Pression MSL',    type: 'wms', gsLayerName: 'aetherwx:pressure-msl' },
+    { key: 'humidity',      label: 'Humidité 2m',     type: 'wms', gsLayerName: 'aetherwx:humidity-2m' },
+    { key: 'precipitation', label: 'Précipitations',  type: 'wms', gsLayerName: 'aetherwx:precipitation-6h' },
     ...SAT_PRODUCTS.map((p) => ({ key: p.key, label: p.label, type: 'wms' as const, gsLayerName: `${p.workspace}:${p.gsName}` })),
     { key: 'lightning',     label: 'Foudre',          type: 'vector' as const },
     { key: 'alerts',        label: 'Alertes',         type: 'vector' as const },
@@ -3524,7 +3546,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   readonly sliderLayerCoverage = computed<TimeSliderLayerCoverage[]>(() => {
     const out: TimeSliderLayerCoverage[] = [];
     const isWmsTime = (k: string) => k === 'sst' || k.startsWith('sat') ||
-      k === 'windForecast' || k === 'wavesForecast' || k === 'windArrows' || k === 'waveArrows';
+      k === 'windForecast' || k === 'wavesForecast' || k === 'windArrows' || k === 'waveArrows' ||
+      // G66 (2026-05-27) — 4 GFS forecast eligible master
+      k === 'temp2m' || k === 'pressureMsl' || k === 'humidity' || k === 'precipitation';
     const master = this.effectiveMasterLayerKey();
     const push = (active: boolean, key: string, name: string, color: string, pastH: number, futureH: number) => {
       if (active) out.push({
@@ -3546,10 +3570,15 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     push(this.showBuoys(),     'buoys',     'buoys',     '#10b981', 24, 0);
     push(this.showTracks(),    'tracks',    'tracks',    '#22c55e', 24, 0);
     push(this.showRain(),      'rain',      'rain',      '#22d3ee', 2, 0);
-    push(this.showWindForecast(),  'windForecast',  'wind',         '#22c55e', 0, 168);
-    push(this.showWavesForecast(), 'wavesForecast', 'waves',        '#3b82f6', 0, 168);
-    push(this.showWindArrows(),    'windArrows',    'wind-arrows',  '#22c55e', 0, 168);
-    push(this.showWaveArrows(),    'waveArrows',    'wave-arrows',  '#3b82f6', 0, 168);
+    push(this.showWindForecast(),  'windForecast',  'wind',         '#22c55e', 168, 168);
+    push(this.showWavesForecast(), 'wavesForecast', 'waves',        '#3b82f6', 168, 168);
+    push(this.showWindArrows(),    'windArrows',    'wind-arrows',  '#22c55e', 168, 168);
+    push(this.showWaveArrows(),    'waveArrows',    'wave-arrows',  '#3b82f6', 168, 168);
+    // G66 (2026-05-27) — 4 GFS forecast layers (±7j conformes data_layer_policy)
+    push(this.showTemp2m(),        'temp2m',        'temp-2m',      '#ef4444', 168, 168);
+    push(this.showPressureMsl(),   'pressureMsl',   'pressure-msl', '#a855f7', 168, 168);
+    push(this.showHumidity(),      'humidity',      'humidity-2m',  '#0ea5e9', 168, 168);
+    push(this.showPrecipitation(), 'precipitation', 'precip-6h',    '#22d3ee', 168, 168);
     // G16 — push une rangée par produit sat ACTIVÉ (stacking multi-sat).
     for (const [key, sig] of Object.entries(this.satShowSignals())) {
       if (sig()) {
@@ -3592,6 +3621,11 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (this.showSst()) return 'sst';
     if (this.showWindForecast()) return 'windForecast';
     if (this.showWavesForecast()) return 'wavesForecast';
+    // G66 (2026-05-27) — 4 GFS forecast après wind/waves dans le fallback master.
+    if (this.showTemp2m()) return 'temp2m';
+    if (this.showPressureMsl()) return 'pressureMsl';
+    if (this.showHumidity()) return 'humidity';
+    if (this.showPrecipitation()) return 'precipitation';
     if (this.showWindArrows()) return 'windArrows';
     if (this.showWaveArrows()) return 'waveArrows';
     return null;
@@ -4064,11 +4098,14 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       return this.generateClientValidities(24 * 3_600_000, 168, 0, now);
     }
     if (master === 'windForecast' || master === 'wavesForecast' ||
-        master === 'windArrows'   || master === 'waveArrows') {
+        master === 'windArrows'   || master === 'waveArrows' ||
+        master === 'temp2m' || master === 'pressureMsl' ||
+        master === 'humidity' || master === 'precipitation') {
       // G65 (2026-05-27) — forecast porte ±7j (cf data_layer_policy_2026_05_19) :
       // 7j past (analyse hindcast + dernières analyses) + 7j future. Avant ce
       // fix, pastH=0 rendait step prev no-op quand le cursor était à LIVE,
       // donc TC-2 FAIL observé pour wavesForecast/windForecast en solo master.
+      // G66 (2026-05-27) — étendu aux 4 GFS forecast (temp/pressure/humidity/precip).
       return this.generateClientValidities(6 * 3_600_000, 168, 168, now);
     }
     return [];
@@ -4118,6 +4155,11 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       { active: this.showWavesForecast(), layerId: 'waves-forecast-wms', gsName: 'aetherwx:wave-hs',    interpolations: 'bicubic' },
       { active: this.showWindContours(),  layerId: 'wind-contours-wms',  gsName: 'aetherwx:wind-speed', style: 'aetherwx:wind-speed-contours-only', interpolations: 'bicubic' },
       { active: this.showWaveContours(),  layerId: 'wave-contours-wms',  gsName: 'aetherwx:wave-hs',    style: 'aetherwx:wave-hs-contours-only',    interpolations: 'bicubic' },
+      // G66 (2026-05-27) — 4 GFS forecast scaffold
+      { active: this.showTemp2m(),         layerId: 'temp2m-wms',         gsName: 'aetherwx:temp-2m',         interpolations: 'bicubic' },
+      { active: this.showPressureMsl(),    layerId: 'pressure-msl-wms',   gsName: 'aetherwx:pressure-msl',    interpolations: 'bicubic' },
+      { active: this.showHumidity(),       layerId: 'humidity-wms',       gsName: 'aetherwx:humidity-2m',     interpolations: 'bicubic' },
+      { active: this.showPrecipitation(),  layerId: 'precipitation-wms',  gsName: 'aetherwx:precipitation-6h', interpolations: 'bicubic' },
     ];
     // G31 (2026-05-23) — wind/wave arrows : GeoJSON pré-générés (pattern legacy)
     // → MapLibre symbol layer rotation = dirTo. Plus de WMS/SLD GS.
@@ -4294,7 +4336,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  async toggleVector(kind: 'lightning' | 'alerts' | 'vessels' | 'metar' | 'hubeau' | 'piezo' | 'quakes' | 'firms' | 'buoys') {
+  async toggleVector(kind: 'lightning' | 'alerts' | 'vessels' | 'metar' | 'hubeau' | 'piezo' | 'quakes' | 'firms' | 'buoys' | 'sigmet' | 'taf' | 'cables') {
     const sigMap = {
       lightning: this.showLightning,
       alerts: this.showAlerts,
@@ -4305,6 +4347,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       quakes: this.showQuakes,
       firms: this.showFirms,
       buoys: this.showBuoys,
+      sigmet: this.showSigmet,
+      taf: this.showTaf,
+      cables: this.showCables,
     } as const;
     const showSig = sigMap[kind];
     const turningOn = !showSig();
@@ -4325,6 +4370,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       quakes: ['vec-quakes'],
       firms: ['vec-firms'],
       buoys: ['vec-buoys'],
+      // G66 (2026-05-27) — placeholders impl
+      sigmet: ['vec-sigmet-fill', 'vec-sigmet-line'],
+      taf: ['vec-taf'],
+      cables: ['vec-cables'],
     };
 
     // Toggle off : retire les layers + source
@@ -4497,6 +4546,53 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
             'circle-stroke-width': 1,
           },
         });
+      } else if (kind === 'sigmet') {
+        // G66 (2026-05-27) — fill polygons rouge semi-transparent + outline.
+        map.addLayer({
+          id: 'vec-sigmet-fill',
+          type: 'fill',
+          source: sourceId,
+          paint: {
+            'fill-color': '#dc2626',
+            'fill-opacity': 0.18,
+          },
+        });
+        map.addLayer({
+          id: 'vec-sigmet-line',
+          type: 'line',
+          source: sourceId,
+          paint: {
+            'line-color': '#dc2626',
+            'line-width': 1.5,
+            'line-opacity': 0.85,
+          },
+        });
+      } else if (kind === 'taf') {
+        // G66 — cercles bleus airports.
+        map.addLayer({
+          id: 'vec-taf',
+          type: 'circle',
+          source: sourceId,
+          paint: {
+            'circle-radius': 4,
+            'circle-color': '#3b82f6',
+            'circle-stroke-width': 1,
+            'circle-stroke-color': '#1e3a8a',
+            'circle-opacity': 0.85,
+          },
+        });
+      } else if (kind === 'cables') {
+        // G66 — line layer câbles, jaune orange filaire.
+        map.addLayer({
+          id: 'vec-cables',
+          type: 'line',
+          source: sourceId,
+          paint: {
+            'line-color': '#f59e0b',
+            'line-width': 1.4,
+            'line-opacity': 0.75,
+          },
+        });
       }
 
       this.vectorCounts.update((c) => ({ ...c, [kind]: fc.features?.length ?? 0 }));
@@ -4513,7 +4609,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
    *  (wind/waves raster + arrows). Pattern identique à toggleSst, factorisé
    *  via config opts. */
   private toggleForecastLayer(opts: {
-    key: 'windForecast' | 'wavesForecast' | 'windArrows' | 'waveArrows';
+    key: 'windForecast' | 'wavesForecast' | 'windArrows' | 'waveArrows' | 'temp2m' | 'pressureMsl' | 'humidity' | 'precipitation';
     layerId: string;
     gsName: string;
     style?: string;
@@ -4526,6 +4622,11 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       wavesForecast: this.showWavesForecast,
       windArrows: this.showWindArrows,
       waveArrows: this.showWaveArrows,
+      // G66 (2026-05-27) — 4 GFS forecast layers scaffold (coverages backend à venir)
+      temp2m: this.showTemp2m,
+      pressureMsl: this.showPressureMsl,
+      humidity: this.showHumidity,
+      precipitation: this.showPrecipitation,
     } as const;
     const sig = sigMap[opts.key];
     if (sig() === opts.on) return;
@@ -4590,6 +4691,36 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       kind: 'iso',
       opacity: 0.9,
       on,
+    });
+  }
+
+  // G66 (2026-05-27) — 4 layers GFS forecast scaffold. Les coverages GS
+  // aetherwx:temp-2m / pressure-msl / humidity-2m / precipitation-6h doivent
+  // être publiées par weather-fetcher quand TMP_2maboveground / PRMSL /
+  // RH_2maboveground / APCP_surface seront ajoutées au filter_gfs_0p25.pl.
+  // En attendant, MapLibre affichera les tiles 404 (silencieux).
+  toggleTemp2m(on: boolean): void {
+    this.toggleForecastLayer({
+      key: 'temp2m', layerId: 'temp2m-wms', gsName: 'aetherwx:temp-2m',
+      interpolations: 'bicubic', opacity: 0.75, on,
+    });
+  }
+  togglePressureMsl(on: boolean): void {
+    this.toggleForecastLayer({
+      key: 'pressureMsl', layerId: 'pressure-msl-wms', gsName: 'aetherwx:pressure-msl',
+      interpolations: 'bicubic', opacity: 0.65, on,
+    });
+  }
+  toggleHumidity(on: boolean): void {
+    this.toggleForecastLayer({
+      key: 'humidity', layerId: 'humidity-wms', gsName: 'aetherwx:humidity-2m',
+      interpolations: 'bicubic', opacity: 0.7, on,
+    });
+  }
+  togglePrecipitation(on: boolean): void {
+    this.toggleForecastLayer({
+      key: 'precipitation', layerId: 'precipitation-wms', gsName: 'aetherwx:precipitation-6h',
+      interpolations: 'bicubic', opacity: 0.75, on,
     });
   }
 
@@ -4935,7 +5066,40 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  private async _fetchVectorFc(kind: 'lightning' | 'alerts' | 'vessels' | 'metar' | 'hubeau' | 'piezo' | 'quakes' | 'firms' | 'buoys'): Promise<{ features: any[] }> {
+  private async _fetchVectorFc(kind: 'lightning' | 'alerts' | 'vessels' | 'metar' | 'hubeau' | 'piezo' | 'quakes' | 'firms' | 'buoys' | 'sigmet' | 'taf' | 'cables'): Promise<{ features: any[] }> {
+    // G66 (2026-05-27) — 3 vector layers placeholders impl.
+    if (kind === 'sigmet') {
+      // AviationWeather.gov SIGMET + AIRMET GeoJSON. CORS allow-all per docs.
+      const resp = await fetch('https://aviationweather.gov/api/data/airsigmet?format=geojson&hours=2');
+      if (!resp.ok) throw new Error(`SIGMET fetch HTTP ${resp.status}`);
+      return await resp.json();
+    }
+    if (kind === 'taf') {
+      // AviationWeather.gov TAF (Terminal Aerodrome Forecast) GeoJSON points.
+      const resp = await fetch('https://aviationweather.gov/api/data/taf?format=geojson&hours=12');
+      if (!resp.ok) throw new Error(`TAF fetch HTTP ${resp.status}`);
+      return await resp.json();
+    }
+    if (kind === 'cables') {
+      // submarinecablemap.com TeleGeography GeoJSON public. CORS allow-all
+      // (cf cdn.submarinecablemap.com headers). Fallback: 5 demo cables si
+      // upstream down ou CORS bloqué (rare).
+      try {
+        const resp = await fetch('https://www.submarinecablemap.com/api/v3/cable/cable-geo.json');
+        if (resp.ok) return await resp.json();
+      } catch { /* fallback ci-dessous */ }
+      // Mini-fallback : 5 grands câbles trans-océaniques pour démo.
+      return {
+        features: [
+          { type: 'Feature', properties: { name: 'TAT-14' }, geometry: { type: 'LineString', coordinates: [[-73.95, 40.75], [-3.0, 51.5]] } },
+          { type: 'Feature', properties: { name: 'MAREA' }, geometry: { type: 'LineString', coordinates: [[-77.04, 36.85], [-9.13, 38.72]] } },
+          { type: 'Feature', properties: { name: 'SEA-ME-WE 5' }, geometry: { type: 'LineString', coordinates: [[3.7, 43.5], [103.85, 1.29], [120.98, 14.59]] } },
+          { type: 'Feature', properties: { name: 'TPE' }, geometry: { type: 'LineString', coordinates: [[-122.4, 37.77], [139.69, 35.69], [121.47, 25.04]] } },
+          { type: 'Feature', properties: { name: 'AAE-1' }, geometry: { type: 'LineString', coordinates: [[2.35, 48.85], [30.0, 30.0], [55.27, 25.2], [88.36, 22.57], [103.85, 1.29], [114.18, 22.32]] } },
+        ],
+      };
+    }
+
     if (kind === 'lightning') {
       return await firstValueFrom(this.lightningService.fetchRecent(new Date(), 1800));
     }
