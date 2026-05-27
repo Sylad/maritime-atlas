@@ -24,4 +24,13 @@
     <bean id="cascadeTimeForwardInitializer"
           class="fr.sladoire.maritime.cascade.CascadeTimeForwardInitializer" />
 
+    <!-- G65k (2026-05-27) — fix structurel root cause :
+         wmsCache invalidée entre requests => wrap perdu sur l'instance précédente.
+         Le BeanPostProcessor remplace ResourcePool.wmsCache par une Map qui
+         auto-wrap le HTTPClient sur chaque put(). Garantit que chaque
+         WebMapServer en cache est toujours wrappé, quelle que soit la
+         fréquence de recréation. -->
+    <bean id="wmsCacheWrappingPostProcessor"
+          class="fr.sladoire.maritime.cascade.WmsCacheWrappingPostProcessor" />
+
 </beans>
