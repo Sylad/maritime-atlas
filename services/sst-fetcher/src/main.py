@@ -469,6 +469,14 @@ def main() -> None:
     COVERAGE_DIR.mkdir(parents=True, exist_ok=True)
     log.info('sst-fetcher starting (coverage_dir=%s)', COVERAGE_DIR)
 
+    # --once : mode Argo CronWorkflow (run un cycle puis exit 0).
+    # Sans flag : legacy mode = run immédiat + scheduler interne 06:00 UTC.
+    # Les 2 modes sont idempotents (check has_geotiffs / coverage_store_exists).
+    if '--once' in sys.argv:
+        log.info('Running in --once mode (Argo-triggered, single cycle then exit)')
+        run_fetch_cycle()
+        return
+
     # Run immédiat au boot
     run_fetch_cycle()
 
