@@ -675,6 +675,12 @@ def main() -> None:
     WIND_ARROWS_DIR.mkdir(parents=True, exist_ok=True)
     log.info('weather-fetcher-arome starting')
 
+    # --once : mode Argo CronWorkflow (un cycle puis exit 0). Idempotent.
+    if '--once' in sys.argv:
+        log.info('Running in --once mode (Argo-triggered)')
+        run_fetch_cycle()
+        return
+
     run_fetch_cycle()
 
     # AROME publie 8 runs/jour (00, 03, 06, …, 21 UTC) avec ~2h de latence.

@@ -673,6 +673,12 @@ def main() -> None:
     WIND_ARROWS_DIR.mkdir(parents=True, exist_ok=True)
     log.info('weather-fetcher-arpege starting')
 
+    # --once : mode Argo CronWorkflow (un cycle puis exit 0). Idempotent.
+    if '--once' in sys.argv:
+        log.info('Running in --once mode (Argo-triggered)')
+        run_fetch_cycle()
+        return
+
     run_fetch_cycle()
 
     # ARPEGE publie 4 runs/jour (00, 06, 12, 18 UTC) avec ~3h de latence.

@@ -417,6 +417,13 @@ def main() -> None:
     conn = connect_db()
     ensure_schema(conn)
     conn.close()
+
+    # --once : mode Argo CronWorkflow (un cycle puis exit 0). Idempotent.
+    if '--once' in sys.argv:
+        log.info('Running in --once mode (Argo-triggered)')
+        job_referential()
+        return
+
     job_referential()
 
     # Référentiel re-seedé toutes les FETCH_INTERVAL_MIN minutes (défaut

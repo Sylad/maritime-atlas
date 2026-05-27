@@ -671,6 +671,12 @@ def main() -> None:
         d.mkdir(parents=True, exist_ok=True)
     log.info('weather-fetcher starting')
 
+    # --once : mode Argo CronWorkflow (un cycle puis exit 0). Idempotent.
+    if '--once' in sys.argv:
+        log.info('Running in --once mode (Argo-triggered)')
+        run_fetch_cycle()
+        return
+
     run_fetch_cycle()
 
     # Cron 4×/jour calé sur les runs NOAA + 4h de latence — donc 04, 10, 16, 22 UTC
