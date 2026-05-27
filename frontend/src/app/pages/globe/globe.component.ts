@@ -5414,6 +5414,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         'vec-lightning', 'vec-alerts',
         'vec-metar', 'vec-hubeau', 'vec-piezo',
         'vec-quakes', 'vec-firms', 'vec-buoys',
+        // G66e (2026-05-27) — popups SIGMET (polygon fill) + TAF (circle) + Cables (line)
+        'vec-sigmet-fill', 'vec-taf', 'vec-cables',
       ];
       const existing = allLayers.filter((id) => map.getLayer(id));
       if (existing.length === 0) return;
@@ -5599,6 +5601,75 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
             ${row('Confiance', confidence != null ? `${confidence}/100` : null)}
             ${row('Satellite', satellite ? `${satName}${dnLabel ? ` (${dnLabel})` : ''}` : null)}
           </div>`;
+      } else if (layerId === 'vec-sigmet-fill') {
+        // G66e (2026-05-27) — SIGMET / AIRMET popup (aviationweather.gov GeoJSON).
+        // Props observées : hazard, severity, rawAirSigmet, validTimeFrom, validTimeTo,
+        // altitudeLow1Type, altitudeLow1, altitudeHi1, fir, airSigmetType.
+        const hazard = (p['hazard'] || p['hazardType']) as string | undefined;
+        const sigmetType = p['airSigmetType'] as string | undefined;
+        const severity = p['severity'] as string | undefined;
+        const fir = p['fir'] as string | undefined;
+        const validFrom = p['validTimeFrom'] as string | undefined;
+        const validTo = p['validTimeTo'] as string | undefined;
+        const altLow = p['altitudeLow1'] as number | undefined;
+        const altHi = p['altitudeHi1'] as number | undefined;
+        const raw = p['rawAirSigmet'] as string | undefined;
+        const altStr = (altLow != null || altHi != null)
+          ? `${altLow != null ? `FL${altLow}` : '?'} → ${altHi != null ? `FL${altHi}` : '?'}`
+          : null;
+        const fmtRange = (from?: string, to?: string) => {
+          if (!from && !to) return null;
+          const f = from ? new Date(from).toISOString().slice(0, 16).replace('T', ' ') : '?';
+          const t = to ? new Date(to).toISOString().slice(0, 16).replace('T', ' ') : '?';
+          return `${f}Z → ${t}Z`;
+        };
+        const title = hazard ? `${hazard}${sigmetType ? ` · ${sigmetType}` : ''}` : (sigmetType ?? 'SIGMET / AIRMET');
+        html = `
+          <div>
+            <div style="font-size:13px;font-weight:600;color:#dc2626;border-bottom:1px solid #2a3245;padding-bottom:6px;margin-bottom:4px">⚠ ${title}</div>
+            ${row('FIR', fir)}
+            ${row('Sévérité', severity)}
+            ${row('Altitudes', altStr)}
+            ${row('Validité', fmtRange(validFrom, validTo))}
+            ${raw ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #2a3245;font-family:monospace;font-size:10px;color:#cfd6e2;white-space:pre-wrap;max-height:120px;overflow:auto">${raw}</div>` : ''}
+          </div>`;
+      } else if (layerId === 'vec-taf') {
+        // G66e — TAF popup. Props : id (ICAO), site, issueTime, validTimeFrom, validTimeTo, rawTAF.
+        const icao = (p['id'] || p['icaoId']) as string | undefined;
+        const site = p['site'] as string | undefined;
+        const issueTime = p['issueTime'] as string | undefined;
+        const validFrom = p['validTimeFrom'] as string | undefined;
+        const validTo = p['validTimeTo'] as string | undefined;
+        const raw = p['rawTAF'] as string | undefined;
+        const fmtRange = (from?: string, to?: string) => {
+          if (!from && !to) return null;
+          const f = from ? new Date(from).toISOString().slice(0, 16).replace('T', ' ') : '?';
+          const t = to ? new Date(to).toISOString().slice(0, 16).replace('T', ' ') : '?';
+          return `${f}Z → ${t}Z`;
+        };
+        html = `
+          <div>
+            <div style="font-size:13px;font-weight:600;color:#3b82f6;border-bottom:1px solid #2a3245;padding-bottom:6px;margin-bottom:4px">✈ ${icao ?? 'TAF'}</div>
+            ${row('Aéroport', site)}
+            ${row('Émis', fmtRelTime(issueTime))}
+            ${row('Validité', fmtRange(validFrom, validTo))}
+            ${raw ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #2a3245;font-family:monospace;font-size:10px;color:#cfd6e2;white-space:pre-wrap;max-height:120px;overflow:auto">${raw}</div>` : ''}
+          </div>`;
+      } else if (layerId === 'vec-cables') {
+        // G66e — Câbles sous-marins. Props TeleGeography : name, slug, length, owners.
+        const name = (p['name'] || 'Câble sous-marin') as string;
+        const slug = p['slug'] as string | undefined;
+        const length = p['length'] as string | number | undefined;
+        const owners = p['owners'] as string | undefined;
+        const rfs = p['rfs'] as string | undefined;
+        html = `
+          <div>
+            <div style="font-size:13px;font-weight:600;color:#f59e0b;border-bottom:1px solid #2a3245;padding-bottom:6px;margin-bottom:4px">━ ${name}</div>
+            ${row('Slug', slug)}
+            ${row('Longueur', length, typeof length === 'number' ? ' km' : '')}
+            ${row('RFS', rfs)}
+            ${owners ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #2a3245;font-size:11px;color:#cfd6e2;line-height:1.4">${owners}</div>` : ''}
+          </div>`;
       } else if (layerId === 'vec-buoys') {
         // Bouées EMODnet — réseau in-situ.
         const name = (p['name'] || p['candhis_id'] || 'Bouée') as string;
@@ -5629,7 +5700,12 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         // qui mettait position: relative sur .maplibregl-popup-content,
         // ce qui cassait le transform du wrapper .maplibregl-popup parent.
         // G22 — track activePopup + sa layer pour auto-close lors deactivation.
-        const coords = (f.geometry as GeoJSON.Point).coordinates as [number, number];
+        // G66e (2026-05-27) — geometry peut être Point (vector classique), Polygon
+        // (SIGMET) ou LineString (cables). Pour non-Point, on prend e.lngLat (point
+        // cliqué) au lieu d'un centroid calculé.
+        const coords: [number, number] = (f.geometry.type === 'Point')
+          ? ((f.geometry as GeoJSON.Point).coordinates as [number, number])
+          : [e.lngLat.lng, e.lngLat.lat];
         this.activePopup?.remove();
         const popupLayerKey =
           layerId === 'vec-vessels-points' ? 'vessels' :
@@ -5640,7 +5716,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
           layerId === 'vec-piezo' ? 'piezo' :
           layerId === 'vec-quakes' ? 'quakes' :
           layerId === 'vec-firms' ? 'firms' :
-          layerId === 'vec-buoys' ? 'buoys' : 'other';
+          layerId === 'vec-buoys' ? 'buoys' :
+          layerId === 'vec-sigmet-fill' ? 'sigmet' :
+          layerId === 'vec-taf' ? 'taf' :
+          layerId === 'vec-cables' ? 'cables' : 'other';
         this.activePopup = new maplibregl.Popup({ closeButton: true, maxWidth: '280px', offset: 12 })
           .setLngLat(coords)
           .setHTML(html)
@@ -5660,6 +5739,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       'vec-metar', 'vec-hubeau', 'vec-piezo',
       'vec-quakes', 'vec-firms', 'vec-buoys',
       'vec-tracks',
+      // G66e (2026-05-27) — cursor pointer sur SIGMET/TAF/Cables hover
+      'vec-sigmet-fill', 'vec-taf', 'vec-cables',
     ]) {
       map.on('mouseenter', layerId, setCursor('pointer'));
       map.on('mouseleave', layerId, setCursor(''));
