@@ -65,6 +65,7 @@ jobs:
             ["services/weather-fetcher-arome"]="weather-fetcher-arome"
             ["services/sst-fetcher"]="sst-fetcher"
             ["services/grib-parser"]="grib-parser"
+            ["services/glofas-fetcher"]="glofas-fetcher"
             ["services/maritime-style-bootstrap"]="style-bootstrap"
             ["frontend"]="frontend"
             ["geoserver"]="geoserver"
