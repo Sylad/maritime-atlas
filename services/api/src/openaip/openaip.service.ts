@@ -39,9 +39,13 @@ interface OpenAIPAirspaceItem {
  * - AIRAC cycle 28j → refresh weekly suffit, pas de stress sur free tier
  *   OpenAIP
  *
- * Type codes OpenAIP airspaces :
- *   - 14 = FIR (Flight Information Region)
- *   - 15 = UIR (Upper Information Region)
+ * Type codes OpenAIP airspaces (G66i 2026-05-27 — vérifié live) :
+ *   - 10 = FIS / FIR (mais MÉLANGE 96 items au total : ~30 vraies FIR
+ *          nommées "FIR LFFF" + ~60 "LOCAL ATS" type CTR petit aéroport).
+ *          → filter côté client par regex `\bFIR\b` dans le nom.
+ *   - 11 = UIR — vide (0 items en API, jamais utilisé)
+ * Mes tentatives précédentes (G66f→G66h) utilisaient type=14+15 qui sont
+ * en fait Airway+MTR (small polygons polluants visibles sur la map).
  * Cf https://api.core.openaip.net/api/docs (header `x-openaip-api-key` — G66h
  * 2026-05-27 : ancien `x-openaip-client-id` deprecated, renvoie 403
  * "No authenticated user found. Verify user first").
@@ -107,11 +111,19 @@ export class OpenAIPService implements OnModuleInit {
     this.syncInProgress = true;
     let inserted = 0;
     let updated = 0;
+    let skipped = 0;
+    const seenIds: string[] = [];
     try {
-      for (const [typeCode, typeLabel] of [[14, 'FIR'], [15, 'UIR']] as const) {
+      // G66i — type=10 retourne 96 items mais seulement ~30 sont des vraies FIR
+      // (les autres sont des "LOCAL ATS" zones petit aéroport). Filter par regex
+      // sur le nom : convention "FIR <code ICAO>" ou "<region> FIR" globale.
+      const firNameRe = /\bFIR\b/i;
+      for (const [typeCode, typeLabel] of [[10, 'FIR']] as const) {
         const items = await this.fetchAllPages(typeCode);
         for (const item of items) {
           if (!item.geometry || !item._id) continue;
+          if (!firNameRe.test(item.name ?? '')) { skipped++; continue; }
+          seenIds.push(item._id);
           const id = item._id ?? item.id;
           if (!id) continue;
           // ST_GeomFromGeoJSON pour parser la geometry GeoJSON serialisée.
@@ -156,7 +168,19 @@ export class OpenAIPService implements OnModuleInit {
           else updated++;
         }
       }
-      this.log.log(`Sync OpenAIP terminé : ${inserted} insérés, ${updated} updatés.`);
+      // G66i — DELETE les rows obsolètes (non vues dans le batch courant).
+      // Couvre 2 cas : (1) entry retirée d'OpenAIP, (2) cleanup des items
+      // wrong-type insérés par G66f→G66h (type=14+15 au lieu de type=10).
+      let deleted = 0;
+      if (seenIds.length > 0) {
+        const delResult = await this.db.execute(sql`
+          DELETE FROM fir_airspaces
+          WHERE openaip_id NOT IN ${sql.raw(`('${seenIds.join("','")}')`)}
+        `);
+        // postgres-js retourne `count` sur le result d'un DELETE
+        deleted = Number((delResult as unknown as { count?: number }).count ?? 0);
+      }
+      this.log.log(`Sync OpenAIP terminé : ${inserted} insérés, ${updated} updatés, ${deleted} supprimés (obsolètes), ${skipped} skipped (non-FIR).`);
       return { inserted, updated };
     } finally {
       this.syncInProgress = false;
