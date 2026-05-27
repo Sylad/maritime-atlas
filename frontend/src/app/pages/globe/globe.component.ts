@@ -475,6 +475,14 @@ function gibsDailyDate(): string {
                          (input)="setLayerOpacity('quakes', +$any($event.target).value)" />
                 }
               </div>
+              <!-- ROADMAP SIGMET / AIRMET (G66+) — vector layer (alerts aero).
+                   Source = AviationWeather.gov API JSON (airsigmet endpoint, format=json).
+                   Pipeline :
+                   (1) NEW service services/aviation-fetcher Python : poll 5min, parse SIGMET/AIRMET,
+                       INSERT pg-features table aviation_alerts (id, type, hazard, geom, valid_from, valid_to, raw_text)
+                   (2) API /api/aviation/recent?at=ISO → returns FeatureCollection valid a linstant
+                   (3) frontend (ici) : new signal showAviationAlerts + toggleVector aviationAlerts,
+                       reutilise le pattern alerts (ligne ~3503 sliderLayerCoverage) avec pastH=1, futureH=12. -->
               <div class="layer-row layer-soon">
                 <label class="layer-toggle dim">
                   <input type="checkbox" disabled />
@@ -828,7 +836,25 @@ function gibsDailyDate(): string {
                          (input)="setLayerOpacity('windParticles', +$any($event.target).value)" />
                 }
               </div>
-              <!-- Placeholders V2 — paramètres météo classiques -->
+              <!-- Placeholders V2 — paramètres météo classiques.
+                   ROADMAP (G66+, post-2026-05-27) — chaque layer nécessite :
+                   (1) fetcher Python ajoute la variable GFS au filter_gfs_0p25.pl
+                       (TMP_2maboveground / PRMSL_meansealevel / RH_2maboveground / APCP_surface)
+                   (2) weather-fetcher écrit le GeoTIFF dans /coverage/<layer>/<ts>.tif
+                       et POST GS REST coverages workspace aetherwx
+                   (3) maritime-style-bootstrap (Python) crée le SLD dédié :
+                       - Temp2m : thermal colormap (-20°C bleu → +40°C rouge)
+                       - Pression MSL : isobares B/W 4hPa step
+                       - Humidité : monochrome blue (30-100%)
+                       - Précip : log colormap (0.1-100mm/h)
+                   (4) plugin Java maritime-gwc-init ajoute la layer à DEFAULT_LAYERS (cf G63)
+                   (5) frontend (ici) :
+                       - new signal showTemp2m / showPressureMsl / etc.
+                       - new toggle method (pattern toggleForecastLayer ligne 4480)
+                       - ajout dans animatableLayersGlobe (line ~2953) avec gsLayerName
+                       - ajout dans masterValidityList (ligne ~4012) sur les keys forecast
+                       - persist localStorage + persist DB
+                       - lance /check-layer-time-coherence post-merge -->
               <div class="layer-row layer-soon">
                 <label class="layer-toggle dim">
                   <input type="checkbox" disabled />
@@ -1026,6 +1052,16 @@ function gibsDailyDate(): string {
                          (input)="setLayerOpacity('efas', +$any($event.target).value)" />
                 }
               </div>
+              <!-- ROADMAP Câbles sous-marins (G66+) — implementation 100% frontend :
+                   pas de backend ni GS. Source = submarinecablemap.com (TeleGeography
+                   GeoJSON public). Pipeline :
+                   (1) bundle le GeoJSON en assets/cables.geojson au build OU fetch via
+                       proxy nginx /cables-geo (éviter CORS direct)
+                   (2) new signal showCables + toggleCables
+                   (3) MapLibre line layer + style filaire #f59e0b weight 1.5
+                   (4) layer non time-driven → PAS dans animatableLayersGlobe.
+                       Push sliderLayerCoverage avec canBeMaster=false (info-only).
+                   (5) persist localStorage (showCables booléen). -->
               <div class="layer-row layer-soon">
                 <label class="layer-toggle dim">
                   <input type="checkbox" disabled />
@@ -4017,14 +4053,23 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       const product = SAT_PRODUCTS.find((p) => p.key === master);
       if (!product) return [];
       const stepMs = product.kind === 'gibs-daily' ? 24 * 3_600_000 : 5 * 60_000;
-      return this.generateClientValidities(stepMs, 168, 0, now);
+      // G65 (2026-05-27) — gibs-daily : cap pastEnd à J-2 pour aligner avec
+      // gibsDailyDate() côté URL builder. Sinon cursor peut atterrir sur J-1
+      // ou J (validity slider) mais URL clamp à J-2 → 2 cursors successifs
+      // génèrent la MÊME TIME, donc 0 refetch. TC-2 FAIL observé satTrueColor.
+      const anchorNow = product.kind === 'gibs-daily' ? now - 48 * 3_600_000 : now;
+      return this.generateClientValidities(stepMs, 168, 0, anchorNow);
     }
     if (master === 'sst') {
       return this.generateClientValidities(24 * 3_600_000, 168, 0, now);
     }
     if (master === 'windForecast' || master === 'wavesForecast' ||
         master === 'windArrows'   || master === 'waveArrows') {
-      return this.generateClientValidities(6 * 3_600_000, 0, 168, now);
+      // G65 (2026-05-27) — forecast porte ±7j (cf data_layer_policy_2026_05_19) :
+      // 7j past (analyse hindcast + dernières analyses) + 7j future. Avant ce
+      // fix, pastH=0 rendait step prev no-op quand le cursor était à LIVE,
+      // donc TC-2 FAIL observé pour wavesForecast/windForecast en solo master.
+      return this.generateClientValidities(6 * 3_600_000, 168, 168, now);
     }
     return [];
   });
@@ -4958,10 +5003,22 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       map.removeSource(sourceId);
     }
 
-    const timeParam =
-      product.kind === 'gibs-daily'
-        ? gibsDailyDate()
-        : new Date(Date.now() - 5 * 60_000).toISOString().split('.')[0] + 'Z';
+    // G65 (2026-05-27) — Bug TC-1 cascade : utiliser this.currentTime() pour que
+    // le 1er tile au toggle ON respecte le cursor courant, en parité avec
+    // refreshWmsTimeForActiveLayers (ligne ~4104). Avant ce fix, cascade fired
+    // TIME=Date.now() au toggle, puis refresh corrigeait. Avec le bug GS cascade
+    // qui retourne la même image quel que soit TIME, l'impact était invisible,
+    // mais quand le fix GS atterrit, on aurait affiché la mauvaise validity.
+    const t = this.currentTime();
+    let timeParam: string;
+    if (product.kind === 'gibs-daily') {
+      // Snap au jour J-2 max (parité refresh : GIBS lag ~48h).
+      const cap = Math.min(t.getTime(), Date.now() - 48 * 3_600_000);
+      const effDate = new Date(cap);
+      timeParam = `${effDate.getUTCFullYear()}-${String(effDate.getUTCMonth() + 1).padStart(2, '0')}-${String(effDate.getUTCDate()).padStart(2, '0')}`;
+    } else {
+      timeParam = t.toISOString().split('.')[0] + 'Z';
+    }
 
     const url =
       `/geoserver/${product.workspace}/wms` +
