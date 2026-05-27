@@ -11,6 +11,7 @@ import { AdminModule } from './admin/admin.module';
 import { OrchestratorModule } from './orchestrator/orchestrator.module';
 import { MetarModule } from './metar/metar.module';
 import { HubeauModule } from './hubeau/hubeau.module';
+import { GlofasModule } from './glofas/glofas.module';
 import { EarthquakesModule } from './earthquakes/earthquakes.module';
 import { FirmsModule } from './firms/firms.module';
 import { AvailabilityModule } from './availability/availability.module';
@@ -28,6 +29,7 @@ import { AvailabilityModule } from './availability/availability.module';
     OrchestratorModule,
     MetarModule,
     HubeauModule,
+    GlofasModule,
     EarthquakesModule,
     FirmsModule,
     AvailabilityModule,
