@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -16,14 +16,25 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="glofas-fetcher")
 
+DEFAULT_LEADTIMES = [24, 48, 72, 96, 120, 144, 168]
+
 
 def _coverage_base_dir() -> Path:
     return Path(os.environ.get("COVERAGE_BASE_DIR", "/coverage/glofas"))
 
 
+def _default_run_time() -> str:
+    """Run de référence = HIER 00:00 UTC. Le run du jour courant n'est pas
+    encore publié sur EWDS au moment où le CronWorkflow tourne (06:00 UTC) —
+    les jours dispos en `operational` s'arrêtent à J-1. Calcul Python fiable
+    (busybox `date -d yesterday` du conteneur curl ne parse pas 'yesterday')."""
+    return (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%dT00:00:00Z")
+
+
 class FetchRequest(BaseModel):
-    run_time: str = Field(..., description="ISO-8601 UTC, ex 2026-05-28T00:00:00Z")
-    leadtimes: list[int] = Field(..., min_length=1)
+    # run_time optionnel : si absent → hier 00:00 UTC (cf _default_run_time).
+    run_time: str | None = Field(None, description="ISO-8601 UTC. Absent → hier 00:00 UTC.")
+    leadtimes: list[int] = Field(default_factory=lambda: list(DEFAULT_LEADTIMES))
 
 
 class FetchResponse(BaseModel):
@@ -41,14 +52,15 @@ def fetch(req: FetchRequest) -> FetchResponse:
     """Télécharge le GloFAS control-forecast GRIB2 (river discharge) pour un run
     et le dépose tel quel dans le dossier coverage. GeoServer (plugin GRIB)
     le sert directement via ImageMosaic — pas de conversion ici."""
-    logger.info("fetch start run=%s leadtimes=%s", req.run_time, req.leadtimes)
+    run_time = req.run_time or _default_run_time()
+    logger.info("fetch start run=%s leadtimes=%s", run_time, req.leadtimes)
     cds = GlofasCdsClient()
-    target = grib_target_path(_coverage_base_dir(), req.run_time)
+    target = grib_target_path(_coverage_base_dir(), run_time)
     cds.retrieve(
-        GlofasFetchRequest(run_time=req.run_time, leadtimes=req.leadtimes),
+        GlofasFetchRequest(run_time=run_time, leadtimes=req.leadtimes),
         target=str(target),
     )
     size = target.stat().st_size if target.exists() else 0
     logger.info("fetch done target=%s bytes=%d", target, size)
-    dt = datetime.fromisoformat(req.run_time.replace("Z", "+00:00"))
+    dt = datetime.fromisoformat(run_time.replace("Z", "+00:00"))
     return FetchResponse(run=dt.strftime("%Y-%m-%dT%HZ"), bytes=size)
