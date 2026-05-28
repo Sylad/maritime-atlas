@@ -964,19 +964,19 @@ function gibsDailyDate(): string {
                 }
               </div>
               <div class="layer-row">
-                <label class="layer-toggle" [class.dim]="!showEfas()"
-                       title="Copernicus EMS — archive publique uniquement (T-30j+)">
-                  <input type="checkbox" [checked]="showEfas()" (change)="toggleEfas(!showEfas())" />
+                <label class="layer-toggle" [class.dim]="!showGlofas()"
+                       title="GloFAS river discharge forecast — Copernicus EWDS (débit rivières, prévision crues 7j)">
+                  <input type="checkbox" [checked]="showGlofas()" (change)="toggleGlofas(!showGlofas())" />
                   <span class="toggle-glyph"><span class="glyph-icon">🌊</span></span>
                   <span class="toggle-text">
-                    <span class="toggle-name">EFAS forecast crues</span>
-                    <span class="toggle-count">Copernicus EMS · archive ≥30j</span>
+                    <span class="toggle-name">GloFAS forecast crues</span>
+                    <span class="toggle-count">Copernicus EWDS · forecast 7j</span>
                   </span>
                 </label>
-                @if (showEfas()) {
+                @if (showGlofas()) {
                   <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
-                         [value]="getLayerOpacity('efas')"
-                         (input)="setLayerOpacity('efas', +$any($event.target).value)" />
+                         [value]="getLayerOpacity('glofas')"
+                         (input)="setLayerOpacity('glofas', +$any($event.target).value)" />
                 }
               </div>
               <div class="layer-row layer-soon">
@@ -2402,7 +2402,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       void this.showBathy();
       void this.showEez();
       void this.showMpa();
-      void this.showEfas();
+      void this.showGlofas();
       if (!enabled) return;
       const auto = this.computeAutoZIndexOrder();
       if (auto.length === 0) return;
@@ -2425,7 +2425,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       void this.showWindForecast(); void this.showWavesForecast();
       void this.showWindArrows(); void this.showWaveArrows();
       void this.showSstContours(); void this.showWindContours(); void this.showWaveContours();
-      void this.showBathy(); void this.showEez(); void this.showMpa(); void this.showEfas();
+      void this.showBathy(); void this.showEez(); void this.showMpa(); void this.showGlofas();
       void this.autoZIndexEnabled(); void this.masterLayerKey(); void this.projection();
       this.persistGlobePrefs();
     });
@@ -2584,12 +2584,15 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   readonly showSstContours = signal(false);
   readonly showWindContours = signal(false);
   readonly showWaveContours = signal(false);
-  /** G11b (2026-05-22) — 4 layers statiques sources sciencé (EMODnet/Marine
-   *  Regions/EFAS) via proxy nginx maritime. */
+  /** G11b (2026-05-22) — 3 layers statiques sources science (EMODnet/Marine
+   *  Regions) via proxy nginx maritime. G68 (2026-05-28) — EFAS retiré
+   *  (overlay statique archive) au profit de GloFAS raster time-animé. */
   readonly showBathy = signal(false);
   readonly showEez = signal(false);
   readonly showMpa = signal(false);
-  readonly showEfas = signal(false);
+  /** G68 (2026-05-28) — GloFAS river discharge forecast (Copernicus EWDS),
+   *  raster GS time-enabled (pattern forecast SST/wind). Remplace showEfas. */
+  readonly showGlofas = signal(false);
   /** G66 (2026-05-27) — placeholders impl. Câbles sous-marins (TeleGeography
    *  GeoJSON via proxy /cables-geo), SIGMET/AIRMET + TAF (AviationWeather.gov
    *  GeoJSON CORS-ouvert). 4 layers GFS Forecast (Temp2m/Pression/Humidité/
@@ -2684,7 +2687,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (this.showRain()) n++;
     if (this.showWindArrows()) n++;
     if (this.showWaveArrows()) n++;
-    if (this.showBathy() || this.showEez() || this.showMpa() || this.showEfas()) n++;
+    if (this.showBathy() || this.showEez() || this.showMpa()) n++;
+    if (this.showGlofas()) n++;
     for (const sig of Object.values(this.satShowSignals())) if (sig()) n++;
     return n;
   });
@@ -2761,6 +2765,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (key === 'sst')           return 'aetherwx:sst-daily';
     if (key === 'windForecast')  return 'aetherwx:wind-speed';
     if (key === 'wavesForecast') return 'aetherwx:wave-hs';
+    if (key === 'glofas')        return 'aetherwx:glofas-discharge';
     // G56 — workspace dépend du kind : gibs-daily → aetherwx-sat, cascade → aetherwx
     if (key.startsWith('sat') || key.startsWith('radar')) {
       const product = SAT_PRODUCTS.find((p) => p.key === key);
@@ -2817,7 +2822,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (this.showBathy()) this.toggleBathy(false);
     if (this.showEez())   this.toggleEez(false);
     if (this.showMpa())   this.toggleMpa(false);
-    if (this.showEfas())  this.toggleEfas(false);
+    if (this.showGlofas()) this.toggleGlofas(false);
     // Opacities reset + clear localStorage
     this.layerOpacities.set({ ...this.LAYER_OPACITY_DEFAULTS });
     try {
@@ -2945,8 +2950,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         return { active: flags.filter(Boolean).length, total: flags.length };
       }
       case 'hydrology': {
-        // 2026-05-27 — EFAS forecast crues déplacé de Sources → Hydrologie.
-        const flags = [this.showHubeau(), this.showPiezo(), this.showEfas()];
+        // G68 (2026-05-28) — EFAS overlay statique remplacé par GloFAS raster.
+        const flags = [this.showHubeau(), this.showPiezo(), this.showGlofas()];
         return { active: flags.filter(Boolean).length, total: flags.length };
       }
       case 'satellites': {
@@ -3043,6 +3048,11 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     { key: 'pressureMsl',   label: 'Pression MSL',    type: 'wms', gsLayerName: 'aetherwx:pressure-msl' },
     { key: 'humidity',      label: 'Humidité 2m',     type: 'wms', gsLayerName: 'aetherwx:humidity-2m' },
     { key: 'precipitation', label: 'Précipitations',  type: 'wms', gsLayerName: 'aetherwx:precipitation-6h' },
+    // G68 (2026-05-28) — GloFAS river discharge forecast (Copernicus EWDS).
+    // Raster GS time-enabled (7 validités daily, default=MAXIMUM). Remplace
+    // l'ancien toggle EFAS overlay statique (archive proxy) par un vrai layer
+    // raster animable, pattern identique aux forecasts GFS.
+    { key: 'glofas',        label: 'GloFAS crues',    type: 'wms', gsLayerName: 'aetherwx:glofas-discharge' },
     ...SAT_PRODUCTS.map((p) => ({ key: p.key, label: p.label, type: 'wms' as const, gsLayerName: `${p.workspace}:${p.gsName}` })),
     { key: 'lightning',     label: 'Foudre',          type: 'vector' as const },
     { key: 'alerts',        label: 'Alertes',         type: 'vector' as const },
@@ -3165,6 +3175,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (this.showWindContours()) out.push({ key: 'windContours', layerId: 'wind-contours-wms', gsName: 'aetherwx:wind-speed', style: 'aetherwx:wind-speed-contours-only', interpolations: 'bicubic', daily: false, visible: () => this.showWindContours() });
     if (this.showWavesForecast()) out.push({ key: 'wavesForecast', layerId: 'waves-forecast-wms', gsName: 'aetherwx:wave-hs', interpolations: 'bicubic', daily: false, visible: () => this.showWavesForecast() });
     if (this.showWaveContours()) out.push({ key: 'waveContours', layerId: 'wave-contours-wms', gsName: 'aetherwx:wave-hs', style: 'aetherwx:wave-hs-contours-only', interpolations: 'bicubic', daily: false, visible: () => this.showWaveContours() });
+    // G68 (2026-05-28) — GloFAS forecast raster (non-daily, ISO TIME, style GS
+    // glofas-discharge). Preload des frames d'animation comme SST/wind/waves.
+    if (this.showGlofas()) out.push({ key: 'glofas', layerId: 'glofas-wms', gsName: 'aetherwx:glofas-discharge', style: 'glofas-discharge', daily: false, visible: () => this.showGlofas() });
     for (const [satKey, sig] of Object.entries(this.satShowSignals())) {
       if (!sig()) continue;
       const product = SAT_PRODUCTS.find((p) => p.key === satKey);
@@ -3525,7 +3538,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   private readonly LAYER_OPACITY_DEFAULTS: Record<string, number> = {
     sst: 0.7, windForecast: 0.7, wavesForecast: 0.7,
     windArrows: 0.9, waveArrows: 0.9,
-    bathy: 0.7, eez: 0.6, mpa: 0.6, efas: 0.7,
+    bathy: 0.7, eez: 0.6, mpa: 0.6,
+    glofas: 0.75,
     rain: 0.75,
   };
   readonly layerOpacities = signal<Record<string, number>>({ ...this.LAYER_OPACITY_DEFAULTS });
@@ -3537,7 +3551,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     satTrueColor: 0, satTrueColorVIIRS: 0, satIR: 0, satWaterVapor: 0,
     satCloudTop: 0, satAerosol: 0, satDayNight: 0,
     satEuIrRss: 0, satGlobalIrMtg: 0, satEuHrvRgb: 0,
-    sst: 1, windForecast: 1, wavesForecast: 1, efas: 1,
+    sst: 1, windForecast: 1, wavesForecast: 1, glofas: 1,
     bathy: 0, eez: 0, mpa: 0,
     radarDwd: 2, radarKnmi: 2,
     lightning: 4, alerts: 4, vessels: 4,
@@ -3579,7 +3593,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     const isWmsTime = (k: string) => k === 'sst' || k.startsWith('sat') ||
       k === 'windForecast' || k === 'wavesForecast' || k === 'windArrows' || k === 'waveArrows' ||
       // G66 (2026-05-27) — 4 GFS forecast eligible master
-      k === 'temp2m' || k === 'pressureMsl' || k === 'humidity' || k === 'precipitation';
+      k === 'temp2m' || k === 'pressureMsl' || k === 'humidity' || k === 'precipitation' ||
+      // G68 (2026-05-28) — GloFAS forecast eligible master
+      k === 'glofas';
     const master = this.effectiveMasterLayerKey();
     const push = (active: boolean, key: string, name: string, color: string, pastH: number, futureH: number) => {
       if (active) out.push({
@@ -3613,6 +3629,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     push(this.showPressureMsl(),   'pressureMsl',   'pressure-msl', '#a855f7', 168, 168);
     push(this.showHumidity(),      'humidity',      'humidity-2m',  '#0ea5e9', 168, 168);
     push(this.showPrecipitation(), 'precipitation', 'precip-6h',    '#22d3ee', 168, 168);
+    // G68 (2026-05-28) — GloFAS river discharge forecast (±7j conforme data_layer_policy).
+    push(this.showGlofas(),        'glofas',        'glofas',       '#0ea5e9', 168, 168);
     // G16 — push une rangée par produit sat ACTIVÉ (stacking multi-sat).
     for (const [key, sig] of Object.entries(this.satShowSignals())) {
       if (sig()) {
@@ -3647,6 +3665,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       if (explicit === 'wavesForecast' && this.showWavesForecast()) return explicit;
       if (explicit === 'windArrows'    && this.showWindArrows())    return explicit;
       if (explicit === 'waveArrows'    && this.showWaveArrows())    return explicit;
+      // G68 (2026-05-28) — GloFAS master explicite
+      if (explicit === 'glofas'        && this.showGlofas())        return explicit;
     }
     // G16 fallback : 1er sat actif (ordre déclaratif SAT_PRODUCTS) sinon sst > forecast.
     for (const [key, sig] of Object.entries(this.satShowSignals())) {
@@ -3660,6 +3680,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (this.showPressureMsl()) return 'pressureMsl';
     if (this.showHumidity()) return 'humidity';
     if (this.showPrecipitation()) return 'precipitation';
+    // G68 (2026-05-28) — GloFAS forecast après GFS dans le fallback master.
+    if (this.showGlofas()) return 'glofas';
     if (this.showWindArrows()) return 'windArrows';
     if (this.showWaveArrows()) return 'waveArrows';
     return null;
@@ -3730,7 +3752,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
    *  pour push DB cross-device via PreferencesSyncService. Keys identiques à
    *  /map (sst, lightning, alerts, vessels, metar, hubeau, piezo, quakes,
    *  firms, buoys, tracks, rain, wind, waves, windArrows, waveArrows, bathy,
-   *  eez, mpa, efas) → sync transparent /map ↔ /globe.
+   *  eez, mpa, glofas) → sync transparent /map ↔ /globe.
    *
    *  Skip : `wind` (= particules WebGL sur globe vs raster sur /map, sémantique
    *  différente), `activeSat` (radio select, pas un booléen). */
@@ -3756,7 +3778,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     add('bathy',     this.showBathy());
     add('eez',       this.showEez());
     add('mpa',       this.showMpa());
-    add('efas',      this.showEfas());
+    add('glofas',    this.showGlofas());
     // wind/waves raster match /map keys 'wind'/'waves' (sémantique identique).
     add('wind',  this.showWindForecast());
     add('waves', this.showWavesForecast());
@@ -3800,7 +3822,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         showBathy: this.showBathy(),
         showEez: this.showEez(),
         showMpa: this.showMpa(),
-        showEfas: this.showEfas(),
+        showGlofas: this.showGlofas(),
         autoZIndexEnabled: this.autoZIndexEnabled(),
         masterLayerKey: this.masterLayerKey(),
         projection: this.projection(),
@@ -3828,7 +3850,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         showWindForecast: !!data?.showWindForecast, showWavesForecast: !!data?.showWavesForecast,
         showWindArrows: !!data?.showWindArrows, showWaveArrows: !!data?.showWaveArrows,
         showSstContours: !!data?.showSstContours, showWindContours: !!data?.showWindContours, showWaveContours: !!data?.showWaveContours,
-        showBathy: !!data?.showBathy, showEez: !!data?.showEez, showMpa: !!data?.showMpa, showEfas: !!data?.showEfas,
+        showBathy: !!data?.showBathy, showEez: !!data?.showEez, showMpa: !!data?.showMpa, showGlofas: !!data?.showGlofas,
       };
       // G16 — restore les 13 sat signals multi-toggle. Compat ascendante avec
       // l'ancien `activeSat` legacy : si data.sat absent mais activeSat='satXyz',
@@ -3906,7 +3928,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (p['showBathy']) this.toggleBathy(true);
     if (p['showEez'])   this.toggleEez(true);
     if (p['showMpa'])   this.toggleMpa(true);
-    if (p['showEfas'])  this.toggleEfas(true);
+    if (p['showGlofas']) this.toggleGlofas(true);
   }
 
   /** G11d — keys des layers actives qui ont un slider opacité utile. */
@@ -3925,7 +3947,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (this.showBathy()) keys.push('bathy');
     if (this.showEez())   keys.push('eez');
     if (this.showMpa())   keys.push('mpa');
-    if (this.showEfas())  keys.push('efas');
+    if (this.showGlofas()) keys.push('glofas');
     return keys;
   });
 
@@ -3940,7 +3962,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (key === 'bathy')  return 'Bathy';
     if (key === 'eez')    return 'EEZ';
     if (key === 'mpa')    return 'MPA';
-    if (key === 'efas')   return 'EFAS';
+    if (key === 'glofas') return 'GloFAS';
     if (key.startsWith('sat')) {
       return SAT_PRODUCTS.find((p) => p.key === key)?.label ?? key;
     }
@@ -4035,7 +4057,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (this.showBathy()) active.push('bathy');
     if (this.showEez()) active.push('eez');
     if (this.showMpa()) active.push('mpa');
-    if (this.showEfas()) active.push('efas');
+    if (this.showGlofas()) active.push('glofas');
     return [...active].sort((a, b) => {
       const rA = this.LAYER_CATEGORY[a] ?? this.DEFAULT_LAYER_RANK;
       const rB = this.LAYER_CATEGORY[b] ?? this.DEFAULT_LAYER_RANK;
@@ -4065,7 +4087,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (key === 'bathy') return ['bathy-wms'];
     if (key === 'eez') return ['eez-wms'];
     if (key === 'mpa') return ['mpa-wms'];
-    if (key === 'efas') return ['efas-wms'];
+    if (key === 'glofas') return ['glofas-wms'];
     if (key.startsWith('sat')) return [`sat-${key}`];
     return [];
   }
@@ -4107,6 +4129,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // 6h publishing → mettre à jour ici.
     if (master === 'windForecast' || master === 'wavesForecast' ||
         master === 'windArrows' || master === 'waveArrows') return 24 * 3_600_000;
+    // G68 (2026-05-28) — GloFAS = 24h step (7 validités daily 00:00 UTC,
+    // vérifié GS GetCaps : 2026-05-28→2026-06-03).
+    if (master === 'glofas') return 24 * 3_600_000;
     return 3_600_000;
   });
 
@@ -4141,6 +4166,12 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       // donc TC-2 FAIL observé pour wavesForecast/windForecast en solo master.
       // G66 (2026-05-27) — étendu aux 4 GFS forecast (temp/pressure/humidity/precip).
       return this.generateClientValidities(6 * 3_600_000, 168, 168, now);
+    }
+    // G68 (2026-05-28) — GloFAS = step 24h (validités daily). La liste client
+    // borne le slider ; l'animation itère les validités réelles GS GetCaps
+    // (fetchTimestamps), pas cette grille (cf contrat I-1).
+    if (master === 'glofas') {
+      return this.generateClientValidities(24 * 3_600_000, 168, 168, now);
     }
     return [];
   });
@@ -4194,6 +4225,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       { active: this.showPressureMsl(),    layerId: 'pressure-msl-wms',   gsName: 'aetherwx:pressure-msl',    interpolations: 'bicubic' },
       { active: this.showHumidity(),       layerId: 'humidity-wms',       gsName: 'aetherwx:humidity-2m',     interpolations: 'bicubic' },
       { active: this.showPrecipitation(),  layerId: 'precipitation-wms',  gsName: 'aetherwx:precipitation-6h', interpolations: 'bicubic' },
+      // G68 (2026-05-28) — GloFAS forecast crues : TIME refresh à chaque
+      // mouvement du cursor / frame d'animation (style GS glofas-discharge).
+      { active: this.showGlofas(),         layerId: 'glofas-wms',         gsName: 'aetherwx:glofas-discharge', style: 'glofas-discharge', interpolations: 'bicubic' },
     ];
     // G31 (2026-05-23) — wind/wave arrows : GeoJSON pré-générés (pattern legacy)
     // → MapLibre symbol layer rotation = dirTo. Plus de WMS/SLD GS.
@@ -4723,7 +4757,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
    *  (wind/waves raster + arrows). Pattern identique à toggleSst, factorisé
    *  via config opts. */
   private toggleForecastLayer(opts: {
-    key: 'windForecast' | 'wavesForecast' | 'windArrows' | 'waveArrows' | 'temp2m' | 'pressureMsl' | 'humidity' | 'precipitation';
+    key: 'windForecast' | 'wavesForecast' | 'windArrows' | 'waveArrows' | 'temp2m' | 'pressureMsl' | 'humidity' | 'precipitation' | 'glofas';
     layerId: string;
     gsName: string;
     style?: string;
@@ -4741,6 +4775,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       pressureMsl: this.showPressureMsl,
       humidity: this.showHumidity,
       precipitation: this.showPrecipitation,
+      // G68 (2026-05-28) — GloFAS forecast crues (raster GS time-animé).
+      glofas: this.showGlofas,
     } as const;
     const sig = sigMap[opts.key];
     if (sig() === opts.on) return;
@@ -4883,11 +4919,11 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     });
   }
 
-  /** G11b — toggle générique pour les 4 layers WMS sources statiques
-   *  (bathy/eez/mpa/efas). Pas de TIME param, juste un proxy nginx
-   *  configuré côté ingress maritime. */
+  /** G11b — toggle générique pour les layers WMS sources statiques
+   *  (bathy/eez/mpa). Pas de TIME param, juste un proxy nginx
+   *  configuré côté ingress maritime. G68 — efas retiré (→ GloFAS raster). */
   private toggleStaticWmsLayer(opts: {
-    key: 'bathy' | 'eez' | 'mpa' | 'efas';
+    key: 'bathy' | 'eez' | 'mpa';
     layerId: string;
     proxyUrl: string;     // ex: '/wms-emodnet'
     wmsLayer: string;     // ex: 'mean_atlas_land'
@@ -4899,7 +4935,6 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       bathy: this.showBathy,
       eez: this.showEez,
       mpa: this.showMpa,
-      efas: this.showEfas,
     } as const;
     const sig = sigMap[opts.key];
     if (sig() === opts.on) return;
@@ -4951,16 +4986,15 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       attribution: '© EMODnet Human Activities', on,
     });
   }
-  toggleEfas(on: boolean): void {
-    // G31 (2026-05-23) — Migration endpoint Copernicus EMS :
-    // ancien `efas_forecast_flood_probability` n'existe plus, split en
-    // 2 layers par horizon (probLT48h / probGT48h). On charge le >48h
-    // par défaut (signal plus visible sur la carte). Public sert ARCHIVE
-    // uniquement, real-time forecast = EFAS Partners only.
-    this.toggleStaticWmsLayer({
-      key: 'efas', layerId: 'efas-wms', proxyUrl: '/wms-efas',
-      wmsLayer: 'mapserver:probGT48h', opacity: 0.7,
-      attribution: '© EFAS Copernicus EMS (archive ≥30j)', on,
+  /** G68 (2026-05-28) — GloFAS river discharge forecast (Copernicus EWDS).
+   *  Remplace l'ancien overlay EFAS statique (archive proxy) par un vrai
+   *  layer raster GS time-enabled : suit le pattern forecast (currentTime →
+   *  &TIME, style GS glofas-discharge, INTERPOLATIONS=bicubic) donc participe
+   *  pleinement à la time-bar + animation. */
+  toggleGlofas(on: boolean): void {
+    this.toggleForecastLayer({
+      key: 'glofas', layerId: 'glofas-wms', gsName: 'aetherwx:glofas-discharge',
+      style: 'glofas-discharge', interpolations: 'bicubic', opacity: 0.75, on,
     });
   }
 
