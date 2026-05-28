@@ -2791,31 +2791,45 @@ Find the script body / configmap / inline command.
 
 - [ ] **Step 2: Add glofas cleanup step**
 
+**Modèle de rétention (forecast layer)** : un run émis à T contient les validités
+T+24h … T+168h (futures). Pour couvrir 7j de validité PASSÉE sur la time-bar, il
+faut garder les runs jusqu'à ~14j d'âge (un run de 14j a une validité +7d qui tombe
+à 7d passé). Pour 7j de validité FUTURE, le dernier run suffit.
+
+→ **Règle simple** : garder les runs dont `run_time >= now - 14j`, drop les plus
+vieux. Ça donne une couverture validité ≈ 7j passé → 7j futur. Pas de cutoff futur
+(aucun run n'a un run_time futur — GloFAS publie pour "maintenant" puis forecast).
+
+⚠️ La dédup multi-run pour une même validité (latest run wins) est gérée côté GS
+ImageMosaic via l'index (run_time + leadtime), PAS ici — cf Task 14 indexer.properties.
+
 In the bash script of the CronJob, add (after the existing SST/wind cleanup):
 
 ```bash
-# Glofas — keep only 7j past + 7j future of run dirs
-echo "[cleanup] glofas: keep ±7j around now"
+# Glofas — garde les runs des 14 derniers jours (couvre 7j validité passée +
+# 7j future via les leadtimes). Drop les runs plus vieux.
+echo "[cleanup] glofas: keep runs younger than 14d"
 NOW_TS=$(date -u +%s)
-CUTOFF_PAST_TS=$((NOW_TS - 7*24*3600))
-CUTOFF_FUTURE_TS=$((NOW_TS + 8*24*3600))
+CUTOFF_PAST_TS=$((NOW_TS - 14*24*3600))
 for d in /coverage/glofas/????-??-??T??Z; do
   [ -d "$d" ] || continue
   RUN_NAME=$(basename "$d")
-  # Convert run name to epoch (e.g. 2026-05-27T12Z → 2026-05-27T12:00:00Z)
-  ISO="${RUN_NAME%Z}:00:00Z"
-  ISO="${ISO/T/T}"
+  # Run dir name = 2026-05-27T00Z → parse en epoch UTC
   RUN_TS=$(date -u -d "${RUN_NAME%Z}:00:00 UTC" +%s 2>/dev/null || echo "")
   if [ -z "$RUN_TS" ]; then
     echo "[cleanup] glofas: skip unparseable $RUN_NAME"
     continue
   fi
-  if [ "$RUN_TS" -lt "$CUTOFF_PAST_TS" ] || [ "$RUN_TS" -gt "$CUTOFF_FUTURE_TS" ]; then
-    echo "[cleanup] glofas: drop $RUN_NAME"
+  if [ "$RUN_TS" -lt "$CUTOFF_PAST_TS" ]; then
+    echo "[cleanup] glofas: drop $RUN_NAME (older than 14d)"
     rm -rf "$d"
   fi
 done
 ```
+
+> Note dimensionnement PVC : 14 runs × 3 seuils × 7 leadtimes = 294 GeoTIFFs
+> mondiaux 0.05°. À surveiller — si trop gros, réduire la fenêtre passée (ex:
+> garder 10j au lieu de 14j → ~5j validité passée, acceptable).
 
 - [ ] **Step 3: Verify Helm template**
 
