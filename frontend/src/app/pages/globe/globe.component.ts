@@ -130,10 +130,8 @@ function gibsDailyDate(): string {
              pour empêcher navigation accidentelle ou logout en plein anim. -->
         <nav class="nav-links" [attr.aria-disabled]="isAnimating()"
              [title]="isAnimating() ? 'Navigation verrouillée pendant l\\'animation' : null">
-          <a routerLink="/legacy-map" class="nav-link" [attr.tabindex]="isAnimating() ? -1 : null">Carte 2D (legacy)</a>
-          <span class="nav-sep">·</span>
           <a routerLink="/about" class="nav-link" [attr.tabindex]="isAnimating() ? -1 : null">À propos</a>
-          <!-- G18 M15 (audit G-7) — auth corner parité /legacy-map -->
+          <!-- G18 M15 (audit G-7) — auth corner -->
           <span class="nav-sep">·</span>
           @if (currentUser(); as u) {
             <a routerLink="/palettes" class="nav-link" [attr.tabindex]="isAnimating() ? -1 : null">{{ '@' + u.username }}</a>

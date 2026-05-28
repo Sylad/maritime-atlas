@@ -56,15 +56,11 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/about/about.component').then((m) => m.AboutComponent),
     title: 'À propos · AetherWX',
   },
-  // G11e (2026-05-22) — bascule défaut : `/` sert maintenant GlobeComponent.
-  // La carte 2D OL legacy reste accessible 1 mois sur `/legacy-map` pour
-  // permettre rollback rapide si régression. Suppression du fichier
-  // map.component.ts (8047 lignes) après période de grâce.
-  {
-    path: 'legacy-map',
-    loadComponent: () => import('./pages/map/map.component').then((m) => m.MapComponent),
-    title: 'AetherWX — carte 2D (legacy)',
-  },
+  // G11e (2026-05-22) — `/` sert GlobeComponent (MapLibre).
+  // G67 (2026-05-28) — suppression de la carte 2D OpenLayers legacy
+  // (map.component.ts 8049 lignes) après période de grâce : elle créait
+  // de la confusion en dev (2 implémentations à maintenir). OL reste une
+  // dépendance pour /palettes (zone-preview + map-projections).
   {
     path: 'globe',
     redirectTo: '',
