@@ -83,6 +83,11 @@ STYLES_TO_DEPLOY = [
     {"name": "pressure-msl-ramp",     "default_for": ["pressure-msl"]},
     {"name": "humidity-2m-blue",      "default_for": ["humidity-2m"]},
     {"name": "precipitation-6h-log",  "default_for": ["precipitation-6h"]},
+    # ── G68 (2026-05-28) — GloFAS forecast crues (débit rivière m³/s). La
+    # coverage glofas-discharge est créée par glofas-fetcher (gs_bootstrap, peut
+    # être APRÈS ce Job au 1er boot) — idempotent, le default-style s'applique
+    # au prochain sync même si la 1ère passe 404.
+    {"name": "glofas-discharge",      "default_for": ["glofas-discharge"]},
 ]
 
 # Configuration interpolation Layer-level (Sylvain 2026-05-16). Bicubic

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from app.cds_client import GlofasCdsClient, GlofasFetchRequest
 from app.converter import grib_to_geotiffs
+from app.gs_bootstrap import ensure_geoserver_layer
 from app.writer import ensure_mosaic_config
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -69,6 +70,9 @@ def fetch(req: FetchRequest) -> FetchResponse:
         written = grib_to_geotiffs(grib_path, base_dir, run_time, req.leadtimes)
     finally:
         grib_path.unlink(missing_ok=True)
+
+    # Idempotent : crée le layer GS s'il manque, sinon reindex les nouveaux granules.
+    ensure_geoserver_layer()
 
     logger.info("fetch done run=%s written=%d geotiffs", run_time, len(written))
     dt = datetime.fromisoformat(run_time.replace("Z", "+00:00"))
