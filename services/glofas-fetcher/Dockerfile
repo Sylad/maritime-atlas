@@ -1,11 +1,8 @@
 # services/glofas-fetcher/Dockerfile
+# Sidecar léger : télécharge le GloFAS forecast GRIB2 depuis EWDS et le dépose
+# dans le coverage dir. PAS de conversion (GeoServer lit le GRIB nativement via
+# le plugin NetCDF/GRIB) → pas besoin de GDAL/rasterio/xarray.
 FROM python:3.12-slim-bookworm AS base
-
-# rasterio needs GDAL native libs
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgdal-dev \
-    gdal-bin \
-    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY requirements.txt .
