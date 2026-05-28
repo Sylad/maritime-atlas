@@ -247,6 +247,24 @@ fi
 if [ -f "/styles/wave-hs-rainbow.sld" ]; then
   upload_style "wave-hs-rainbow" "/styles/wave-hs-rainbow.sld" "wave-hs"
 fi
+# G67 — 4 forecasts atmosphériques GFS (temp 2m / pression MSL / humidité 2m /
+# précip cumulées). Les coverages sont créés au 1er cycle weather-fetcher ; si la
+# layer n'existe pas encore au boot, le PUT defaultStyle renvoie 404 silencieux
+# (idempotent au prochain run du provisioner). Les coverages restent affichables
+# sans SLD (raster gris GeoServer par défaut) — le data pipeline ne dépend pas
+# de ces styles.
+if [ -f "/styles/temp-2m-thermal.sld" ]; then
+  upload_style "temp-2m-thermal" "/styles/temp-2m-thermal.sld" "temp-2m"
+fi
+if [ -f "/styles/pressure-msl-ramp.sld" ]; then
+  upload_style "pressure-msl-ramp" "/styles/pressure-msl-ramp.sld" "pressure-msl"
+fi
+if [ -f "/styles/humidity-2m-blue.sld" ]; then
+  upload_style "humidity-2m-blue" "/styles/humidity-2m-blue.sld" "humidity-2m"
+fi
+if [ -f "/styles/precipitation-6h-log.sld" ]; then
+  upload_style "precipitation-6h-log" "/styles/precipitation-6h-log.sld" "precipitation-6h"
+fi
 # Style points + labels pour les bouées (vector, pas raster). Le 404
 # silencieux couvre le premier boot avant buoy-fetcher seed.
 if [ -f "/styles/buoys-default.sld" ]; then

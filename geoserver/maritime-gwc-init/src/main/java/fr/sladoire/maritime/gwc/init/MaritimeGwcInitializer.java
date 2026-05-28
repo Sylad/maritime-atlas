@@ -80,6 +80,11 @@ public class MaritimeGwcInitializer
         "aetherwx:wind-speed",
         "aetherwx:wave-hs",
         "aetherwx:wave-dir",
+        // G67 — 4 forecasts atmosphériques GFS (cache S3 pour animation I-4)
+        "aetherwx:temp-2m",
+        "aetherwx:pressure-msl",
+        "aetherwx:humidity-2m",
+        "aetherwx:precipitation-6h",
         "aetherwx:sat-eu-ir-rss",
         "aetherwx:sat-global-ir-mtg",
         "aetherwx:sat-eu-hrv-rgb",

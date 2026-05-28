@@ -38,6 +38,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
+import cfgrib
 import numpy as np
 import pika
 import requests
@@ -77,6 +78,12 @@ def report_job(status: str, started_at: datetime, **kwargs: object) -> None:
 WIND_DIR = Path(os.environ.get('WIND_DIR', '/coverage/wind-speed'))
 WAVE_HS_DIR = Path(os.environ.get('WAVE_HS_DIR', '/coverage/wave-hs'))
 WAVE_DIR_DIR = Path(os.environ.get('WAVE_DIR_DIR', '/coverage/wave-dir'))
+# G67 — 4 forecasts atmosphériques GFS additionnels (scaffold frontend déjà
+# en place : aetherwx:temp-2m / pressure-msl / humidity-2m / precipitation-6h).
+TEMP_2M_DIR = Path(os.environ.get('TEMP_2M_DIR', '/coverage/temp-2m'))
+PRESSURE_MSL_DIR = Path(os.environ.get('PRESSURE_MSL_DIR', '/coverage/pressure-msl'))
+HUMIDITY_2M_DIR = Path(os.environ.get('HUMIDITY_2M_DIR', '/coverage/humidity-2m'))
+PRECIP_6H_DIR = Path(os.environ.get('PRECIP_6H_DIR', '/coverage/precipitation-6h'))
 # Sprint 6 : arrows GeoJSON pour flèches de vent côté frontend.
 # Volume séparé (pas /coverage) car ce n'est pas un raster GeoServer.
 WIND_ARROWS_DIR = Path(os.environ.get('WIND_ARROWS_DIR', '/wind-arrows'))
@@ -262,6 +269,30 @@ def gfs_url(run: datetime, fhour: int) -> str:
         f"file=gfs.t{hh}z.pgrb2.0p25.f{fff}"
         f"&var_UGRD=on&var_VGRD=on"
         f"&lev_10_m_above_ground=on"
+        f"&subregion=&leftlon={BBOX_LON[0]}&rightlon={BBOX_LON[1]}"
+        f"&toplat={BBOX_LAT[1]}&bottomlat={BBOX_LAT[0]}"
+        f"&dir=%2Fgfs.{yyyymmdd}%2F{hh}%2Fatmos"
+    )
+
+
+def gfs_atmos_url(run: datetime, fhour: int) -> str:
+    """G67 — URL CGI subset GFS pour les 4 forecasts atmosphériques :
+      - TMP @ 2m (température 2m, K)            → cfgrib short_name 't2m'
+      - PRMSL @ mean sea level (pression, Pa)   → cfgrib short_name 'prmsl'
+      - RH @ 2m (humidité relative, %)          → cfgrib short_name 'r2'
+      - APCP @ surface (précip cumulées, mm)    → cfgrib short_name 'tp'
+        APCP est ACCUMULÉ et n'existe que pour fhour > 0 (rien à f000).
+    Une seule requête CGI multi-var/multi-niveau (économise des fetch).
+    Le GRIB renvoyé est hétérogène (3 typeOfLevel : heightAboveGround 2m /
+    meanSea / surface) — voir grib_atmos_to_geotiffs() pour le parsing."""
+    yyyymmdd = run.strftime('%Y%m%d')
+    hh = run.strftime('%H')
+    fff = f"{fhour:03d}"
+    return (
+        f"{GFS_BASE}?"
+        f"file=gfs.t{hh}z.pgrb2.0p25.f{fff}"
+        f"&var_TMP=on&var_PRMSL=on&var_RH=on&var_APCP=on"
+        f"&lev_2_m_above_ground=on&lev_mean_sea_level=on&lev_surface=on"
         f"&subregion=&leftlon={BBOX_LON[0]}&rightlon={BBOX_LON[1]}"
         f"&toplat={BBOX_LAT[1]}&bottomlat={BBOX_LAT[0]}"
         f"&dir=%2Fgfs.{yyyymmdd}%2F{hh}%2Fatmos"
@@ -550,6 +581,105 @@ def grib_to_geotiffs(grib: Path, valid_time: datetime) -> dict[str, Path]:
     return out
 
 
+def grib_atmos_to_geotiffs(grib: Path, valid_time: datetime) -> dict[str, Path]:
+    """G67 — Parse le GRIB GFS atmosphérique (TMP 2m / PRMSL / RH 2m / APCP)
+    et écrit 1 GeoTIFF par var dans son dossier dédié. Renvoie {var: path}.
+
+    PIÈGE cfgrib multi-niveaux (documenté §2 du brief) : les 4 vars sont sur
+    3 typeOfLevel distincts (heightAboveGround 2m / meanSea / surface).
+    `xr.open_dataset(engine='cfgrib')` lève DatasetBuildError ("multiple values
+    for unique key") sur un GRIB hétérogène.
+
+    CHOIX : `cfgrib.open_datasets()` (PLURIEL) — retourne une LISTE de datasets
+    homogènes (un par hypercube cohérent). On itère et on pioche chaque var par
+    son short_name. C'est le plus robuste car :
+      - 1 seul fetch HTTP (vs 1 requête CGI par niveau = 4× le trafic NOMADS) ;
+      - aucun filter_by_keys à maintenir si NOMADS change un typeOfLevel ;
+      - tolérant si une var manque (ex: APCP absent à f000) — on skip sans throw.
+    """
+    out: dict[str, Path] = {}
+    ts_str = valid_time.strftime('%Y%m%dT%H%M%SZ')
+    try:
+        datasets = cfgrib.open_datasets(str(grib), backend_kwargs={'indexpath': ''})
+    except Exception as exc:
+        log.warning('atmos GRIB open failed (%s) — skip', exc)
+        return out
+
+    # Indexe toutes les DataArrays présentes par short_name, tous datasets
+    # confondus (chaque ds est homogène en niveau mais on veut un lookup plat).
+    by_short: dict[str, xr.DataArray] = {}
+    for ds in datasets:
+        # Normalise lon en [-180,180] (idem grib_to_geotiffs).
+        if 'longitude' in ds.coords and float(ds['longitude'].max()) > 180:
+            ds = ds.assign_coords(longitude=(((ds['longitude'] + 180) % 360) - 180))
+            ds = ds.sortby('longitude')
+        for name, da in ds.data_vars.items():
+            by_short[str(name)] = da
+
+    def export(da: xr.DataArray, dest: Path) -> None:
+        if 'latitude' in da.coords:
+            da = da.sortby('latitude', ascending=False)
+        da = da.rename({'longitude': 'x', 'latitude': 'y'}) if 'longitude' in da.dims else da
+        da = da.rio.set_spatial_dims(x_dim='x', y_dim='y', inplace=False)
+        da = da.rio.write_crs('EPSG:4326')
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        da.rio.to_raster(dest, driver='GTiff', compress='LZW', tiled=True,
+                         blockxsize=128, blockysize=128)
+
+    def pick(*names: str) -> xr.DataArray | None:
+        for n in names:
+            if n in by_short:
+                return by_short[n].astype('float32')
+        return None
+
+    # Température 2m : K → °C
+    t = pick('t2m', '2t')
+    if t is not None:
+        t = t - 273.15
+        t.attrs['units'] = 'degC'
+        t.attrs['long_name'] = 'Temperature at 2m'
+        dest = TEMP_2M_DIR / f'temp_2m_{ts_str}.tif'
+        if not dest.exists():
+            export(t, dest)
+            out['temp_2m'] = dest
+
+    # Pression MSL : Pa → hPa
+    p = pick('prmsl', 'msl')
+    if p is not None:
+        p = p / 100.0
+        p.attrs['units'] = 'hPa'
+        p.attrs['long_name'] = 'Mean sea level pressure'
+        dest = PRESSURE_MSL_DIR / f'pressure_msl_{ts_str}.tif'
+        if not dest.exists():
+            export(p, dest)
+            out['pressure_msl'] = dest
+
+    # Humidité relative 2m : % tel quel
+    rh = pick('r2', 'r')
+    if rh is not None:
+        rh.attrs['units'] = '%'
+        rh.attrs['long_name'] = 'Relative humidity at 2m'
+        dest = HUMIDITY_2M_DIR / f'humidity_2m_{ts_str}.tif'
+        if not dest.exists():
+            export(rh, dest)
+            out['humidity_2m'] = dest
+
+    # Précipitations cumulées : kg/m² = mm. APCP est accumulé (souvent sur la
+    # tranche 0→fhour ou 6h selon le run) et absent à f000 → pick renvoie None.
+    tp = pick('tp', 'acpcp')
+    if tp is not None:
+        tp.attrs['units'] = 'mm'
+        tp.attrs['long_name'] = 'Total precipitation (accumulated)'
+        dest = PRECIP_6H_DIR / f'precipitation_6h_{ts_str}.tif'
+        if not dest.exists():
+            export(tp, dest)
+            out['precipitation_6h'] = dest
+
+    for ds in datasets:
+        ds.close()
+    return out
+
+
 # ─── Cycle ──────────────────────────────────────────────────────────────
 def cleanup_old_files(retention_days: int = 7) -> None:
     """Sprint 10b — supprime .tif et .geojson plus vieux que retention_days.
@@ -557,7 +687,8 @@ def cleanup_old_files(retention_days: int = 7) -> None:
     YYYYMMDDTHHMMSSZ depuis le nom de fichier."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
     removed = 0
-    for d in (WIND_DIR, WAVE_HS_DIR, WAVE_DIR_DIR, WIND_ARROWS_DIR):
+    for d in (WIND_DIR, WAVE_HS_DIR, WAVE_DIR_DIR, WIND_ARROWS_DIR,
+              TEMP_2M_DIR, PRESSURE_MSL_DIR, HUMIDITY_2M_DIR, PRECIP_6H_DIR):
         if not d.exists():
             continue
         for f in list(d.glob('*.tif')) + list(d.glob('*.geojson')):
@@ -594,7 +725,8 @@ def _do_fetch_cycle() -> int:
     log.info('weather-fetcher cycle starting (forecast=%dh, step=%dh)',
              FORECAST_HOURS, FORECAST_STEP)
     cleanup_old_files(retention_days=int(os.environ.get('WEATHER_RETENTION_DAYS', '7')))
-    for d in (WIND_DIR, WAVE_HS_DIR, WAVE_DIR_DIR):
+    for d in (WIND_DIR, WAVE_HS_DIR, WAVE_DIR_DIR,
+              TEMP_2M_DIR, PRESSURE_MSL_DIR, HUMIDITY_2M_DIR, PRECIP_6H_DIR):
         ensure_mosaic_config_files(d)
 
     run = latest_gfs_run()
@@ -617,6 +749,16 @@ def _do_fetch_cycle() -> int:
             gfs_grib.unlink(missing_ok=True)
             (gfs_grib.with_suffix('.grib2.idx')).unlink(missing_ok=True)
 
+        # G67 — GFS atmosphérique (temp 2m / pression MSL / humidité 2m /
+        # précip cumulées). Requête CGI séparée (autres vars/niveaux que le vent).
+        atmos_grib = TEMP_2M_DIR / f'_tmp_gfs_atmos_{ts_str}.grib2'
+        if fetch_grib(gfs_atmos_url(run, fhour), atmos_grib):
+            paths = grib_atmos_to_geotiffs(atmos_grib, valid_time)
+            for var, p in paths.items():
+                new_files.setdefault(var, []).append(p)
+            atmos_grib.unlink(missing_ok=True)
+            (atmos_grib.with_suffix('.grib2.idx')).unlink(missing_ok=True)
+
         # WW3 waves
         ww3_grib = WAVE_HS_DIR / f'_tmp_ww3_{ts_str}.grib2'
         if fetch_grib(ww3_url(run, fhour), ww3_grib):
@@ -626,8 +768,11 @@ def _do_fetch_cycle() -> int:
             ww3_grib.unlink(missing_ok=True)
             (ww3_grib.with_suffix('.grib2.idx')).unlink(missing_ok=True)
 
-    log.info('Cycle done — new GeoTIFFs: wind=%d, wave_hs=%d, wave_dir=%d',
-             len(new_files['wind_speed']), len(new_files['wave_hs']), len(new_files['wave_dir']))
+    log.info('Cycle done — new GeoTIFFs: wind=%d, wave_hs=%d, wave_dir=%d, '
+             'temp_2m=%d, pressure_msl=%d, humidity_2m=%d, precip_6h=%d',
+             len(new_files['wind_speed']), len(new_files['wave_hs']), len(new_files['wave_dir']),
+             len(new_files.get('temp_2m', [])), len(new_files.get('pressure_msl', [])),
+             len(new_files.get('humidity_2m', [])), len(new_files.get('precipitation_6h', [])))
 
     # Wait for GeoServer (au boot peut être lent)
     for _ in range(10):
@@ -644,10 +789,17 @@ def _do_fetch_cycle() -> int:
     # coverage_name doit matcher le nom du DOSSIER (cf bug SST sprint 3) —
     # GeoServer auto-discover via le path, le store name est arbitraire mais
     # le coverage doit reprendre le basename du dir.
+    # store name = key var (basename des .tif) ; coverage = basename du DOSSIER
+    # (cf bug SST sprint 3). Pour les nouvelles layers G67, store et coverage
+    # diffèrent volontairement (ex store 'temp_2m' / coverage 'temp-2m').
     layers = [
         ('wind_speed', 'wind-speed', WIND_DIR, 'Wind speed at 10m (NOAA GFS)'),
         ('wave_hs',    'wave-hs',    WAVE_HS_DIR, 'Significant wave height (NOAA WW3)'),
         ('wave_dir',   'wave-dir',   WAVE_DIR_DIR, 'Primary wave direction (NOAA WW3)'),
+        ('temp_2m',         'temp-2m',         TEMP_2M_DIR,      'Temperature at 2m (NOAA GFS)'),
+        ('pressure_msl',    'pressure-msl',    PRESSURE_MSL_DIR, 'Mean sea level pressure (NOAA GFS)'),
+        ('humidity_2m',     'humidity-2m',     HUMIDITY_2M_DIR,  'Relative humidity at 2m (NOAA GFS)'),
+        ('precipitation_6h','precipitation-6h',PRECIP_6H_DIR,    'Total precipitation cumulative (NOAA GFS)'),
     ]
     for store, coverage, cdir, title in layers:
         has_tifs = any(cdir.glob('*_*.tif'))
@@ -667,7 +819,8 @@ def _do_fetch_cycle() -> int:
 
 
 def main() -> None:
-    for d in (WIND_DIR, WAVE_HS_DIR, WAVE_DIR_DIR):
+    for d in (WIND_DIR, WAVE_HS_DIR, WAVE_DIR_DIR,
+              TEMP_2M_DIR, PRESSURE_MSL_DIR, HUMIDITY_2M_DIR, PRECIP_6H_DIR):
         d.mkdir(parents=True, exist_ok=True)
     log.info('weather-fetcher starting')
 
