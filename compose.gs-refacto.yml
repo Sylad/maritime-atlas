@@ -14,24 +14,28 @@
 name: gs-refacto
 
 services:
-  # ─── Postgres dédié au catalog GS (image PostGIS = spatial_ref_sys) ──
+  # ─── Postgres reproduit pg-catalog cible Mini-Blue (image PostGIS) ──
+  # Phase A : DB `maritime` schema `geoserver` = setup actuel Mini-Blue +
+  # extension postgis ajoutée. Zéro migration data nécessaire (le schema
+  # geoserver existant garde ses 181 rows).
   pg-gs:
     image: ghcr.io/cloudnative-pg/postgis:16-3.4
     environment:
-      POSTGRES_USER: geoserver
-      POSTGRES_PASSWORD: geoserver-test
-      POSTGRES_DB: geoserver
+      POSTGRES_USER: maritime
+      POSTGRES_PASSWORD: maritime-test
+      POSTGRES_DB: maritime
     volumes:
       - pg-gs-data:/var/lib/postgresql/data
-      # Init script qui crée l'extension postgis dans la DB geoserver
+      # Init script qui crée le schema geoserver + extensions postgis dans
+      # la DB maritime + ALTER USER search_path
       - ./geoserver/cluster/pg-gs-init.sql:/docker-entrypoint-initdb.d/01-postgis.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U geoserver -d geoserver"]
+      test: ["CMD-SHELL", "pg_isready -U maritime -d maritime"]
       interval: 5s
       timeout: 3s
       retries: 20
     ports:
-      - "15433:5432"   # exposed for debug : psql -h localhost -p 15433 -U geoserver
+      - "15433:5432"   # exposed for debug : psql -h localhost -p 15433 -U maritime
 
   # ─── GeoServer custom image OSGeo + JNDI + plugins JDBC ────────────
   gs:
@@ -45,9 +49,9 @@ services:
       # Conventions OSGeo natives (cf mémoire maritime_sandbox_acquis_2026_05_16)
       POSTGRES_HOST: pg-gs
       POSTGRES_PORT: "5432"
-      POSTGRES_DB: geoserver
-      POSTGRES_USERNAME: geoserver         # (PAS POSTGRES_USER, c'est USERNAME chez OSGeo)
-      POSTGRES_PASSWORD: geoserver-test
+      POSTGRES_DB: maritime
+      POSTGRES_USERNAME: maritime          # (PAS POSTGRES_USER, c'est USERNAME chez OSGeo)
+      POSTGRES_PASSWORD: maritime-test
       POSTGRES_JNDI_ENABLED: "true"        # active la datasource JNDI native
       # GS admin
       GEOSERVER_ADMIN_USER: admin
