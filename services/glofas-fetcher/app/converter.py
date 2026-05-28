@@ -39,7 +39,11 @@ def grib_to_geotiffs(
         n = ds.count
         if n != len(leadtimes):
             logger.warning("grib bands=%d != leadtimes=%d — mapping positional min", n, len(leadtimes))
-        base_profile = ds.profile.copy()
+        # Profile propre : on NE copie PAS le profile GRIB (blocs 7200×1 incompatibles
+        # avec tiled). On reconstruit avec des tuiles 256×256 (multiples de 16).
+        crs = ds.crs
+        transform = ds.transform
+        nodata = ds.nodata
         for i in range(min(n, len(leadtimes))):
             band = i + 1
             lh = leadtimes[i]
@@ -47,9 +51,22 @@ def grib_to_geotiffs(
             ts = validity.strftime("%Y%m%dT%H%M%SZ")
             arr = ds.read(band)
             out_path = out_dir / f"discharge_{ts}.tif"
-            profile = base_profile.copy()
-            profile.update(driver="GTiff", count=1, dtype=arr.dtype, compress="DEFLATE", tiled=True)
-            with rasterio.open(out_path, "w", **profile) as dst:
+            with rasterio.open(
+                out_path,
+                "w",
+                driver="GTiff",
+                height=arr.shape[0],
+                width=arr.shape[1],
+                count=1,
+                dtype=arr.dtype,
+                crs=crs,
+                transform=transform,
+                nodata=nodata,
+                compress="DEFLATE",
+                tiled=True,
+                blockxsize=256,
+                blockysize=256,
+            ) as dst:
                 dst.write(arr, 1)
                 dst.update_tags(RUN_TIME=run_time, LEADTIME_H=lh, VALIDITY=ts)
             logger.info("wrote %s (band %d, lh %dh, validity %s)", out_path.name, band, lh, ts)
