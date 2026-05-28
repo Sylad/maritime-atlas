@@ -74,6 +74,15 @@ STYLES_TO_DEPLOY = [
     {"name": "sst-only",              "default_for": []},
     {"name": "sst-with-contours",     "default_for": []},
     {"name": "wave-hs-with-contours", "default_for": []},
+    # ── G69 (2026-05-28) — 4 forecasts GFS atmosphériques. Default style =
+    # le SLD coloré dédié (sinon GeoServer applique aetherwx:raster gris).
+    # Les coverages sont créées par weather-fetcher (peut être APRÈS ce Job au
+    # 1er boot) — bootstrap.py est idempotent et re-tourne au prochain sync,
+    # donc le default-style finit par s'appliquer même si la 1ère passe 404.
+    {"name": "temp-2m-thermal",       "default_for": ["temp-2m"]},
+    {"name": "pressure-msl-ramp",     "default_for": ["pressure-msl"]},
+    {"name": "humidity-2m-blue",      "default_for": ["humidity-2m"]},
+    {"name": "precipitation-6h-log",  "default_for": ["precipitation-6h"]},
 ]
 
 # Configuration interpolation Layer-level (Sylvain 2026-05-16). Bicubic
