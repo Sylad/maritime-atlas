@@ -965,15 +965,21 @@ function gibsDailyDate(): string {
                          (input)="setLayerOpacity('piezo', +$any($event.target).value)" />
                 }
               </div>
-              <div class="layer-row layer-soon">
-                <label class="layer-toggle dim">
-                  <input type="checkbox" disabled />
-                  <span class="toggle-glyph"><span class="glyph-icon">⚠</span></span>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showEfas()"
+                       title="Copernicus EMS — archive publique uniquement (T-30j+)">
+                  <input type="checkbox" [checked]="showEfas()" (change)="toggleEfas(!showEfas())" />
+                  <span class="toggle-glyph"><span class="glyph-icon">🌊</span></span>
                   <span class="toggle-text">
-                    <span class="toggle-name">Prévisions crues <span class="soon-tag">accès limité</span></span>
-                    <span class="toggle-count">EFAS Copernicus (compte EMS requis)</span>
+                    <span class="toggle-name">EFAS forecast crues</span>
+                    <span class="toggle-count">Copernicus EMS · archive ≥30j</span>
                   </span>
                 </label>
+                @if (showEfas()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('efas')"
+                         (input)="setLayerOpacity('efas', +$any($event.target).value)" />
+                }
               </div>
               <div class="layer-row layer-soon">
                 <label class="layer-toggle dim">
@@ -1044,22 +1050,6 @@ function gibsDailyDate(): string {
                   <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
                          [value]="getLayerOpacity('mpa')"
                          (input)="setLayerOpacity('mpa', +$any($event.target).value)" />
-                }
-              </div>
-              <div class="layer-row">
-                <label class="layer-toggle" [class.dim]="!showEfas()"
-                       title="Copernicus EMS — archive publique uniquement (T-30j+)">
-                  <input type="checkbox" [checked]="showEfas()" (change)="toggleEfas(!showEfas())" />
-                  <span class="toggle-glyph"><span class="glyph-icon">🌊</span></span>
-                  <span class="toggle-text">
-                    <span class="toggle-name">EFAS forecast crues</span>
-                    <span class="toggle-count">Copernicus EMS · archive ≥30j</span>
-                  </span>
-                </label>
-                @if (showEfas()) {
-                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
-                         [value]="getLayerOpacity('efas')"
-                         (input)="setLayerOpacity('efas', +$any($event.target).value)" />
                 }
               </div>
               <!-- G66 (2026-05-27) — Câbles sous-marins impl. Source =
@@ -2934,7 +2924,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         return { active: flags.filter(Boolean).length, total: flags.length };
       }
       case 'hydrology': {
-        const flags = [this.showHubeau(), this.showPiezo()];
+        // 2026-05-27 — EFAS forecast crues déplacé de Sources → Hydrologie.
+        const flags = [this.showHubeau(), this.showPiezo(), this.showEfas()];
         return { active: flags.filter(Boolean).length, total: flags.length };
       }
       case 'satellites': {
