@@ -26,7 +26,7 @@
 #
 # Le rest = défauts de l'image officielle GS, déterministe.
 
-ARG GS_VERSION=2.28.4
+ARG GS_VERSION=2.28.3
 
 # ── Builder stage : gs-hz-cluster + deps Hazelcast from source ──────
 # Clone shallow du tag GS exact + mvn package du module community/hz-cluster
@@ -104,7 +104,7 @@ RUN curl -fL --retry 5 --retry-delay 3 --retry-all-errors \
 #
 # Pour les COMMUNITY modules (jdbcconfig, jdbcstore), garde le JAR direct
 # depuis Nexus — leurs deps sont déjà bundlées dans l'image GS base.
-ARG GS_VERSION=2.28.4
+ARG GS_VERSION=2.28.3
 ARG NEXUS_RELEASE=https://repo.osgeo.org/repository/release/org/geoserver
 ARG SF_RELEASE=https://sourceforge.net/projects/geoserver/files/GeoServer
 
