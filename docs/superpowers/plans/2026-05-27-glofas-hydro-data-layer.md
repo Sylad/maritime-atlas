@@ -2090,6 +2090,17 @@ Expected: `{ available: true, run: "...", series: [{ ts, Q5, Q20, Q50 } x 7] }`.
 
 # Phase 5 — Frontend Angular
 
+> ⚠️ **RETARGET 2026-05-27 (décision Sylvain)** : la carte 2D `/` (`map.component.ts`)
+> est en cours de dépréciation — `/globe` (`globe.component.ts`) devient LA vue.
+> **TOUTES les tasks Phase 5 ci-dessous ciblent désormais `frontend/src/app/pages/globe/globe.component.ts`**, PAS `map.component.ts`.
+>
+> Différences pratiques sur globe.component.ts :
+> - Le toggle EFAS y était un toggle ACTIF dans Sources (pas un placeholder désactivé comme sur map). **Task 18 (move Sources → Hydrologie) est DÉJÀ FAITE** sur globe (commit 042cc85, 2026-05-27) — le toggle est dans Hydrologie, le compteur `catalogSectionCount('hydrology')` inclut `showEfas()`.
+> - Les layers globe utilisent MapLibre (pas OpenLayers) — `addLayer`/`addSource` via `toggleEfas()`, `LAYER_PROFILES` côté globe = `animatableLayersGlobe`. Le wiring time-bar diffère de map.component.ts.
+> - Pour Task 16 (remove old EFAS) : sur globe, l'EFAS layer pointe `/wms-efas` proxy (archive ≥30j). À swapper vers les 3 layers GS GloFAS `aetherwx:glofas-flood-prob-{q5,q20,q50}` quand Tasks 13-15 livrées, + rename label EFAS → GloFAS + dropdown seuil.
+> - Pour Task 17/19 : suivre le pattern `animatableLayersGlobe` + agent `maritime-layer-time-coherence` (cf skill `/check-layer-time-coherence`).
+> - `map.component.ts` EFAS code : laisser tel quel (le 2D meurt), ne pas perdre de temps à le nettoyer.
+
 ## Task 16: Remove old EFAS code
 
 **Files:**
