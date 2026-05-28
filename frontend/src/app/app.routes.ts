@@ -71,4 +71,10 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/globe/globe.component').then((m) => m.GlobeComponent),
     title: 'AetherWX',
   },
+  // G67 — catch-all : tout chemin inconnu (ex: ancien bookmark /legacy-map)
+  // redirige proprement vers le globe au lieu de throw NG04002.
+  {
+    path: '**',
+    redirectTo: '',
+  },
 ];
