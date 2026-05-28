@@ -26,7 +26,7 @@
 #
 # Le rest = défauts de l'image officielle GS, déterministe.
 
-ARG GS_VERSION=2.28.3
+ARG GS_VERSION=2.28.4
 
 # ── Builder stage : gs-hz-cluster + deps Hazelcast from source ──────
 # Clone shallow du tag GS exact + mvn package du module community/hz-cluster
@@ -104,7 +104,7 @@ RUN curl -fL --retry 5 --retry-delay 3 --retry-all-errors \
 #
 # Pour les COMMUNITY modules (jdbcconfig, jdbcstore), garde le JAR direct
 # depuis Nexus — leurs deps sont déjà bundlées dans l'image GS base.
-ARG GS_VERSION=2.28.3
+ARG GS_VERSION=2.28.4
 ARG NEXUS_RELEASE=https://repo.osgeo.org/repository/release/org/geoserver
 ARG SF_RELEASE=https://sourceforge.net/projects/geoserver/files/GeoServer
 
@@ -150,6 +150,26 @@ RUN cd /tmp && \
     rm -f /tmp/gwc-s3-plugin.zip && \
     ls -lh /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-gwc-s3* \
            /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/aws-java-sdk-s3* 2>&1 | head -5
+
+# 2026-05-28 — NetCDF + GRIB coverage readers (extensions officielles
+# supportées). Requis pour servir le forecast GloFAS GRIB2 nativement via
+# ImageMosaic (dimension TIME auto-extraite des steps de forecast), sans
+# convertir en GeoTIFF côté sidecar. La GRIB extension dépend des libs
+# NetCDF-Java/cdm → installer les 2 bundles. Pattern bundle ZIP SourceForge
+# (comme wps/control-flow/gwc-s3).
+RUN cd /tmp && \
+    curl -fL --retry 8 --retry-delay 5 --retry-all-errors \
+      -o netcdf-plugin.zip \
+      "${SF_RELEASE}/${GS_VERSION}/extensions/geoserver-${GS_VERSION}-netcdf-plugin.zip/download" && \
+    unzip -o netcdf-plugin.zip -d /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/ && \
+    curl -fL --retry 8 --retry-delay 5 --retry-all-errors \
+      -o grib-plugin.zip \
+      "${SF_RELEASE}/${GS_VERSION}/extensions/geoserver-${GS_VERSION}-grib-plugin.zip/download" && \
+    unzip -o grib-plugin.zip -d /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/ && \
+    rm -f /tmp/netcdf-plugin.zip /tmp/grib-plugin.zip && \
+    ls -lh /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-netcdf* \
+           /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/gs-grib* \
+           /usr/local/tomcat/webapps/geoserver/WEB-INF/lib/cdm* 2>&1 | head -8
 
 # Tomcat context.xml template — datasource JNDI jdbc/geoserver centralisée
 COPY tomcat-context.xml.tpl /usr/local/tomcat/conf/context.xml.tpl
