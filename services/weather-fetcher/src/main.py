@@ -196,9 +196,17 @@ def create_mosaic_store(store_name: str, coverage_name: str, coverage_dir: Path,
             log.warning('Step 2 (harvest) HTTP %d: %s', r2.status_code, r2.text[:300])
             return False
 
-        # Strategy MAXIMUM = quand TIME absent côté requête, GS prend le dernier
-        # timestep dispo. NEAREST nécessite un referenceValue qu'on n'a pas
-        # (ServiceException sinon, qui SKIP la layer en GetCapabilities).
+        # defaultValue strategy MAXIMUM = quand TIME absent côté requête, GS
+        # prend le dernier timestep dispo (≠ NEAREST strategy qui exigerait un
+        # referenceValue qu'on n'a pas).
+        # G69c (2026-05-28) — nearestMatchEnabled=true : quand la requête envoie
+        # un TIME qui ne tombe pas EXACTEMENT sur une validité indexée (cas du
+        # frontend dont la validityList client-side est sur des pas 6h calés sur
+        # `now`, pas sur les run-times GFS 00/06/12/18), GS snappe au plus proche
+        # au lieu de renvoyer InvalidDimensionValue → tuile vide. wind-speed/
+        # wave-hs avaient ce flag (posé manuellement) ; on le met ici pour que
+        # TOUTE coverage créée par ce service l'ait durablement. nearestMatch
+        # n'exige PAS de referenceValue (≠ defaultValue strategy NEAREST).
         coverage_xml = f"""<coverage>
   <name>{coverage_name}</name>
   <nativeName>{coverage_name}</nativeName>
@@ -211,6 +219,7 @@ def create_mosaic_store(store_name: str, coverage_name: str, coverage_dir: Path,
         <presentation>LIST</presentation>
         <units>ISO8601</units>
         <defaultValue><strategy>MAXIMUM</strategy></defaultValue>
+        <nearestMatchEnabled>true</nearestMatchEnabled>
       </dimensionInfo>
     </entry>
   </metadata>
