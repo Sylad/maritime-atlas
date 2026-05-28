@@ -615,6 +615,26 @@ CREATE INDEX IF NOT EXISTS fir_airspaces_geom_gidx
 CREATE INDEX IF NOT EXISTS fir_airspaces_type_idx
   ON fir_airspaces (type);
 
+-- ─── G66l (2026-05-27) — Airports OpenAIP (IATA commerciaux) ────────
+-- Donnée quasi-statique. Sync cron hebdo via OpenAIPService.syncAirports().
+-- Filter : iataCode != null (≈9000 commerciaux mondiaux). PostGIS Point
+-- EPSG:4326 + GIST pour bbox queries futures + cluster MapLibre côté front.
+CREATE TABLE IF NOT EXISTS airports (
+  openaip_id   TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  icao_code    TEXT,
+  iata_code    TEXT,
+  country      TEXT,
+  type         INTEGER,        -- code type OpenAIP (3=intl, 9=IFR, etc.)
+  elevation_ft INTEGER,
+  geom         GEOMETRY(Point, 4326) NOT NULL,
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS airports_geom_gidx
+  ON airports USING GIST (geom);
+CREATE INDEX IF NOT EXISTS airports_iata_idx
+  ON airports (iata_code);
+
 -- ─── APEX Satellites Phase 4 (2026-05-19) — NASA GIBS via GeoServer ─
 -- Refacto Phase 4 : on bascule du sink file_save (nginx static) vers le
 -- pattern canonique grib-parser sidecar + ImageMosaic GeoServer.

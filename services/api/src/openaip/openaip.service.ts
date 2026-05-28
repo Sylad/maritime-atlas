@@ -74,7 +74,25 @@ export class OpenAIPService implements OnModuleInit {
         this.log.log(`fir_airspaces déjà peuplée (${n} rows) — skip initial sync.`);
       }
     } catch (err) {
-      this.log.warn(`onModuleInit count check failed : ${err instanceof Error ? err.message : String(err)}`);
+      this.log.warn(`onModuleInit FIR count check failed : ${err instanceof Error ? err.message : String(err)}`);
+    }
+    // G66l — bootstrap airports si table vide + clé présente.
+    const key = this._config.get<string>('openaipApiKey') ?? '';
+    if (key) {
+      try {
+        const rows = await this.db.execute(sql`SELECT COUNT(*) AS n FROM airports`);
+        const n = Number((rows as unknown as Array<{ n: string | number }>)[0]?.n ?? 0);
+        if (n === 0) {
+          this.log.log('airports table empty — déclenche sync OpenAIP airports initial (fire-and-forget).');
+          void this.syncAirports().catch((err) => {
+            this.log.error(`Initial airports sync échoué : ${err instanceof Error ? err.message : String(err)}`);
+          });
+        } else {
+          this.log.log(`airports déjà peuplée (${n} rows) — skip initial sync.`);
+        }
+      } catch (err) {
+        this.log.warn(`onModuleInit airports count check failed : ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
   }
 
@@ -172,6 +190,128 @@ export class OpenAIPService implements OnModuleInit {
     } finally {
       this.syncInProgress = false;
     }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // G66l (2026-05-27) — Airports OpenAIP (IATA commerciaux)
+  // ─────────────────────────────────────────────────────────────────────
+
+  private airportsSyncInProgress = false;
+
+  /** Cron weekly airports : dimanche 03:30 UTC (décalé de la sync FIR). */
+  @Cron('30 3 * * 0', { name: 'openaip-airports-sync', timeZone: 'UTC' })
+  async cronSyncAirports(): Promise<void> {
+    const key = this._config.get<string>('openaipApiKey') ?? '';
+    if (!key) return;
+    this.log.log('Cron weekly sync OpenAIP airports…');
+    await this.syncAirports();
+  }
+
+  /**
+   * Fetch + UPSERT les airports OpenAIP avec iataCode (commerciaux, ~9000).
+   * Pagine /api/airports?limit=1000. Filter iataCode != null côté client.
+   */
+  async syncAirports(): Promise<{ inserted: number; updated: number }> {
+    const apiKey = this._config.get<string>('openaipApiKey') ?? '';
+    if (!apiKey) throw new Error('OPENAIP_API_KEY missing');
+    if (this.airportsSyncInProgress) {
+      this.log.warn('Sync airports déjà en cours, skip.');
+      return { inserted: 0, updated: 0 };
+    }
+    this.airportsSyncInProgress = true;
+    let inserted = 0;
+    let updated = 0;
+    let skipped = 0;
+    const seenIds: string[] = [];
+    try {
+      let page = 1;
+      const limit = 1000;
+      while (true) {
+        const url = `https://api.core.openaip.net/api/airports?limit=${limit}&page=${page}`;
+        const resp = await fetch(url, {
+          headers: { 'x-openaip-api-key': apiKey, 'Accept': 'application/json', 'User-Agent': 'aetherwx/openaip-airports' },
+        });
+        if (!resp.ok) throw new Error(`OpenAIP /airports page=${page} HTTP ${resp.status}`);
+        const body = await resp.json() as { items?: Array<Record<string, unknown>>; totalPages?: number };
+        const items = body.items ?? [];
+        for (const it of items) {
+          const iata = it['iataCode'] as string | undefined;
+          if (!iata) { skipped++; continue; }   // commerciaux only
+          const id = (it['_id'] ?? it['id']) as string | undefined;
+          const geom = it['geometry'] as { type: string; coordinates: unknown } | undefined;
+          if (!id || !geom) { skipped++; continue; }
+          seenIds.push(id);
+          const elev = it['elevation'] as { value?: number } | undefined;
+          const result = await this.db.execute(sql`
+            INSERT INTO airports (
+              openaip_id, name, icao_code, iata_code, country, type, elevation_ft, geom, updated_at
+            ) VALUES (
+              ${id},
+              ${(it['name'] as string) ?? '(unnamed)'},
+              ${(it['icaoCode'] as string) ?? null},
+              ${iata},
+              ${(it['country'] as string) ?? null},
+              ${(it['type'] as number) ?? null},
+              ${elev?.value ?? null},
+              ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(geom)}), 4326),
+              NOW()
+            )
+            ON CONFLICT (openaip_id) DO UPDATE SET
+              name = EXCLUDED.name,
+              icao_code = EXCLUDED.icao_code,
+              iata_code = EXCLUDED.iata_code,
+              country = EXCLUDED.country,
+              type = EXCLUDED.type,
+              elevation_ft = EXCLUDED.elevation_ft,
+              geom = EXCLUDED.geom,
+              updated_at = NOW()
+            RETURNING (xmax = 0) AS inserted
+          `);
+          const wasInsert = (result as unknown as Array<{ inserted: boolean }>)[0]?.inserted;
+          if (wasInsert) inserted++; else updated++;
+        }
+        const totalPages = body.totalPages ?? 1;
+        if (page >= totalPages) break;
+        page++;
+        if (page > 60) { this.log.warn(`Airports pagination cap (page=${page}).`); break; }
+      }
+      this.log.log(`Sync airports terminé : ${inserted} insérés, ${updated} updatés, ${skipped} skipped (sans IATA).`);
+      return { inserted, updated };
+    } finally {
+      this.airportsSyncInProgress = false;
+    }
+  }
+
+  /** Lit la table airports → GeoJSON FeatureCollection. Optionnel bbox filter. */
+  async getAirports(bbox?: [number, number, number, number]): Promise<{ type: 'FeatureCollection'; features: unknown[] }> {
+    const rows = bbox
+      ? await this.db.execute(sql`
+          SELECT openaip_id, name, icao_code, iata_code, country, type, elevation_ft,
+                 ST_AsGeoJSON(geom)::json AS geometry
+          FROM airports
+          WHERE geom && ST_MakeEnvelope(${bbox[0]}, ${bbox[1]}, ${bbox[2]}, ${bbox[3]}, 4326)
+          ORDER BY iata_code
+        `)
+      : await this.db.execute(sql`
+          SELECT openaip_id, name, icao_code, iata_code, country, type, elevation_ft,
+                 ST_AsGeoJSON(geom)::json AS geometry
+          FROM airports
+          ORDER BY iata_code
+        `);
+    const features = (rows as Array<Record<string, unknown>>).map((r) => ({
+      type: 'Feature' as const,
+      geometry: r['geometry'],
+      properties: {
+        id: r['openaip_id'],
+        name: r['name'],
+        icaoCode: r['icao_code'],
+        iataCode: r['iata_code'],
+        country: r['country'],
+        type: r['type'],
+        elevationFt: r['elevation_ft'],
+      },
+    }));
+    return { type: 'FeatureCollection', features };
   }
 
   /** Lit la table fir_airspaces et retourne une FeatureCollection GeoJSON. */

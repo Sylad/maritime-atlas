@@ -1071,7 +1071,7 @@ function gibsDailyDate(): string {
                   <span class="toggle-glyph"><span class="glyph-icon">✈</span></span>
                   <span class="toggle-text">
                     <span class="toggle-name">FIR / UIR airspaces</span>
-                    <span class="toggle-count">{{ vectorCounts()['fir'] ?? 0 }} zones · OpenAIP</span>
+                    <span class="toggle-count">{{ vectorCounts()['fir'] ?? 0 }} zones · VATSpy</span>
                   </span>
                 </label>
                 @if (showFir()) {
@@ -1079,6 +1079,18 @@ function gibsDailyDate(): string {
                          [value]="getLayerOpacity('fir')"
                          (input)="setLayerOpacity('fir', +$any($event.target).value)" />
                 }
+              </div>
+              <!-- G66l (2026-05-27) — Airports IATA commerciaux (OpenAIP via API
+                   NestJS, PostGIS table airports, sync weekly cron). Cluster. -->
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showAirports()">
+                  <input type="checkbox" [checked]="showAirports()" (change)="toggleVector('airports')" />
+                  <span class="toggle-glyph"><span class="glyph-icon">✈</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Aéroports (IATA)</span>
+                    <span class="toggle-count">{{ vectorCounts()['airports'] ?? 0 }} aéroports · OpenAIP</span>
+                  </span>
+                </label>
               </div>
             </div>
             }
@@ -2436,6 +2448,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       void this.showMetar(); void this.showHubeau(); void this.showPiezo();
       void this.showQuakes(); void this.showFirms(); void this.showBuoys();
       void this.showRain(); void this.showRadarDwd(); void this.showRadarKnmi();
+      // G66 (2026-05-27) — nouveaux vector layers dans le graph de deps pour
+      // que l'attribution se refresh à leur toggle (sinon source pas créditée).
+      void this.showSigmet(); void this.showTaf(); void this.showCables();
+      void this.showFir(); void this.showAirports();
       for (const sig of Object.values(this.satShowSignals())) { void sig(); }
       const map = this.map;
       if (map) this.refreshAttribution(map);
@@ -2586,6 +2602,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   readonly showTaf = signal(false);
   /** G66f (2026-05-27) — FIR + UIR airspaces (OpenAIP via API NestJS proxy). */
   readonly showFir = signal(false);
+  /** G66l (2026-05-27) — Airports IATA commerciaux (OpenAIP, cluster). */
+  readonly showAirports = signal(false);
   readonly showTemp2m = signal(false);
   readonly showPressureMsl = signal(false);
   readonly showHumidity = signal(false);
@@ -2699,6 +2717,11 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (this.showRain()) out.push('RainViewer');
     if (this.showRadarDwd()) out.push('DWD');
     if (this.showRadarKnmi()) out.push('KNMI');
+    // G66 (2026-05-27) — attribution des nouveaux vector layers (obligatoire).
+    if (this.showSigmet() || this.showTaf()) out.push('<a href="https://aviationweather.gov" target="_blank" rel="noopener">NOAA Aviation Weather</a>');
+    if (this.showCables()) out.push('<a href="https://www.submarinecablemap.com" target="_blank" rel="noopener">TeleGeography</a>');
+    if (this.showFir()) out.push('<a href="https://github.com/vatsimnetwork/vatspy-data-project" target="_blank" rel="noopener">VATSpy</a> / VATSIM');
+    if (this.showAirports()) out.push('<a href="https://www.openaip.net" target="_blank" rel="noopener">OpenAIP</a>');
     let satAttr = false;
     for (const [k, sig] of Object.entries(this.satShowSignals())) {
       if (!sig()) continue;
@@ -4347,7 +4370,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  async toggleVector(kind: 'lightning' | 'alerts' | 'vessels' | 'metar' | 'hubeau' | 'piezo' | 'quakes' | 'firms' | 'buoys' | 'sigmet' | 'taf' | 'cables' | 'fir') {
+  async toggleVector(kind: 'lightning' | 'alerts' | 'vessels' | 'metar' | 'hubeau' | 'piezo' | 'quakes' | 'firms' | 'buoys' | 'sigmet' | 'taf' | 'cables' | 'fir' | 'airports') {
     const sigMap = {
       lightning: this.showLightning,
       alerts: this.showAlerts,
@@ -4362,6 +4385,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       taf: this.showTaf,
       cables: this.showCables,
       fir: this.showFir,
+      airports: this.showAirports,
     } as const;
     const showSig = sigMap[kind];
     const turningOn = !showSig();
@@ -4388,6 +4412,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       cables: ['vec-cables'],
       // G66f (2026-05-27) — FIR/UIR outline (OpenAIP)
       fir: ['vec-fir-line'],
+      // G66l (2026-05-27) — airports cluster (4 layers)
+      airports: ['vec-airports-clusters', 'vec-airports-count', 'vec-airports-points', 'vec-airports-dot'],
     };
 
     // Toggle off : retire les layers + source
@@ -4405,13 +4431,14 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     try {
       const fc = await this._fetchVectorFc(kind);
       if (map.getSource(sourceId)) map.removeSource(sourceId);
-      const useCluster = kind === 'vessels';
+      // G66l — airports clusterisés comme vessels (≈9000 points).
+      const useCluster = kind === 'vessels' || kind === 'airports';
       map.addSource(sourceId, {
         type: 'geojson',
         data: fc as any,
         cluster: useCluster,
         clusterRadius: 40,
-        clusterMaxZoom: 12,
+        clusterMaxZoom: kind === 'airports' ? 6 : 12,
       } as any);
 
       // G8 — 4 layers stations cercles (data continue : METAR temp/vent,
@@ -4562,6 +4589,66 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
             'line-width': 0.8,
             'line-opacity': 0.55,
             'line-dasharray': [2, 2],
+          },
+        });
+      } else if (kind === 'airports') {
+        // G66l — airports clusterisés (cluster bubbles + count + points IATA).
+        map.addLayer({
+          id: 'vec-airports-clusters',
+          type: 'circle',
+          source: sourceId,
+          filter: ['has', 'point_count'],
+          paint: {
+            'circle-color': ['step', ['get', 'point_count'], '#0ea5e9', 25, '#6366f1', 100, '#a855f7'],
+            'circle-radius': ['step', ['get', 'point_count'], 11, 25, 15, 100, 20],
+            'circle-opacity': 0.8,
+            'circle-stroke-color': '#0f172a',
+            'circle-stroke-width': 1.5,
+          },
+        });
+        map.addLayer({
+          id: 'vec-airports-count',
+          type: 'symbol',
+          source: sourceId,
+          filter: ['has', 'point_count'],
+          layout: {
+            'text-field': '{point_count_abbreviated}',
+            'text-font': ['Open Sans Regular'],
+            'text-size': 11,
+            'text-allow-overlap': true,
+          },
+          paint: { 'text-color': '#ffffff' },
+        });
+        map.addLayer({
+          id: 'vec-airports-points',
+          type: 'symbol',
+          source: sourceId,
+          filter: ['!', ['has', 'point_count']],
+          layout: {
+            'text-field': '{iataCode}',
+            'text-font': ['Open Sans Regular'],
+            'text-size': 10,
+            'text-offset': [0, 0.9],
+            'text-anchor': 'top',
+            'text-optional': true,
+          },
+          paint: {
+            'text-color': '#7dd3fc',
+            'text-halo-color': '#0f172a',
+            'text-halo-width': 1.2,
+          },
+        });
+        // Le point lui-même (cercle sous le label IATA).
+        map.addLayer({
+          id: 'vec-airports-dot',
+          type: 'circle',
+          source: sourceId,
+          filter: ['!', ['has', 'point_count']],
+          paint: {
+            'circle-radius': 3.5,
+            'circle-color': '#0ea5e9',
+            'circle-stroke-color': '#e0f2fe',
+            'circle-stroke-width': 1,
           },
         });
       } else {
@@ -5093,7 +5180,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  private async _fetchVectorFc(kind: 'lightning' | 'alerts' | 'vessels' | 'metar' | 'hubeau' | 'piezo' | 'quakes' | 'firms' | 'buoys' | 'sigmet' | 'taf' | 'cables' | 'fir'): Promise<{ features: any[] }> {
+  private async _fetchVectorFc(kind: 'lightning' | 'alerts' | 'vessels' | 'metar' | 'hubeau' | 'piezo' | 'quakes' | 'firms' | 'buoys' | 'sigmet' | 'taf' | 'cables' | 'fir' | 'airports'): Promise<{ features: any[] }> {
     // G66 (2026-05-27) — 3 vector layers placeholders impl.
     // G66c (2026-05-27) — bug CORS : aviationweather.gov + submarinecablemap.com
     // ne renvoient pas Access-Control-Allow-Origin. Routés via nginx proxy
@@ -5113,9 +5200,15 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
     if (kind === 'fir') {
       // G66f (2026-05-27) — FIR/UIR depuis API NestJS qui lit PostGIS
-      // (synced weekly depuis OpenAIP).
+      // (synced weekly depuis VATSpy).
       const resp = await fetch('/api/fir-airspaces');
       if (!resp.ok) throw new Error(`FIR fetch HTTP ${resp.status}`);
+      return await resp.json();
+    }
+    if (kind === 'airports') {
+      // G66l (2026-05-27) — airports IATA depuis API NestJS (PostGIS, OpenAIP).
+      const resp = await fetch('/api/airports');
+      if (!resp.ok) throw new Error(`Airports fetch HTTP ${resp.status}`);
       return await resp.json();
     }
     if (kind === 'cables') {
@@ -5449,6 +5542,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         'vec-sigmet-fill', 'vec-taf', 'vec-cables',
         // G66f (2026-05-27) — FIR/UIR line
         'vec-fir-line',
+        // G66l (2026-05-27) — airports cluster + points
+        'vec-airports-clusters', 'vec-airports-dot', 'vec-airports-points',
       ];
       const existing = allLayers.filter((id) => map.getLayer(id));
       if (existing.length === 0) return;
@@ -5459,8 +5554,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       const layerId = f.layer.id;
       const p = (f.properties ?? {}) as Record<string, unknown>;
 
-      // Cluster vessel → zoom-in (pas de popup)
-      if (layerId === 'vec-vessels-clusters') {
+      // Cluster vessel + airports → zoom-in (pas de popup)
+      if (layerId === 'vec-vessels-clusters' || layerId === 'vec-airports-clusters') {
         const clusterId = p['cluster_id'];
         const src = map.getSource(f.source) as maplibregl.GeoJSONSource & {
           getClusterExpansionZoom?: (id: number) => Promise<number>;
@@ -5709,6 +5804,21 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
             ${row('Altitudes', altStr)}
             ${row('Activité', activity)}
           </div>`;
+      } else if (layerId === 'vec-airports-dot' || layerId === 'vec-airports-points') {
+        // G66l — airport popup (OpenAIP).
+        const name = (p['name'] || 'Aéroport') as string;
+        const iata = p['iataCode'] as string | undefined;
+        const icao = p['icaoCode'] as string | undefined;
+        const country = p['country'] as string | undefined;
+        const elevFt = p['elevationFt'] as number | undefined;
+        html = `
+          <div>
+            <div style="font-size:13px;font-weight:600;color:#0ea5e9;border-bottom:1px solid #2a3245;padding-bottom:6px;margin-bottom:4px">✈ ${name}</div>
+            ${row('IATA', iata)}
+            ${row('ICAO', icao)}
+            ${row('Pays', country)}
+            ${row('Altitude', elevFt != null ? elevFt : null, ' ft')}
+          </div>`;
       } else if (layerId === 'vec-cables') {
         // G66e — Câbles sous-marins. Props TeleGeography : name, slug, length, owners.
         const name = (p['name'] || 'Câble sous-marin') as string;
@@ -5774,7 +5884,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
           layerId === 'vec-sigmet-fill' ? 'sigmet' :
           layerId === 'vec-taf' ? 'taf' :
           layerId === 'vec-cables' ? 'cables' :
-          layerId === 'vec-fir-line' ? 'fir' : 'other';
+          layerId === 'vec-fir-line' ? 'fir' :
+          (layerId === 'vec-airports-dot' || layerId === 'vec-airports-points') ? 'airports' : 'other';
         this.activePopup = new maplibregl.Popup({ closeButton: true, maxWidth: '280px', offset: 12 })
           .setLngLat(coords)
           .setHTML(html)
@@ -5798,6 +5909,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       'vec-sigmet-fill', 'vec-taf', 'vec-cables',
       // G66f (2026-05-27) — FIR/UIR
       'vec-fir-line',
+      // G66l (2026-05-27) — airports
+      'vec-airports-clusters', 'vec-airports-dot', 'vec-airports-points',
     ]) {
       map.on('mouseenter', layerId, setCursor('pointer'));
       map.on('mouseleave', layerId, setCursor(''));

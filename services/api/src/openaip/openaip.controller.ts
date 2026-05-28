@@ -1,4 +1,4 @@
-import { Controller, Get, HttpException, HttpStatus, Logger, Post } from '@nestjs/common';
+import { Controller, Get, HttpException, HttpStatus, Logger, Post, Query } from '@nestjs/common';
 import { OpenAIPService } from './openaip.service';
 
 /**
@@ -38,6 +38,45 @@ export class OpenAIPController {
       return { status: 'ok', ...r };
     } catch (err) {
       this.log.error(`sync failed: ${err instanceof Error ? err.message : String(err)}`);
+      throw new HttpException(
+        { error: 'sync_failed', message: err instanceof Error ? err.message : 'unknown' },
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+  }
+
+  /**
+   * G66l — airports IATA commerciaux (~9000 mondiaux).
+   *   GET /api/airports             → tous
+   *   GET /api/airports?bbox=lon0,lat0,lon1,lat1 → filtré viewport
+   */
+  @Get('airports')
+  async airports(@Query('bbox') bboxStr?: string) {
+    try {
+      let bbox: [number, number, number, number] | undefined;
+      if (bboxStr) {
+        const parts = bboxStr.split(',').map(Number);
+        if (parts.length === 4 && parts.every((n) => Number.isFinite(n))) {
+          bbox = parts as [number, number, number, number];
+        }
+      }
+      return await this.openaip.getAirports(bbox);
+    } catch (err) {
+      this.log.error(`getAirports failed: ${err instanceof Error ? err.message : String(err)}`);
+      throw new HttpException(
+        { error: 'airports_unavailable', message: err instanceof Error ? err.message : 'unknown' },
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+  }
+
+  @Post('airports/sync')
+  async syncAirports() {
+    try {
+      const r = await this.openaip.syncAirports();
+      return { status: 'ok', ...r };
+    } catch (err) {
+      this.log.error(`airports sync failed: ${err instanceof Error ? err.message : String(err)}`);
       throw new HttpException(
         { error: 'sync_failed', message: err instanceof Error ? err.message : 'unknown' },
         HttpStatus.BAD_GATEWAY,
