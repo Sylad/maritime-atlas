@@ -1,9 +1,41 @@
 # GloFAS — Forecast crues comme data layer Hydrologie
 
 **Date**: 2026-05-27
-**Statut**: design validé brainstorm, prêt pour writing-plans
+**Statut**: design validé brainstorm, **PIVOTÉ 2026-05-28 (voir note ci-dessous)**
 **Apps affectées**: maritime-atlas (aetherwx)
 **Doctrine de référence**: `data_layer_policy_2026_05_19`
+
+> ## ⚠️ PIVOT 2026-05-28 — découvertes à l'implémentation
+>
+> Le design initial ci-dessous (3 layers Q5/Q20/Q50 + chart popup + NetCDF + CDS)
+> a été révisé après confrontation à la réalité de l'API. Décisions actées avec Sylvain :
+>
+> 1. **Source = EWDS, pas CDS** : GloFAS a migré du Climate Data Store vers le
+>    **CEMS Early Warning Data Store** (`https://ewds.climate.copernicus.eu/api`)
+>    le 2024-09-26. `cems-glofas-forecast` 404 sur le CDS. Clé EWDS = même PAT
+>    ECMWF SSO (juste l'URL change dans `.cdsapirc`).
+> 2. **Format = GRIB2, pas NetCDF** : `cems-glofas-forecast` ne sert que du GRIB2
+>    (netcdf → 400 invalid combination). `product_type=control_forecast`,
+>    `variable=river_discharge_in_the_last_24_hours`.
+> 3. **Option A (débit) pas B (proba)** : GloFAS forecast sert du **débit de
+>    rivière** (m³/s), PAS une proba d'exceedance Q5/Q20/Q50. La proba demanderait
+>    l'ensemble 51 membres + dataset seuils de retour + calcul par maille (gros
+>    chantier). On ship **A = débit magnitude** : 1 layer animé color-ramp
+>    bleu→rouge. **Q5/Q20/Q50 + dropdown + chart 3 courbes = ABANDONNÉS** (évolution
+>    future possible = option B).
+> 4. **Pipeline = A2 (GeoServer lit le GRIB), pas A1 (convert GeoTIFF)** : ajout des
+>    extensions officielles **NetCDF + GRIB** à l'image GeoServer (bump **2.28.4**).
+>    Le sidecar ne convertit plus — il dépose le `.grib2` brut dans
+>    `/coverage/glofas/glofas-<run>.grib2`, GS le sert via ImageMosaic GRIB (dimension
+>    TIME auto depuis les steps de forecast). `converter.py` + deps GDAL/xarray/rasterio
+>    SUPPRIMÉS du sidecar.
+> 5. **Frontend = globe.component.ts, pas map.component.ts** : la carte 2D `/` est
+>    dépréciée (route `/` sert GlobeComponent). Tout le frontend cible `/globe`.
+>    Le toggle EFAS→GloFAS est déjà déplacé Sources→Hydrologie (commit 042cc85).
+>
+> **Net** : 1 layer débit animé (au lieu de 3 proba), GRIB natif GS (au lieu de
+> GeoTIFF), EWDS (au lieu de CDS). Le reste du design (section Hydrologie, time-bar
+> doctrine, rétention 14j de runs) reste valable.
 
 ## Contexte
 
