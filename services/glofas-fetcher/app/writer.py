@@ -1,20 +1,26 @@
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 
+# Config ImageMosaic GeoServer (pattern sst/weather-fetcher) : le timeregex
+# extrait la validité du nom de fichier discharge_<YYYYMMDDTHHMMSSZ>.tif.
+INDEXER_PROPERTIES = """\
+TimeAttribute=time
+Schema=*the_geom:Polygon,location:String,time:java.util.Date
+PropertyCollectors=TimestampFileNameExtractorSPI[timeregex](time)
+Caching=false
+LooseBBox=true
+Heterogeneous=false
+"""
 
-def grib_target_path(base: Path, run_time: str) -> Path:
-    """Chemin du GRIB téléchargé pour un run GloFAS.
+TIMEREGEX_PROPERTIES = """\
+regex=[0-9]{8}T[0-9]{6}Z,format=yyyyMMdd'T'HHmmss'Z'
+"""
 
-    Layout flat (un fichier par run) — GeoServer ImageMosaic scanne le
-    dossier et lit chaque GRIB nativement via le plugin NetCDF/GRIB. La
-    dimension TIME est extraite automatiquement des steps de forecast
-    internes au GRIB (pas de conversion GeoTIFF côté sidecar).
 
-    Ex: /coverage/glofas/glofas-2026-05-28T00Z.grib2
-    """
-    dt = datetime.fromisoformat(run_time.replace("Z", "+00:00"))
-    run_compact = dt.strftime("%Y-%m-%dT%HZ")
-    base.mkdir(parents=True, exist_ok=True)
-    return base / f"glofas-{run_compact}.grib2"
+def ensure_mosaic_config(coverage_dir: Path) -> None:
+    """Écrit indexer.properties + timeregex.properties dans le dossier coverage
+    (idempotent) pour que GeoServer active la dimension TIME sur l'ImageMosaic."""
+    coverage_dir.mkdir(parents=True, exist_ok=True)
+    (coverage_dir / "indexer.properties").write_text(INDEXER_PROPERTIES)
+    (coverage_dir / "timeregex.properties").write_text(TIMEREGEX_PROPERTIES)

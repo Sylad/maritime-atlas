@@ -1,14 +1,17 @@
-from app.writer import grib_target_path
+from app.writer import ensure_mosaic_config
 
 
-def test_grib_target_path_layout(tmp_path):
-    p = grib_target_path(tmp_path, "2026-05-28T00:00:00Z")
-    assert p.parent == tmp_path
-    assert p.name == "glofas-2026-05-28T00Z.grib2"
-    assert p.parent.exists()
+def test_ensure_mosaic_config_writes_files(tmp_path):
+    ensure_mosaic_config(tmp_path)
+    indexer = tmp_path / "indexer.properties"
+    timeregex = tmp_path / "timeregex.properties"
+    assert indexer.exists()
+    assert timeregex.exists()
+    assert "TimestampFileNameExtractorSPI" in indexer.read_text()
+    assert "yyyyMMdd'T'HHmmss'Z'" in timeregex.read_text()
 
 
-def test_grib_target_path_idempotent(tmp_path):
-    p1 = grib_target_path(tmp_path, "2026-05-28T00:00:00Z")
-    p2 = grib_target_path(tmp_path, "2026-05-28T00:00:00Z")
-    assert p1 == p2
+def test_ensure_mosaic_config_idempotent(tmp_path):
+    ensure_mosaic_config(tmp_path)
+    ensure_mosaic_config(tmp_path)
+    assert (tmp_path / "indexer.properties").exists()
