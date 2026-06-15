@@ -150,6 +150,8 @@ PropertyCollectors=TimestampFileNameExtractorSPI[timeregex](time)
 Caching=false
 LooseBBox=true
 Heterogeneous=false
+SuggestedFormat=org.geotools.gce.geotiff.GeoTiffFormat
+SuggestedSPI=it.geosolutions.imageioimpl.plugins.tiff.TIFFImageReaderSpi
 """
 
 TIMEREGEX_PROPERTIES = """\
