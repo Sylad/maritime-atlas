@@ -5652,7 +5652,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         };
         if (typeof clusterId === 'number' && src.getClusterExpansionZoom) {
           src.getClusterExpansionZoom(clusterId).then((zoom: number) => {
-            const coords = (f.geometry as GeoJSON.Point).coordinates as [number, number];
+            const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates as [number, number];
             map.easeTo({ center: coords, zoom });
           });
         }
@@ -5958,7 +5958,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         // (SIGMET) ou LineString (cables). Pour non-Point, on prend e.lngLat (point
         // cliqué) au lieu d'un centroid calculé.
         const coords: [number, number] = (f.geometry.type === 'Point')
-          ? ((f.geometry as GeoJSON.Point).coordinates as [number, number])
+          ? ((f.geometry as unknown as { coordinates: [number, number] }).coordinates as [number, number])
           : [e.lngLat.lng, e.lngLat.lat];
         this.activePopup?.remove();
         const popupLayerKey =
