@@ -633,7 +633,7 @@ function gibsDailyDate(): string {
               </div>
               <div class="layer-row">
                 <label class="layer-toggle" [class.dim]="!showSatRainviewer()">
-                  <input type="checkbox" [checked]="showSatRainviewer()" (change)="toggleSatLayer('satRainviewer', !showSatRainviewer())" />
+                  <input type="checkbox" [checked]="showSatRainviewer()" (change)="toggleSatRainviewer(!showSatRainviewer())" />
                   <span class="toggle-glyph"><span class="glyph-icon">☁</span></span>
                   <span class="toggle-text">
                     <span class="toggle-name">Satellite IR (RainViewer)</span>
@@ -4256,7 +4256,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       const src = map.getSource(`sat-${satKey}`);
       if (!product || !src) continue;
       let timeParam: string;
-      if (product.kind === 'gibs-daily') {
+      if (product.kind === 'cascade-realtime') {
+        // G71 (2026-06-15) — skip TIME pour cascade (bug GS WMSLayerInfoImpl)
+        timeParam = '';
+      } else if (product.kind === 'gibs-daily') {
         // Snap au jour J-2 max depuis t (le cursor peut être maintenant
         // mais GIBS n'a souvent pas ingéré encore les ~48h les plus récentes).
         const cap = Math.min(t.getTime(), Date.now() - 48 * 3_600_000);
@@ -4281,10 +4284,12 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // G42c (2026-05-23) — `tiled=true` route vers GWC cache.
     // G56 — workspace dérivé du préfixe layerName (aetherwx-sat: → /geoserver/aetherwx-sat/wms).
     const ws = layerName.split(':')[0];
+    // G71 (2026-06-15) — TIME=='' → skip param (cascade-realtime workaround)
+    const timeFragment = time ? `&TIME=${encodeURIComponent(time)}` : '';
     return `/geoserver/${ws}/wms` +
       '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
       `&LAYERS=${encodeURIComponent(layerName)}&STYLES=${encodeURIComponent(styleParam)}&FORMAT=image/png&TRANSPARENT=true&tiled=true` +
-      `&TIME=${encodeURIComponent(time)}` +
+      timeFragment +
       (opts?.interpolations ? `&INTERPOLATIONS=${opts.interpolations}` : '') +
       `&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=${size}&HEIGHT=${size}`;
   }
@@ -5180,6 +5185,44 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
   }
 
+  /** G71 (2026-06-15) — RainViewer satellite IR XYZ tiles. Pas via GS,
+   *  pattern identique à toggleRain mais sur snapshot.satellite (10min
+   *  cadence, global IR clouds). Bug fix : `satRainviewer` n'était pas
+   *  dans SAT_PRODUCTS donc toggleSatLayer bail silencieux (0 request). */
+  async toggleSatRainviewer(on: boolean) {
+    if (this.showSatRainviewer() === on) return;
+    this.showSatRainviewer.set(on);
+    const map = this.map;
+    if (!map) return;
+    const layerId = 'sat-rainviewer-tiles';
+    const sourceId = 'sat-rainviewer-tiles';
+    if (!on) {
+      if (map.getLayer(layerId)) map.removeLayer(layerId);
+      if (map.getSource(sourceId)) map.removeSource(sourceId);
+      return;
+    }
+    try {
+      const snap = await this.rainviewerService.getSnapshot();
+      if (snap.satellite.length === 0) throw new Error('Aucune frame satellite IR RainViewer disponible.');
+      const nowSec = Math.floor(this.currentTime().getTime() / 1000);
+      // findNearestFrame ne supporte que snapshot.all → on cherche la
+      // satellite frame la plus proche manuellement (≤30 min).
+      const eligible = snap.satellite.filter(f => f.time <= nowSec);
+      const frame = eligible.length > 0 ? eligible[eligible.length - 1] : snap.satellite[0];
+      if (Math.abs(frame.time - nowSec) > 30 * 60) throw new Error('Frame satellite IR > 30 min du cursor.');
+      const url = this.rainviewerService.buildSatTileUrl(snap.host, frame.path, 0); // color 0 = Original IR gris
+      if (map.getSource(sourceId)) map.removeSource(sourceId);
+      map.addSource(sourceId, { type: 'raster', tiles: [url], tileSize: 256, attribution: 'RainViewer Satellite IR' });
+      const before = map.getLayer('sst-wms') ? 'sst-wms'
+                   : map.getLayer('wind-webgl') ? 'wind-webgl'
+                   : undefined;
+      map.addLayer({ id: layerId, type: 'raster', source: sourceId, paint: { 'raster-opacity': 0.85 } }, before);
+    } catch (err) {
+      console.error('[globe] sat-rainviewer fetch failed', err);
+      this.showSatRainviewer.set(false);
+    }
+  }
+
   /** G8b — RainViewer XYZ tiles (radar pluie monde). Pas via GS — frames
    *  hostées par api.rainviewer.com. findNearestFrame snap au cursor. */
   async toggleRain(on: boolean) {
@@ -5307,6 +5350,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
    *  Backward compat : onSatChange est conservé en wrapper pour le restore
    *  localStorage des prefs legacy `activeSat: 'satXyz'`. */
   toggleSatLayer(key: string, on: boolean): void {
+    // G71 (2026-06-15) — satRainviewer n'est pas un produit GS, c'est un
+    // XYZ direct (cf toggleSatRainviewer). Délègue pour partager le code
+    // (wipe-all, persist/restore).
+    if (key === 'satRainviewer') { void this.toggleSatRainviewer(on); return; }
     const sig = this.satShowSignals()[key];
     if (!sig || sig() === on) return;
     sig.set(on);
@@ -5346,11 +5393,20 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       timeParam = t.toISOString().split('.')[0] + 'Z';
     }
 
+    // G71 (2026-06-15) — cascade-realtime layers (EUMETSAT/DWD/KNMI) :
+    // PAS de TIME dans l'URL. GS 2.28.3 ne propage pas TIME aux upstream
+    // cascade (WMSLayerInfoImpl REST PUT metadata.entry HTTP 500 — voir
+    // [[geoserver_wmslayer_rest_unsupported_pattern]]). Avec TIME, le
+    // cascade GS retourne "GetMap failed" générique sans rendre la tile.
+    // Sans TIME, GS forward proprement → upstream renvoie la latest
+    // validity disponible. Tradeoff accepté : animation cascade-realtime
+    // figée sur "now" jusqu'à fix upstream GS.
+    const wmsTimePart = product.kind === 'cascade-realtime' ? '' : `&TIME=${encodeURIComponent(timeParam)}`;
     const url =
       `/geoserver/${product.workspace}/wms` +
       '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap' +
       `&LAYERS=${product.workspace}:${product.gsName}` +
-      `&TIME=${encodeURIComponent(timeParam)}` +
+      wmsTimePart +
       '&STYLES=&FORMAT=image/png&TRANSPARENT=true' +
       '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256';
 
