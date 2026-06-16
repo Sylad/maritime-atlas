@@ -4125,6 +4125,11 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (key === 'metar' || key === 'hubeau' || key === 'piezo' || key === 'quakes' || key === 'firms' || key === 'buoys') {
       return [`vec-${key}`];
     }
+    // G73 (2026-06-16) — bug détecté par qa/check-ui : sigmet/taf/fir étaient
+    // absents → return [] → setLayerOpacity no-op → slider opacity sans effet.
+    if (key === 'sigmet') return ['vec-sigmet-fill', 'vec-sigmet-line'];
+    if (key === 'taf') return ['vec-taf'];
+    if (key === 'fir') return ['vec-fir-line'];
     if (key === 'tracks') return ['vec-tracks'];
     if (key === 'rain') return ['rain-tiles'];
     if (key === 'windForecast') return ['wind-forecast-wms'];
