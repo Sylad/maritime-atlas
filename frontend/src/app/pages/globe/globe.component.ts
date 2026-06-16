@@ -3704,29 +3704,76 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     return this.layerOpacities()[key] ?? this.LAYER_OPACITY_DEFAULTS[key] ?? 1;
   }
 
-  /** G11d — handler slider opacité. Update signal + applique au layer
-   *  MapLibre via setPaintProperty (raster-opacity ou line-opacity selon type).
-   *  Persiste localStorage. */
+  /** G11d / G72 (2026-06-16) — handler slider opacité unifié.
+   *  Update signal + délègue au helper applyOpacityToMapLayer (1 implémentation,
+   *  tous les types MapLibre + le custom WebGL wind-particles). Persiste
+   *  localStorage. */
   setLayerOpacity(key: string, value: number): void {
     const v = Math.max(0, Math.min(1, value));
     this.layerOpacities.update((o) => ({ ...o, [key]: v }));
     const map = this.map;
     if (!map) return;
     for (const id of this.mapLibreLayerIds(key)) {
-      if (!map.getLayer(id)) continue;
-      // Détecte le type pour choisir la bonne paint-property.
-      const layerType = map.getLayer(id)!.type;
-      if (layerType === 'raster') {
-        map.setPaintProperty(id, 'raster-opacity', v);
-      } else if (layerType === 'line') {
-        map.setPaintProperty(id, 'line-opacity', v);
-      } else if (layerType === 'circle') {
-        map.setPaintProperty(id, 'circle-opacity', v);
-      } else if (layerType === 'symbol') {
-        map.setPaintProperty(id, 'text-opacity', v);
-      }
+      this.applyOpacityToMapLayer(id, v);
     }
     this.persistLayerOpacities();
+  }
+
+  /** G72 (2026-06-16) — central helper opacité, équivalent du
+   *  `layer.setOpacity(v)` d'OpenLayers mais pour MapLibre.
+   *
+   *  MapLibre n'a pas d'API unifiée — l'opacité est une paint property
+   *  qui dépend du type de layer (`raster-opacity` / `symbol` a
+   *  `icon-opacity`+`text-opacity` / `circle-opacity` / etc.). Les
+   *  custom layers (WebGL particules) exposent un setter custom.
+   *  Cette fonction centralise les 8 cas pour qu'un slider opacity
+   *  soit codé UNE fois et marche pour toute layer.
+   *
+   *  Si la layer n'existe pas encore (toggle off), no-op silencieux ;
+   *  l'opacité sera baked dans le paint à la prochaine `addLayer`. */
+  private applyOpacityToMapLayer(layerId: string, v: number): void {
+    const map = this.map;
+    if (!map) return;
+    // Cas custom WebGL : wind particules (CustomLayerInterface). Pas
+    // de paint property, c'est WindWebGL.opacity qui pilote le uniform
+    // u_opacity dans le fragment shader (G72).
+    if (layerId === 'wind-webgl') {
+      if (this.windEngine) this.windEngine.opacity = v;
+      return;
+    }
+    const layer = map.getLayer(layerId);
+    if (!layer) return;
+    switch (layer.type) {
+      case 'raster':
+        map.setPaintProperty(layerId, 'raster-opacity', v);
+        break;
+      case 'fill':
+        map.setPaintProperty(layerId, 'fill-opacity', v);
+        break;
+      case 'line':
+        map.setPaintProperty(layerId, 'line-opacity', v);
+        break;
+      case 'circle':
+        map.setPaintProperty(layerId, 'circle-opacity', v);
+        map.setPaintProperty(layerId, 'circle-stroke-opacity', v);
+        break;
+      case 'symbol':
+        // icon-opacity ET text-opacity — un symbole peut avoir l'un, l'autre,
+        // ou les deux (ex. wind-arrows = icon seul, alerts = icon + text).
+        map.setPaintProperty(layerId, 'icon-opacity', v);
+        map.setPaintProperty(layerId, 'text-opacity', v);
+        break;
+      case 'heatmap':
+        map.setPaintProperty(layerId, 'heatmap-opacity', v);
+        break;
+      case 'hillshade':
+        map.setPaintProperty(layerId, 'hillshade-opacity', v);
+        break;
+      case 'background':
+        map.setPaintProperty(layerId, 'background-opacity', v);
+        break;
+      // 'custom' déjà géré via wind-webgl plus haut.
+    }
   }
 
   private persistLayerOpacities(): void {
@@ -5033,6 +5080,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       20, '#dc2626',  // 20 m/s ≈ 40 kt → rouge
       30, '#7f1d1d',  // 30 m/s ≈ 60 kt → rouge sombre
     ]);
+    // G72 — applique l'opacity persistée au layer fraîchement ajouté.
+    this.applyOpacityToMapLayer('wind-arrows-vec', this.getLayerOpacity('windArrows'));
     void this.refreshArrowsForTime(this.currentTime());
   }
   toggleWaveArrows(on: boolean): void {
@@ -5051,6 +5100,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       6, '#dc2626',  // 6 m → rouge (très grosse mer)
       9, '#7f1d1d',  // 9 m+ → rouge sombre (exceptionnel)
     ]);
+    // G72 — applique l'opacity persistée
+    this.applyOpacityToMapLayer('wave-arrows-vec', this.getLayerOpacity('waveArrows'));
     void this.refreshArrowsForTime(this.currentTime());
   }
 
@@ -5461,6 +5512,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
           self.windEngine = new WindWebGL(gl as WebGL2RenderingContext, { bounds: WIND_BBOX });
           self.windEngine.setNumParticles(DEFAULT_WIND_PARTICLES);
           self.windEngine.setWind(windData);
+          // G72 — applique l'opacity persistée à l'instantiation (slider restore).
+          self.windEngine.opacity = self.getLayerOpacity('windParticles');
         },
         render(_gl, args) {
           if (!self.windEngine) return;

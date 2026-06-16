@@ -366,6 +366,7 @@ precision mediump float;
 uniform sampler2D u_wind;
 uniform vec2 u_wind_min;
 uniform vec2 u_wind_max;
+uniform float u_opacity;
 
 in vec2 v_particle_pos;
 in float v_side;
@@ -390,7 +391,7 @@ void main() {
 
   float line_aa = 1.0 - smoothstep(0.7, 1.0, abs(v_side));
 
-  fragColor = vec4(color.rgb, color.a * edge_fade * v_alpha * line_aa);
+  fragColor = vec4(color.rgb, color.a * edge_fade * v_alpha * line_aa * u_opacity);
 }
 `;
 
@@ -478,6 +479,11 @@ export class WindWebGL {
   dropRate: number;
   dropRateBump: number;
   lineWidth: number;
+  /** G72 (2026-06-16) — uniform u_opacity injecté dans drawFrag. Multiplie
+   *  l'alpha de sortie, comme `paint["raster-opacity"]` MapLibre standard.
+   *  Setter exposé pour que le helper applyOpacityToMapLayer puisse traiter
+   *  ce custom layer comme n'importe quelle paint property. */
+  opacity = 1;
   /** Lecture seule pour compat avec ancien tuning (utilisé par main.js sandbox). */
   readonly kSteps = K_HISTORY;
   /** Lecture seule placeholder (compat API, plus utilisé en rev5). */
@@ -531,7 +537,7 @@ export class WindWebGL {
       'u_projection_tile_mercator_coords', 'u_projection_clipping_plane',
       'u_projection_transition',
       'u_history', 'u_age', 'u_particle_res', 'u_k_history', 'u_max_ttl',
-      'u_canvas_size', 'u_line_width',
+      'u_canvas_size', 'u_line_width', 'u_opacity',
     ];
     for (const name of optionals) {
       if (!(name in program)) {
@@ -769,6 +775,9 @@ export class WindWebGL {
     if (program['u_line_width']) {
       const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio ?? 1) : 1;
       gl.uniform1f(program['u_line_width'] as WebGLUniformLocation, this.lineWidth * dpr);
+    }
+    if (program['u_opacity']) {
+      gl.uniform1f(program['u_opacity'] as WebGLUniformLocation, this.opacity);
     }
 
     const pd = args.defaultProjectionData;
