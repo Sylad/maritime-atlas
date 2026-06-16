@@ -4129,6 +4129,13 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (key === 'rain') return ['rain-tiles'];
     if (key === 'windForecast') return ['wind-forecast-wms'];
     if (key === 'wavesForecast') return ['waves-forecast-wms'];
+    // G73 (2026-06-16) — GFS forecast layers : ids *-wms (cf refreshWmsTimeForActiveLayers).
+    // Bug détecté par le harnais qa/check-ui : sans ces branches mapLibreLayerIds
+    // renvoyait [] → setLayerOpacity no-op → le slider d'opacité ne faisait rien.
+    if (key === 'temp2m') return ['temp2m-wms'];
+    if (key === 'pressureMsl') return ['pressure-msl-wms'];
+    if (key === 'humidity') return ['humidity-wms'];
+    if (key === 'precipitation') return ['precipitation-wms'];
     // G72 (2026-06-16) — fix bug pré-existant : addArrowsLayer crée des layers
     // ID 'wind-arrows-vec' / 'wave-arrows-vec' (cf addArrowsLayer), pas '*-wms'.
     // Le mismatch faisait que setLayerOpacity ne trouvait pas le layer → no-op
@@ -4142,7 +4149,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // G72 (2026-06-16) — satRainviewer = XYZ direct (cf toggleSatRainviewer),
     // layer ID 'sat-rainviewer-tiles' (pas 'sat-satRainviewer').
     if (key === 'satRainviewer') return ['sat-rainviewer-tiles'];
-    if (key.startsWith('sat')) return [`sat-${key}`];
+    // G73 (2026-06-16) — radar* ajoutés comme les sat (id `sat-${key}`, cf addLayer ~3187).
+    // Sans le préfixe radar, mapLibreLayerIds renvoyait [] → opacity no-op (bug harnais qa).
+    if (key.startsWith('sat') || key.startsWith('radar')) return [`sat-${key}`];
     return [];
   }
 
