@@ -262,13 +262,26 @@ async function checkOneLayer(page, key, uiName, sectionIdx, layerMeta) {
     return { verdict: VERDICT.FAIL, detail: `aucun nouveau layer MapLibre avec opacité après toggle ON (${toggled})` };
   }
 
-  // 5) Tester que le slider d'opacité agit sur CE layer dérivé.
-  return await testSliderOpacity(page, uiName, sectionIdx, before, toggled, key);
+  // 5) Tester que bouger le slider d'opacité change bien un layer MapLibre.
+  return await testSliderOpacity(page, uiName, sectionIdx, toggled);
 }
 
-/** Déplace le slider à 0.3 et vérifie que opacityOf() change. */
-async function testSliderOpacity(page, uiName, sectionIdx, before, toggled, key) {
-  // Activer le slider opacity (peut ne pas exister si section reouverte a collapsé)
+/** Déplace le slider d'opacité du layer et vérifie qu'AU MOINS un layer MapLibre
+ *  change d'opacité. On ne présuppose PAS quel id (robuste au mispick quand des
+ *  layers apparaissent de façon asynchrone) : on snapshot toutes les opacités
+ *  avant/après et on détecte lequel a bougé. Aucun changement = slider no-op =
+ *  opacity non câblée (le bug qu'on traque). */
+async function testSliderOpacity(page, uiName, sectionIdx, toggled) {
+  const snapshot = () => {
+    const qa = window.__aetherwxQA;
+    const m = {};
+    if (qa) for (const id of qa.layerIds()) { const o = qa.opacityOf(id); if (typeof o === 'number') m[id] = o; }
+    return m;
+  };
+  const opacBefore = await page.evaluate(snapshot);
+
+  // Déplace le slider du layer (scopé à sa .layer-row) vers une valeur franchement
+  // différente de sa valeur courante → garantit un delta visible si câblé.
   const sliderSet = await page.evaluate(({ sectionIdx, uiName }) => {
     const sections = document.querySelectorAll('.catalog-section');
     const section = sections[sectionIdx];
@@ -280,7 +293,8 @@ async function testSliderOpacity(page, uiName, sectionIdx, before, toggled, key)
         if (!row) return 'no-row';
         const slider = row.querySelector('input.layer-opacity:not(.layer-opacity-contour)');
         if (!slider) return 'no-slider';
-        slider.value = '0.3';
+        const cur = parseFloat(slider.value);
+        slider.value = cur < 0.5 ? '0.9' : '0.2';
         slider.dispatchEvent(new Event('input', { bubbles: true }));
         return 'set';
       }
@@ -289,41 +303,29 @@ async function testSliderOpacity(page, uiName, sectionIdx, before, toggled, key)
   }, { sectionIdx, uiName });
 
   if (sliderSet !== 'set') {
-    // Remettre OFF avant de sortir
     await toggleOff(page, uiName, sectionIdx);
     return { verdict: VERDICT.FAIL, detail: `slider opacity introuvable pour "${uiName}" (${sliderSet})` };
   }
 
   await page.waitForTimeout(500);
-
-  // Relire l'opacité
-  const after = await page.evaluate((layerId) => {
-    const qa = window.__aetherwxQA;
-    if (!qa) return null;
-    return qa.opacityOf(layerId);
-  }, before.id);
-
-  // Remettre OFF
+  const opacAfter = await page.evaluate(snapshot);
   await toggleOff(page, uiName, sectionIdx);
 
-  if (typeof after !== 'number' || after === null) {
+  const changed = Object.keys(opacAfter).filter((id) => {
+    const b = opacBefore[id];
+    return typeof b === 'number' && Math.abs(opacAfter[id] - b) >= 0.01;
+  });
+
+  if (changed.length === 0) {
     return {
       verdict: VERDICT.FAIL,
-      detail: `opacityOf("${before.id}") retourne ${after} après slider (était ${before.o})`,
+      detail: `opacity non câblée : bouger le slider de "${uiName}" ne change l'opacité d'aucun layer MapLibre`,
     };
   }
-
-  const diff = Math.abs(after - before.o);
-  if (diff < 0.01) {
-    return {
-      verdict: VERDICT.FAIL,
-      detail: `opacity non câblée sur "${before.id}": ${before.o.toFixed(2)} → ${after.toFixed(2)} (delta=${diff.toFixed(3)})`,
-    };
-  }
-
+  const id = changed[0];
   return {
     verdict: VERDICT.PASS,
-    detail: `layer="${before.id}" opacity ${before.o.toFixed(2)} → ${after.toFixed(2)} (toggle=${toggled})`,
+    detail: `slider câblé → ${id} ${opacBefore[id].toFixed(2)} → ${opacAfter[id].toFixed(2)} (toggle=${toggled})`,
   };
 }
 
