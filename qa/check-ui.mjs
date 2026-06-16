@@ -7,8 +7,9 @@
 //   puis on passe à la suivante. Les sections Angular utilisent @if donc les labels
 //   n'existent dans le DOM que quand la section est ouverte (is-open).
 //
-// Mapping key → MapLibre layer IDs est dédupliqué ici depuis mapLibreLayerIds() dans
-// globe.component.ts pour savoir quel layer ID chercher via opacityOf().
+// L'id MapLibre du layer testé est DÉRIVÉ AU RUNTIME (diff des layerIds() avant/après
+// toggle ON) — pas de table en dur dupliquant mapLibreLayerIds() (sinon drift : la
+// table pourrait masquer un bug de cette fonction, cf le fix opacity du 2026-06-16).
 //
 // Usage:
 //   BASE_URL=http://localhost:4200 node qa/check-ui.mjs
@@ -64,52 +65,6 @@ const UI_NAME = {
   cables:            'Câbles sous-marins',
   fir:               'FIR / UIR airspaces',
   airports:          'Aéroports (IATA)',
-};
-
-// Mapping key → MapLibre layer ID(s) primary (premier ID créé, celui avec opacity-prop
-// standard). Extrait de mapLibreLayerIds() dans globe.component.ts.
-// On prend le PREMIER ID car c'est celui dont opacity est lisible via getPaintProperty.
-// Pour vessels (3 layers) on prend 'vec-vessels-points' (circle-opacity).
-// windParticles → CustomLayerInterface sans paint, skip.
-// Pour sat* : sat-${key} (ex: sat-satTrueColor) sauf exceptions ci-dessous.
-const MAPLIBRE_PRIMARY_ID = {
-  sst:               'sst-wms',
-  windForecast:      'wind-forecast-wms',
-  wavesForecast:     'waves-forecast-wms',
-  temp2m:            'temp2m-wms',
-  pressureMsl:       'pressure-msl-wms',
-  humidity:          'humidity-wms',
-  precipitation:     'precipitation-wms',
-  glofas:            'glofas-wms',
-  satTrueColor:      'sat-satTrueColor',
-  satTrueColorVIIRS: 'sat-satTrueColorVIIRS',
-  satIR:             'sat-satIR',
-  satWaterVapor:     'sat-satWaterVapor',
-  satCloudTop:       'sat-satCloudTop',
-  satAerosol:        'sat-satAerosol',
-  satDayNight:       'sat-satDayNight',
-  satEuIrRss:        'sat-satEuIrRss',
-  satGlobalIrMtg:    'sat-satGlobalIrMtg',
-  satEuHrvRgb:       'sat-satEuHrvRgb',
-  radarDwd:          'sat-radarDwd',
-  radarKnmi:         'sat-radarKnmi',
-  lightning:         'vec-lightning',
-  alerts:            'vec-alerts',
-  vessels:           'vec-vessels-points',
-  metar:             'vec-metar',
-  hubeau:            'vec-hubeau',
-  piezo:             'vec-piezo',
-  quakes:            'vec-quakes',
-  firms:             'vec-firms',
-  buoys:             'vec-buoys',
-  sigmet:            'vec-sigmet-fill',  // type:fill → fill-opacity
-  taf:               'vec-taf',          // type:circle → circle-opacity
-  cables:            'vec-cables',       // type:line → line-opacity (pas de slider)
-  fir:               'vec-fir-line',     // type:line → line-opacity
-  airports:          'vec-airports-clusters',
-  bathy:             'bathy-wms',
-  eez:               'eez-wms',
-  mpa:               'mpa-wms',
 };
 
 // Layers qui n'ont pas de <input class="layer-opacity"> dans le template
@@ -245,10 +200,16 @@ async function run() {
  *  layerMeta = entrée du manifest pour ce layer (kind, etc.).
  */
 async function checkOneLayer(page, key, uiName, sectionIdx, layerMeta) {
-  const primaryId = MAPLIBRE_PRIMARY_ID[key];
   const isVectorBackendDep = layerMeta && VECTOR_BACKEND_DEPENDENT_KINDS.has(layerMeta.kind);
 
-  // Cliquer le toggle si pas activé
+  // 1) Snapshot des layer ids AVANT le toggle → sert à dériver le nouvel id au runtime
+  //    (pas de table en dur dupliquant mapLibreLayerIds()).
+  const idsBefore = await page.evaluate(() => {
+    const qa = window.__aetherwxQA;
+    return qa ? [...qa.layerIds()] : [];
+  });
+
+  // 2) Cliquer le toggle si pas activé
   const toggled = await page.evaluate(({ sectionIdx, uiName }) => {
     const sections = document.querySelectorAll('.catalog-section');
     const section = sections[sectionIdx];
@@ -273,76 +234,35 @@ async function checkOneLayer(page, key, uiName, sectionIdx, layerMeta) {
     return { verdict: VERDICT.SKIP, detail: 'toggle désactivé (layer à venir?)' };
   }
 
-  // Attendre que Angular ajoute le layer à MapLibre
+  // 3) Attendre que Angular ajoute le layer à MapLibre
   await page.waitForTimeout(1800);
 
-  // Vérifier que le layer ID attendu existe dans MapLibre
-  if (primaryId) {
-    const layerExists = await page.evaluate((lid) => {
-      const qa = window.__aetherwxQA;
-      if (!qa) return false;
-      return qa.layerIds().includes(lid);
-    }, primaryId);
-
-    if (!layerExists) {
-      // Essayer de lire l'opacité quand même (peut avoir un ID différent)
-      const altBefore = await page.evaluate(() => {
-        const qa = window.__aetherwxQA;
-        if (!qa) return null;
-        const ids = qa.layerIds();
-        // Chercher un layer avec opacité non-null (hors sst-wms qui persiste)
-        for (const id of ids) {
-          if (id === 'sst-wms') continue; // SST peut être resté ON
-          const o = qa.opacityOf(id);
-          if (typeof o === 'number' && o !== null) return { id, o };
-        }
-        return null;
-      });
-
-      if (!altBefore) {
-        // Vector layers backend-dependent restent absents sans données NestJS
-        await toggleOff(page, uiName, sectionIdx);
-        if (isVectorBackendDep) {
-          return {
-            verdict: VERDICT.UPSTREAM,
-            detail: `layer "${primaryId}" absent (données backend requises — ok en local sans NestJS)`,
-          };
-        }
-        return {
-          verdict: VERDICT.FAIL,
-          detail: `layer "${primaryId}" absent de MapLibre après toggle ON (${toggled})`,
-        };
-      }
-      // Procéder avec l'ID alternatif trouvé
-      return await testSliderOpacity(page, uiName, sectionIdx, altBefore, toggled, key);
-    }
-
-    // Lire l'opacité initiale du layer connu
-    const opacityBefore = await page.evaluate((lid) => {
-      const qa = window.__aetherwxQA;
-      if (!qa) return null;
-      return qa.opacityOf(lid);
-    }, primaryId);
-
-    const before = { id: primaryId, o: opacityBefore ?? 1.0 };
-    return await testSliderOpacity(page, uiName, sectionIdx, before, toggled, key);
-  }
-
-  // Pas de MAPLIBRE_PRIMARY_ID connu : fallback générique
-  const before = await page.evaluate(() => {
+  // 4) Dériver l'id du layer = le(s) nouvel(s) id(s) apparu(s), avec une opacité lisible.
+  const before = await page.evaluate((before) => {
     const qa = window.__aetherwxQA;
     if (!qa) return null;
-    const ids = qa.layerIds();
-    for (const id of ids) {
+    const known = new Set(before);
+    for (const id of qa.layerIds()) {
+      if (known.has(id)) continue;            // pas un nouvel id
       const o = qa.opacityOf(id);
-      if (typeof o === 'number' && o !== null) return { id, o };
+      if (typeof o === 'number') return { id, o };
     }
     return null;
-  });
+  }, idsBefore);
 
   if (!before) {
-    return { verdict: VERDICT.FAIL, detail: `aucun layer MapLibre avec opacité après toggle ON (${toggled})` };
+    // Aucun nouveau layer MapLibre avec opacité après toggle ON.
+    await toggleOff(page, uiName, sectionIdx);
+    if (isVectorBackendDep) {
+      return {
+        verdict: VERDICT.UPSTREAM,
+        detail: 'aucun nouveau layer (données backend requises — ok en local sans NestJS)',
+      };
+    }
+    return { verdict: VERDICT.FAIL, detail: `aucun nouveau layer MapLibre avec opacité après toggle ON (${toggled})` };
   }
+
+  // 5) Tester que le slider d'opacité agit sur CE layer dérivé.
   return await testSliderOpacity(page, uiName, sectionIdx, before, toggled, key);
 }
 
