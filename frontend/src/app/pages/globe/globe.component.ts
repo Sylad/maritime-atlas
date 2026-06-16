@@ -6067,6 +6067,21 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
 
     this.map = map;
+    // QA — hook read-only GELÉ, uniquement si ?qa=1. N'expose PAS l'instance
+    // mutable (cf SEC-2) : seulement une snapshot lecture seule des opacités,
+    // déjà visibles à l'écran. Sert au harnais qa/check-ui.mjs.
+    if (new URLSearchParams(location.search).has('qa')) {
+      (window as unknown as { __aetherwxQA?: unknown }).__aetherwxQA = Object.freeze({
+        version: 1,
+        layerIds: () => Object.freeze(map.getStyle().layers.map((l) => l.id)),
+        opacityOf: (layerId: string) => {
+          if (!map.getLayer(layerId)) return null;
+          const type = map.getLayer(layerId)!.type as string;
+          const prop = `${type}-opacity`;
+          try { return map.getPaintProperty(layerId, prop) ?? null; } catch { return null; }
+        },
+      });
+    }
     // 2026-05-22 — code review SEC-2 : window.globeMap leakait l'instance
     // MapLibre en global, accessible par tout script tiers. Supprimé après
     // que le debug popup soit résolu (G6 maplibre-gl.css fix).
