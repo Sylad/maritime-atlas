@@ -4129,12 +4129,19 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (key === 'rain') return ['rain-tiles'];
     if (key === 'windForecast') return ['wind-forecast-wms'];
     if (key === 'wavesForecast') return ['waves-forecast-wms'];
-    if (key === 'windArrows') return ['wind-arrows-wms'];
-    if (key === 'waveArrows') return ['wave-arrows-wms'];
+    // G72 (2026-06-16) — fix bug pré-existant : addArrowsLayer crée des layers
+    // ID 'wind-arrows-vec' / 'wave-arrows-vec' (cf addArrowsLayer), pas '*-wms'.
+    // Le mismatch faisait que setLayerOpacity ne trouvait pas le layer → no-op
+    // silencieux → slider ne changeait rien à l'écran.
+    if (key === 'windArrows') return ['wind-arrows-vec'];
+    if (key === 'waveArrows') return ['wave-arrows-vec'];
     if (key === 'bathy') return ['bathy-wms'];
     if (key === 'eez') return ['eez-wms'];
     if (key === 'mpa') return ['mpa-wms'];
     if (key === 'glofas') return ['glofas-wms'];
+    // G72 (2026-06-16) — satRainviewer = XYZ direct (cf toggleSatRainviewer),
+    // layer ID 'sat-rainviewer-tiles' (pas 'sat-satRainviewer').
+    if (key === 'satRainviewer') return ['sat-rainviewer-tiles'];
     if (key.startsWith('sat')) return [`sat-${key}`];
     return [];
   }
