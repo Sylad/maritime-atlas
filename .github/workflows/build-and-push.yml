@@ -19,6 +19,7 @@ on:
       - 'services/**'
       - 'frontend/**'
       - 'geoserver/**'
+      - 'qa/**'
       - '.github/workflows/build-and-push.yml'
   workflow_dispatch:
     inputs:
@@ -32,6 +33,21 @@ permissions:
   packages: write   # nécessaire pour push ghcr.io/sylad/*
 
 jobs:
+  qa-drift:
+    name: QA layer-coverage drift
+    runs-on: ubuntu-latest
+    # Gate anti-drift : si un layer a été ajouté/retiré dans globe.component.ts
+    # sans régénérer qa/layers.manifest.json, drift.mjs sort en exit 1 et bloque
+    # le build (cf needs ci-dessous). SKIP_GETCAPS=1 → check statique pur
+    # (registry FE vs manifest committé), aucun accès réseau prod requis.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Check layer manifest drift
+        run: SKIP_GETCAPS=1 node qa/drift.mjs
+
   detect-changes:
     name: Detect changed services
     runs-on: ubuntu-latest
@@ -86,7 +102,9 @@ jobs:
 
   build-push:
     name: Build & push ${{ matrix.service }}
-    needs: detect-changes
+    # needs qa-drift : aucune image n'est buildée/poussée tant que la couverture
+    # QA des layers a dérivé (un layer FE non couvert bloque tout le build).
+    needs: [detect-changes, qa-drift]
     if: ${{ needs.detect-changes.outputs.services != '[]' }}
     runs-on: ubuntu-latest
     strategy:
