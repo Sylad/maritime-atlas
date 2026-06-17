@@ -720,6 +720,21 @@ ON CONFLICT (name) DO UPDATE SET
   sink_kind = EXCLUDED.sink_kind,
   sink_config = EXCLUDED.sink_config,
   sink_label = EXCLUDED.sink_label;
+
+-- ─── Configurations de carte nommées (2026-06-17) ──────────────────
+-- Snapshot autonome de l'état du globe (layers/opacités/contours/z-index/
+-- master temps/vue) en JSONB. 1 config par (user_id, name). FK cascade
+-- sur users → suppression user purge ses configs.
+CREATE TABLE IF NOT EXISTS map_configurations (
+  id          SERIAL PRIMARY KEY,
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  snapshot    JSONB NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS map_configurations_user_name_idx
+  ON map_configurations (user_id, name);
 `;
 
 export async function runMigrations(databaseUrl: string): Promise<void> {

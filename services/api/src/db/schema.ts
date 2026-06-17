@@ -91,11 +91,55 @@ export const userLayerPreferences = pgTable('user_layer_preferences', {
   pk: primaryKey({ columns: [t.userId, t.layerKind] }),
 }));
 
+/**
+ * Configurations de carte nommées (2026-06-17). Snapshot COMPLET et autonome
+ * de l'état du globe (layers/opacités/contours/z-index/master temps/vue),
+ * sérialisé en JSONB. 1 config par (user_id, name). Aucune FK vers palettes :
+ * le snapshot embarque tout inline pour rester robuste aux suppressions.
+ */
+export const mapConfigurations = pgTable('map_configurations', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  /** MapConfigSnapshot (cf frontend models/map-config-snapshot.ts). */
+  snapshot: jsonb('snapshot').$type<MapConfigSnapshot>().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  userNameIdx: uniqueIndex('map_configurations_user_name_idx').on(t.userId, t.name),
+}));
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Palette = typeof palettes.$inferSelect;
 export type NewPalette = typeof palettes.$inferInsert;
 export type UserLayerPref = typeof userLayerPreferences.$inferSelect;
+export type MapConfiguration = typeof mapConfigurations.$inferSelect;
+
+/**
+ * Snapshot autonome de l'état de la carte /globe. Doit rester en phase avec
+ * frontend/src/app/models/map-config-snapshot.ts (source de vérité). Typé
+ * structurellement ici pour le $type du JSONB — la validation de forme se
+ * fait côté DTO (class-validator) à l'entrée API.
+ */
+export interface MapConfigSnapshot {
+  version: number;
+  view: {
+    projection: 'globe' | 'mercator';
+    center: { lng: number; lat: number };
+    zoom: number;
+    bearing: number;
+    pitch: number;
+  };
+  layers: {
+    visibility: Record<string, boolean>;
+    opacities: Record<string, number>;
+    contours: { sstContours: boolean; windContours: boolean; waveContours: boolean };
+    zIndex: { autoEnabled: boolean; order: string[] };
+    palettes?: Record<string, Array<{ quantity: number; color: string; opacity: number; label?: string }>>;
+  };
+  time: { masterLayerKey: string | null };
+}
 
 /** Stop d'une palette user (élément de `palettes.stops`). */
 export interface PaletteStop {

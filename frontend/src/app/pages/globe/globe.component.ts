@@ -30,6 +30,7 @@ import { TimeSliderComponent, TimeSliderLayerCoverage } from '../../components/t
 import { IngestionMiniChartComponent } from '../../components/ingestion-mini-chart/ingestion-mini-chart.component';
 import { AnimationPanelComponent } from '../../components/animation-panel/animation-panel.component';
 import { AnimationControlsComponent } from '../../components/animation-controls/animation-controls.component';
+import { MapConfigsPanelComponent } from '../../components/map-configs-panel/map-configs-panel.component';
 import { AnimationPlayerService, type AnimationOptions } from '../../services/animation-player.service';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
@@ -46,9 +47,11 @@ import { AlertsService } from '../../services/alerts.service';
 import { AuthService } from '../../services/auth.service';
 import { LightningService } from '../../services/lightning.service';
 import { PreferencesSyncService } from '../../services/preferences-sync.service';
+import { MapConfigsService } from '../../services/map-configs.service';
 import { RainviewerService } from '../../services/rainviewer.service';
 import { VesselsService } from '../../services/vessels.service';
 import { BuoysService } from '../../services/buoys.service';
+import type { MapConfigSnapshot } from '../../models/map-config-snapshot';
 import {
   buildWindTexture,
   speedDirToUv,
@@ -105,7 +108,7 @@ function gibsDailyDate(): string {
 @Component({
   selector: 'app-globe',
   standalone: true,
-  imports: [CommonModule, RouterLink, TimeSliderComponent, IngestionMiniChartComponent, AnimationPanelComponent, AnimationControlsComponent],
+  imports: [CommonModule, RouterLink, TimeSliderComponent, IngestionMiniChartComponent, AnimationPanelComponent, AnimationControlsComponent, MapConfigsPanelComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="globe-root" [class.is-animating]="isAnimating()">
@@ -135,6 +138,8 @@ function gibsDailyDate(): string {
           <span class="nav-sep">·</span>
           @if (currentUser(); as u) {
             <a routerLink="/palettes" class="nav-link" [attr.tabindex]="isAnimating() ? -1 : null">{{ '@' + u.username }}</a>
+            <span class="nav-sep">·</span>
+            <button type="button" class="nav-btn" (click)="openMapConfigs()" [disabled]="isAnimating()" title="Sauvegarder / réafficher une vue de la carte">🗺 Mes configs</button>
             @if (u.role === 'admin') {
               <span class="nav-sep">·</span>
               <a routerLink="/admin/users" class="nav-link nav-admin-pill" title="Espace admin" [attr.tabindex]="isAnimating() ? -1 : null">ADMIN</a>
@@ -1190,6 +1195,15 @@ function gibsDailyDate(): string {
           (launch)="onAnimationLaunch($event)"
           (cancel)="closeAnimationPanel()" />
       }
+      <!-- 2026-06-17 — Panneau « Mes configs » (réservé aux connectés). -->
+      @if (mapConfigsPanelOpen()) {
+        <app-map-configs-panel
+          (saveNew)="onSaveNewConfig($event)"
+          (overwrite)="onOverwriteConfig($event)"
+          (apply)="onApplyConfig($event)"
+          (close)="mapConfigsPanelOpen.set(false)" />
+      }
+
       <!-- G21 — controls floattants (play/pause/stop/speed) au-dessus du slider.
            Visibilité gérée en interne par le composant via animPlayer.state(). -->
       <app-animation-controls />
@@ -2367,8 +2381,38 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   readonly isAuthenticated = this.auth.isAuthenticated;
   logout(): void { this.auth.logout(); }
   private readonly prefsSync = inject(PreferencesSyncService);
+  private readonly mapConfigs = inject(MapConfigsService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+
+  // ─── Control « Mes configs » (2026-06-17, réservé aux connectés) ─────
+  readonly mapConfigsPanelOpen = signal<boolean>(false);
+
+  /** Ouvre le panneau + (re)charge la liste depuis l'API. */
+  openMapConfigs(): void {
+    this.mapConfigsPanelOpen.set(true);
+    void this.mapConfigs.list().catch(() => { /* affiché vide, erreur silencieuse */ });
+  }
+
+  /** Sauvegarde l'état VIVANT du globe sous un nouveau nom. */
+  async onSaveNewConfig(name: string): Promise<void> {
+    try {
+      await this.mapConfigs.create(name, this.serializeMapConfig());
+    } catch { /* le panneau gère ses propres erreurs via le service à la prochaine action */ }
+  }
+
+  /** Écrase une config existante par l'état VIVANT du globe. */
+  async onOverwriteConfig(c: { id: number; name: string }): Promise<void> {
+    try {
+      await this.mapConfigs.update(c.id, c.name, this.serializeMapConfig());
+    } catch { /* idem */ }
+  }
+
+  /** Applique une config sauvegardée et referme le panneau. */
+  async onApplyConfig(c: { snapshot: MapConfigSnapshot }): Promise<void> {
+    this.mapConfigsPanelOpen.set(false);
+    await this.applyMapConfig(c.snapshot);
+  }
 
   readonly mapContainer = viewChild.required<ElementRef<HTMLDivElement>>('mapContainer');
 
@@ -3976,6 +4020,164 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (p['showEez'])   this.toggleEez(true);
     if (p['showMpa'])   this.toggleMpa(true);
     if (p['showGlofas']) this.toggleGlofas(true);
+  }
+
+  // ─── Configurations de carte nommées (2026-06-17) ───────────────────
+  // serializeMapConfig() / applyMapConfig() : snapshot COMPLET et autonome
+  // de l'état du globe pour le control "Mes configs" (cf MapConfigsPanel) et,
+  // à terme, les widgets /dashboard. On réutilise EXCLUSIVEMENT les setters
+  // existants (toggle*, setLayerOpacity, setProjection, applyMapLibreZIndex)
+  // pour que le pipeline WMS/animation se rafraîchisse normalement — aucune
+  // mutation directe qui court-circuiterait refreshWmsTimeForActiveLayers.
+
+  /** Clés vector (toggleVector flip) → leur signal de visibilité. */
+  private vectorVisibilitySignals(): Record<string, () => boolean> {
+    return {
+      lightning: this.showLightning, alerts: this.showAlerts, vessels: this.showVessels,
+      metar: this.showMetar, hubeau: this.showHubeau, piezo: this.showPiezo,
+      quakes: this.showQuakes, firms: this.showFirms, buoys: this.showBuoys,
+      sigmet: this.showSigmet, taf: this.showTaf, cables: this.showCables,
+      fir: this.showFir, airports: this.showAirports,
+    };
+  }
+
+  /** Sérialise l'état courant du globe en snapshot autonome. */
+  serializeMapConfig(): MapConfigSnapshot {
+    const map = this.map;
+    const visibility: Record<string, boolean> = {
+      sst: this.showSst(),
+      wind: this.showWind(),
+      tracks: this.showTracks(),
+      rain: this.showRain(),
+      windForecast: this.showWindForecast(),
+      wavesForecast: this.showWavesForecast(),
+      windArrows: this.showWindArrows(),
+      waveArrows: this.showWaveArrows(),
+      glofas: this.showGlofas(),
+      temp2m: this.showTemp2m(),
+      pressureMsl: this.showPressureMsl(),
+      humidity: this.showHumidity(),
+      precipitation: this.showPrecipitation(),
+      bathy: this.showBathy(),
+      eez: this.showEez(),
+      mpa: this.showMpa(),
+    };
+    // Vector layers (flip-toggle).
+    for (const [kind, sig] of Object.entries(this.vectorVisibilitySignals())) {
+      visibility[kind] = sig();
+    }
+    // Produits satellite (clés sat*).
+    for (const [key, sig] of Object.entries(this.satShowSignals())) {
+      visibility[key] = sig();
+    }
+    return {
+      version: 1,
+      view: {
+        projection: this.projection(),
+        center: map ? { lng: map.getCenter().lng, lat: map.getCenter().lat } : { lng: 5, lat: 45 },
+        zoom: map ? map.getZoom() : 2.2,
+        bearing: map ? map.getBearing() : 0,
+        pitch: map ? map.getPitch() : 0,
+      },
+      layers: {
+        visibility,
+        opacities: { ...this.layerOpacities() },
+        contours: {
+          sstContours: this.showSstContours(),
+          windContours: this.showWindContours(),
+          waveContours: this.showWaveContours(),
+        },
+        zIndex: { autoEnabled: this.autoZIndexEnabled(), order: [...this.layerZIndexOrder()] },
+      },
+      time: { masterLayerKey: this.masterLayerKey() },
+    };
+  }
+
+  /** Applique un snapshot sur le globe. Le maître du temps se cale sur la
+   *  validité la plus proche de maintenant (aucun timestamp figé). */
+  async applyMapConfig(snap: MapConfigSnapshot): Promise<void> {
+    const vis = snap.layers?.visibility ?? {};
+
+    // 1. Opacités d'abord : les toggle* bakent getLayerOpacity() à l'addLayer.
+    this.layerOpacities.set({ ...this.LAYER_OPACITY_DEFAULTS, ...(snap.layers?.opacities ?? {}) });
+
+    // 2. Vue + projection.
+    if (snap.view) {
+      this.setProjection(snap.view.projection);
+      this.map?.jumpTo({
+        center: [snap.view.center.lng, snap.view.center.lat],
+        zoom: snap.view.zoom,
+        bearing: snap.view.bearing,
+        pitch: snap.view.pitch,
+      });
+    }
+
+    // 3. Visibilité — état explicite désiré pour chaque layer.
+    for (const key of Object.keys(this.satShowSignals())) {
+      this.toggleSatLayer(key, !!vis[key]);
+    }
+    this.toggleSst(!!vis['sst']);
+    await this.toggleWind(!!vis['wind']);
+    await this.toggleTracks(!!vis['tracks']);
+    await this.toggleRain(!!vis['rain']);
+    this.toggleWindForecast(!!vis['windForecast']);
+    this.toggleWavesForecast(!!vis['wavesForecast']);
+    this.toggleWindArrows(!!vis['windArrows']);
+    this.toggleWaveArrows(!!vis['waveArrows']);
+    this.toggleGlofas(!!vis['glofas']);
+    this.toggleTemp2m(!!vis['temp2m']);
+    this.togglePressureMsl(!!vis['pressureMsl']);
+    this.toggleHumidity(!!vis['humidity']);
+    this.togglePrecipitation(!!vis['precipitation']);
+    this.toggleBathy(!!vis['bathy']);
+    this.toggleEez(!!vis['eez']);
+    this.toggleMpa(!!vis['mpa']);
+    // Vector : toggleVector flippe → ne l'appeler que si l'état diffère.
+    for (const [kind, sig] of Object.entries(this.vectorVisibilitySignals())) {
+      if (sig() !== !!vis[kind]) {
+        await this.toggleVector(kind as Parameters<typeof this.toggleVector>[0]);
+      }
+    }
+    // Contours.
+    this.toggleSstContours(!!snap.layers?.contours?.sstContours);
+    this.toggleWindContours(!!snap.layers?.contours?.windContours);
+    this.toggleWaveContours(!!snap.layers?.contours?.waveContours);
+
+    // 4. Z-index (auto/manuel + ordre).
+    this.autoZIndexEnabled.set(!!snap.layers?.zIndex?.autoEnabled);
+    this.layerZIndexOrder.set([...(snap.layers?.zIndex?.order ?? [])]);
+    queueMicrotask(() => this.applyMapLibreZIndex());
+
+    // 5. Ré-applique les opacités aux layers déjà présents avant l'apply.
+    for (const [k, v] of Object.entries(snap.layers?.opacities ?? {})) {
+      this.setLayerOpacity(k, v);
+    }
+
+    // 6. Maître du temps + curseur calé sur la validité la plus proche de maintenant.
+    this.masterLayerKey.set(snap.time?.masterLayerKey ?? null);
+    const nearest = this.nearestValidityToNow();
+    if (nearest) {
+      this.currentTime.set(nearest);
+      this.refreshWmsTimeForActiveLayers();
+    }
+
+    // 7. Persiste comme un changement normal (localStorage + DB sync si auth).
+    this.persistGlobePrefs();
+    this.persistLayerOpacities();
+  }
+
+  /** Validité (de masterValidityList) la plus proche de l'instant présent. */
+  private nearestValidityToNow(): Date | null {
+    const list = this.masterValidityList();
+    if (!list.length) return null;
+    const now = Date.now();
+    let best = list[0];
+    let bestDiff = Math.abs(best.getTime() - now);
+    for (const d of list) {
+      const diff = Math.abs(d.getTime() - now);
+      if (diff < bestDiff) { best = d; bestDiff = diff; }
+    }
+    return best;
   }
 
   /** G11d — keys des layers actives qui ont un slider opacité utile. */
