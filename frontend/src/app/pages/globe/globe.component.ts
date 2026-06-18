@@ -842,6 +842,23 @@ function gibsDailyDate(): string {
                          (input)="setLayerOpacity('windParticles', +$any($event.target).value)" />
                 }
               </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showWaveParticles()">
+                  <input type="checkbox" [checked]="showWaveParticles()" (change)="toggleWaveParticles(!showWaveParticles())" />
+                  <span class="toggle-glyph">
+                    <span class="glyph-particles">∿∿∿</span>
+                  </span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Vagues particules</span>
+                    <span class="toggle-count">WebGL · {{ DEFAULT_WIND_PARTICLES }} pts</span>
+                  </span>
+                </label>
+                @if (showWaveParticles()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('waveParticles')"
+                         (input)="setLayerOpacity('waveParticles', +$any($event.target).value)" />
+                }
+              </div>
               <!-- G66 (2026-05-27) — placeholders V2 paramètres météo activés.
                    4 layers Forecast GFS scaffold côté frontend (WMS time-driven).
                    Les coverages GS aetherwx:temp-2m / pressure-msl / humidity-2m /
@@ -1134,6 +1151,9 @@ function gibsDailyDate(): string {
           }
           @if (windError()) {
             <div class="legend-error">{{ windError() }}</div>
+          }
+          @if (waveError()) {
+            <div class="legend-error">{{ waveError() }}</div>
           }
         </div>
 
@@ -2425,6 +2445,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       for (const sig of Object.values(this.satShowSignals())) { void sig(); }
       void this.showSst();
       void this.showWind();
+      void this.showWaveParticles();
       void this.showLightning();
       void this.showAlerts();
       void this.showVessels();
@@ -2456,7 +2477,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // G11e (2026-05-22) — persist globe prefs (show* + autoZIndex + master + projection)
     // au moindre changement. Restore en ngAfterViewInit avant _initMap.
     effect(() => {
-      void this.showSst(); void this.showWind(); void this.activeSat();
+      void this.showSst(); void this.showWind(); void this.showWaveParticles(); void this.activeSat();
       // G16 — subscribe les 13 sat signals pour persist auto
       for (const sig of Object.values(this.satShowSignals())) { void sig(); }
       void this.showLightning(); void this.showAlerts(); void this.showVessels();
@@ -2558,6 +2579,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   readonly showWind = signal(false);
   readonly windLoading = signal(false);
   readonly windError = signal<string | null>(null);
+  readonly showWaveParticles = signal(false);
+  readonly waveLoading = signal(false);
+  readonly waveError = signal<string | null>(null);
   readonly fps = signal('—');
   /** Sélecteur radio mutuellement exclusif. 'none' = pas de sat actif. */
   /** @deprecated G16 (2026-05-22) — Conservé pour compat persist localStorage
@@ -2718,6 +2742,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (this.showWindForecast() || this.showWindContours()) n++;
     if (this.showWavesForecast() || this.showWaveContours()) n++;
     if (this.showWind()) n++;
+    if (this.showWaveParticles()) n++;
     if (this.showVessels()) n++;
     if (this.showAlerts()) n++;
     if (this.showLightning()) n++;
@@ -2858,6 +2883,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // Dynamics
     if (this.showSst())  this.toggleSst(false);
     if (this.showWind()) void this.toggleWind(false);
+    if (this.showWaveParticles()) void this.toggleWaveParticles(false);
     // Sat layers (G16)
     for (const [k, sig] of Object.entries(this.satShowSignals())) {
       if (sig()) this.toggleSatLayer(k, false);
@@ -3012,8 +3038,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         return { active: flags.filter(Boolean).length, total: flags.length };
       }
       case 'forecast': {
-        // 3 layers : wind (raster forecast), windArrows, windParticles (WebGL)
-        const flags = [this.showWindForecast(), this.showWindArrows(), this.showWind()];
+        // 4 layers : wind (raster forecast), windArrows, windParticles (WebGL), waveParticles (WebGL)
+        const flags = [this.showWindForecast(), this.showWindArrows(), this.showWind(), this.showWaveParticles()];
         return { active: flags.filter(Boolean).length, total: flags.length };
       }
       case 'dynamics': {
@@ -3602,7 +3628,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     metar: 4, hubeau: 4, piezo: 4, quakes: 4, firms: 4, buoys: 4,
     tracks: 4,
     rain: 2,
-    windArrows: 5, waveArrows: 5, windParticles: 5,
+    windArrows: 5, waveArrows: 5, windParticles: 5, waveParticles: 5,
   };
   private readonly DEFAULT_LAYER_RANK = 3;
 
@@ -3649,7 +3675,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       });
     };
     push(this.showSst(),       'sst',       'sst',       '#3b82f6', 168, 0);
-    push(this.showWind(),      'windParticles', 'wind-particles', '#10b981', 0, 168);
+    push(this.showWind(),         'windParticles',  'wind-particles',  '#10b981', 0, 168);
+    push(this.showWaveParticles(), 'waveParticles', 'wave-particles', '#3b82f6', 0, 168);
     push(this.showLightning(), 'lightning', 'lightning', '#facc15', 1, 0);
     push(this.showAlerts(),    'alerts',    'alerts',    '#ef4444', 1, 0);
     // G66c (2026-05-27) — SIGMET valid 2h sliding window, TAF 12h future window.
@@ -3785,6 +3812,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       if (this.windEngine) this.windEngine.opacity = v;
       return;
     }
+    if (layerId === 'wave-webgl') {
+      if (this.waveEngine) this.waveEngine.opacity = v;
+      return;
+    }
     const layer = map.getLayer(layerId);
     if (!layer) return;
     switch (layer.type) {
@@ -3890,6 +3921,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       const state = {
         showSst: this.showSst(),
         showWind: this.showWind(),
+        showWaveParticles: this.showWaveParticles(),
         activeSat: this.activeSat(),   // legacy compat
         sat: satState,                 // G16 multi-toggles
         showLightning: this.showLightning(),
@@ -3940,7 +3972,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       // show* signals : restore mais ne pas relancer toggleX (les sources/layers ne sont pas init)
       // → on stocke les show signals en pending, qui seront relayés par un effect APRÈS _initMap.
       this._pendingRestore = {
-        showSst: !!data?.showSst, showWind: !!data?.showWind, activeSat: data?.activeSat ?? 'none',
+        showSst: !!data?.showSst, showWind: !!data?.showWind, showWaveParticles: !!data?.showWaveParticles, activeSat: data?.activeSat ?? 'none',
         showLightning: !!data?.showLightning, showAlerts: !!data?.showAlerts, showVessels: !!data?.showVessels,
         showMetar: !!data?.showMetar, showHubeau: !!data?.showHubeau, showPiezo: !!data?.showPiezo,
         showQuakes: !!data?.showQuakes, showFirms: !!data?.showFirms, showBuoys: !!data?.showBuoys,
@@ -4006,6 +4038,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     this._pendingRestore = undefined;
     if (p['showSst']) this.toggleSst(true);
     if (p['showWind']) this.toggleWind(true);
+    if (p['showWaveParticles']) this.toggleWaveParticles(true);
     // G16 — restore TOUS les sat layers persistés (clé `sat:<key>`)
     for (const [k, v] of Object.entries(p)) {
       if (k.startsWith('sat:') && v) {
@@ -4072,6 +4105,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     const visibility: Record<string, boolean> = {
       sst: this.showSst(),
       wind: this.showWind(),
+      waveParticles: this.showWaveParticles(),
       tracks: this.showTracks(),
       rain: this.showRain(),
       windForecast: this.showWindForecast(),
@@ -4143,6 +4177,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
     this.toggleSst(!!vis['sst']);
     await this.toggleWind(!!vis['wind']);
+    await this.toggleWaveParticles(!!vis['waveParticles']);
     await this.toggleTracks(!!vis['tracks']);
     await this.toggleRain(!!vis['rain']);
     this.toggleWindForecast(!!vis['windForecast']);
@@ -4313,6 +4348,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
     if (this.showSst()) active.push('sst');
     if (this.showWind()) active.push('windParticles');
+    if (this.showWaveParticles()) active.push('waveParticles');
     if (this.showLightning()) active.push('lightning');
     if (this.showAlerts()) active.push('alerts');
     if (this.showVessels()) active.push('vessels');
@@ -4346,6 +4382,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   private mapLibreLayerIds(key: string): string[] {
     if (key === 'sst') return ['sst-wms'];
     if (key === 'windParticles') return ['wind-webgl'];
+    if (key === 'waveParticles') return ['wave-webgl'];
     if (key === 'lightning') return ['vec-lightning'];
     if (key === 'alerts') return ['vec-alerts'];
     if (key === 'vessels') return ['vec-vessels-clusters', 'vec-vessels-cluster-count', 'vec-vessels-points'];
@@ -4609,6 +4646,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   private windEngine?: WindWebGL;
   private windLayer?: CustomLayerInterface;
   private windGridCache?: WindGridPoint[];
+  private waveEngine?: WindWebGL;
+  private waveLayer?: CustomLayerInterface;
+  private waveGridCache?: WindGridPoint[];
   private rafHandle?: number;
   private lastFpsTime = performance.now();
   private frameCount = 0;
@@ -4658,6 +4698,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     this.prefsSync.cancel();
     this.windEngine = undefined;
     this.windLayer = undefined;
+    this.waveEngine = undefined;
+    this.waveLayer = undefined;
     this.map?.remove();
   }
 
@@ -4694,7 +4736,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         });
       }
       if (!map.getLayer(layerId)) {
-        const before = map.getLayer('wind-webgl') ? 'wind-webgl' : undefined;
+        const before = map.getLayer('wave-webgl') ? 'wave-webgl' : map.getLayer('wind-webgl') ? 'wind-webgl' : undefined;
         map.addLayer(
           { id: layerId, type: 'raster', source: sourceId, paint: { 'raster-opacity': 0.7 } },
           before,
@@ -5516,6 +5558,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       if (map.getSource(sourceId)) map.removeSource(sourceId);
       map.addSource(sourceId, { type: 'raster', tiles: [url], tileSize: 256, attribution: 'RainViewer Satellite IR' });
       const before = map.getLayer('sst-wms') ? 'sst-wms'
+                   : map.getLayer('wave-webgl') ? 'wave-webgl'
                    : map.getLayer('wind-webgl') ? 'wind-webgl'
                    : undefined;
       map.addLayer({ id: layerId, type: 'raster', source: sourceId, paint: { 'raster-opacity': 0.85 } }, before);
@@ -5715,6 +5758,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     map.addSource(sourceId, { type: 'raster', tiles: [url], tileSize: 256, attribution: product.attribution });
     // Insertion en dessous des layers vector/animations pour préserver Z auto.
     const before = map.getLayer('sst-wms') ? 'sst-wms'
+                 : map.getLayer('wave-webgl') ? 'wave-webgl'
                  : map.getLayer('wind-webgl') ? 'wind-webgl'
                  : undefined;
     map.addLayer({ id: layerId, type: 'raster', source: sourceId, paint: { 'raster-opacity': 0.85 } }, before);
@@ -5808,6 +5852,79 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     return grid;
   }
 
+  async toggleWaveParticles(on: boolean) {
+    if (this.showWaveParticles() === on) return;
+    this.showWaveParticles.set(on);
+    const map = this.map;
+    if (!map) return;
+
+    if (!on) {
+      if (this.waveLayer && map.getLayer(this.waveLayer.id)) {
+        map.removeLayer(this.waveLayer.id);
+      }
+      this.waveLayer = undefined;
+      this.waveEngine = undefined;
+      return;
+    }
+
+    this.waveLoading.set(true);
+    this.waveError.set(null);
+    try {
+      const grid = await this._loadWaveGrid();
+      const waveData = buildWindTexture(grid, WIND_BBOX, 512, 256);
+      const self = this;
+      const layer: CustomLayerInterface = {
+        id: 'wave-webgl',
+        type: 'custom',
+        onAdd(_map, gl) {
+          self.waveEngine = new WindWebGL(gl as WebGL2RenderingContext, { bounds: WIND_BBOX, lineWidth: 3.0 });
+          self.waveEngine.setNumParticles(DEFAULT_WIND_PARTICLES);
+          self.waveEngine.setWind(waveData);
+          // Applique l'opacity persistée à l'instantiation (slider restore).
+          self.waveEngine.opacity = self.getLayerOpacity('waveParticles');
+        },
+        render(_gl, args) {
+          if (!self.waveEngine) return;
+          self.waveEngine.draw(args as unknown as MapLibreCustomLayerRenderArgs);
+          self.map?.triggerRepaint();
+        },
+        onRemove() {
+          // engine refs cleared by caller in ngOnDestroy/toggleWaveParticles(false)
+        },
+      };
+      this.waveLayer = layer;
+      map.addLayer(layer);
+      this.waveLoading.set(false);
+    } catch (err) {
+      console.error('[globe] wave grid load failed', err);
+      this.waveError.set(err instanceof Error ? err.message : 'erreur de chargement');
+      this.waveLoading.set(false);
+      this.showWaveParticles.set(false);
+    }
+  }
+
+  private async _loadWaveGrid(): Promise<WindGridPoint[]> {
+    if (this.waveGridCache) return this.waveGridCache;
+    const manifest = await this.arrows.getManifest();
+    if (!manifest) throw new Error('manifest indisponible');
+    const tsList = manifest.wave ?? [];
+    if (tsList.length === 0) throw new Error('aucun timestamp wave dans le manifest');
+    const nearest = this.arrows.findNearestTs(tsList, new Date()) ?? tsList[tsList.length - 1];
+    const fc = await this.arrows.fetchArrows('wave', nearest);
+    const grid: WindGridPoint[] = fc.features
+      .filter((f) => f.geometry?.type === 'Point')
+      .map((f) => {
+        const props = f.properties as { speed?: number; dirTo?: number };
+        const speed = props.speed ?? 0;
+        const dirTo = props.dirTo ?? 0;
+        const { u, v } = speedDirToUv(speed, dirTo);
+        const [lon, lat] = f.geometry.coordinates;
+        return { lon, lat, u, v };
+      });
+    this.waveGridCache = grid;
+    return grid;
+  }
+
   private _initMap(): void {
     const container = this.mapContainer().nativeElement;
     const map = new maplibregl.Map({
@@ -5858,8 +5975,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // L'attribution se re-build à chaque changement de layer via effect.
     this.refreshAttribution(map);
 
-    const onMoveStart = () => this.windEngine?.setMoving(true);
-    const onMoveEnd = () => this.windEngine?.setMoving(false);
+    const onMoveStart = () => { this.windEngine?.setMoving(true); this.waveEngine?.setMoving(true); };
+    const onMoveEnd = () => { this.windEngine?.setMoving(false); this.waveEngine?.setMoving(false); };
     for (const ev of ['movestart', 'zoomstart', 'pitchstart', 'rotatestart']) {
       map.on(ev as any, onMoveStart);
       this.moveHandlers.push({ event: ev, handler: onMoveStart });
@@ -5868,7 +5985,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       map.on(ev as any, onMoveEnd);
       this.moveHandlers.push({ event: ev, handler: onMoveEnd });
     }
-    map.on('resize', () => this.windEngine?.resize());
+    map.on('resize', () => { this.windEngine?.resize(); this.waveEngine?.resize(); });
 
     // 2026-05-21 — Popups click sur vessels / lightning / alerts.
     // Pattern MapLibre standard : queryRenderedFeatures sur le pixel cliqué,
