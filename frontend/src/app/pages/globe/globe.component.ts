@@ -3914,6 +3914,13 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         showEez: this.showEez(),
         showMpa: this.showMpa(),
         showGlofas: this.showGlofas(),
+        // G73 (2026-06-18) — Fix C : 5 vecteurs G66 jamais persistés (radar* le sont
+        // déjà via le sous-objet `sat`, cf satShowSignals).
+        showSigmet: this.showSigmet(),
+        showTaf: this.showTaf(),
+        showCables: this.showCables(),
+        showFir: this.showFir(),
+        showAirports: this.showAirports(),
         autoZIndexEnabled: this.autoZIndexEnabled(),
         masterLayerKey: this.masterLayerKey(),
         projection: this.projection(),
@@ -3942,6 +3949,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         showWindArrows: !!data?.showWindArrows, showWaveArrows: !!data?.showWaveArrows,
         showSstContours: !!data?.showSstContours, showWindContours: !!data?.showWindContours, showWaveContours: !!data?.showWaveContours,
         showBathy: !!data?.showBathy, showEez: !!data?.showEez, showMpa: !!data?.showMpa, showGlofas: !!data?.showGlofas,
+        // G73 (2026-06-18) — Fix C : 5 vecteurs G66 (restore). radar* via `sat`.
+        showSigmet: !!data?.showSigmet, showTaf: !!data?.showTaf, showCables: !!data?.showCables,
+        showFir: !!data?.showFir, showAirports: !!data?.showAirports,
       };
       // G16 — restore les 13 sat signals multi-toggle. Compat ascendante avec
       // l'ancien `activeSat` legacy : si data.sat absent mais activeSat='satXyz',
@@ -4016,6 +4026,12 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (p['showQuakes'])    this.toggleVector('quakes');
     if (p['showFirms'])     this.toggleVector('firms');
     if (p['showBuoys'])     this.toggleVector('buoys');
+    // G73 (2026-06-18) — Fix C : 5 vecteurs G66.
+    if (p['showSigmet'])    this.toggleVector('sigmet');
+    if (p['showTaf'])       this.toggleVector('taf');
+    if (p['showCables'])    this.toggleVector('cables');
+    if (p['showFir'])       this.toggleVector('fir');
+    if (p['showAirports'])  this.toggleVector('airports');
     if (p['showTracks'])    this.toggleTracks(true);
     if (p['showRain'])      this.toggleRain(true);
     if (p['showWindForecast'])  this.toggleWindForecast(true);
