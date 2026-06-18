@@ -56,7 +56,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          # 0 = tout l'historique : nécessaire pour diff la plage COMPLÈTE d'un
+          # push multi-commits (before..after), pas juste le dernier commit.
+          fetch-depth: 0
 
       - name: Set matrix from changes
         id: set-matrix
@@ -86,7 +88,17 @@ jobs:
             ["frontend"]="frontend"
             ["geoserver"]="geoserver"
           )
-          CHANGED=$(git diff --name-only HEAD~1 HEAD)
+          # 2026-06-18 fix : diffe la PLAGE COMPLÈTE du push (before..after) et
+          # non juste HEAD~1..HEAD. Sinon, un push de N commits dont le DERNIER
+          # ne touche aucun service (ex: commit qa-only) skippait à tort le build
+          # des services modifiés dans les commits précédents (vécu : widget
+          # all-layers non buildé car suivi d'un commit qa). Fallback HEAD~1 pour
+          # les premiers commits / force-push (before = 000…0).
+          BEFORE="${{ github.event.before }}"
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE" 2>/dev/null; then
+            BEFORE="$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)"
+          fi
+          CHANGED=$(git diff --name-only "$BEFORE" "${{ github.sha }}")
           MATRIX=()
           for path in "${!MAP[@]}"; do
             if echo "$CHANGED" | grep -q "^$path/"; then
