@@ -7,6 +7,7 @@ Détection déterministe des régressions de layers. **Aucun LLM dans le verdict
 - `SKIP_GETCAPS=1 node qa/drift.mjs`  → vérifie qu'aucun layer FE n'est hors couverture (gate CI). Sans `SKIP_GETCAPS`, croise aussi GetCapabilities prod.
 - `node qa/check-data.mjs`  → D1 : données raster (GetMap cache-busté + détecteur PNG uniforme) + vector (WFS GetFeature / endpoint API). Exit 1 si FAIL.
 - `BASE_URL=<url avec hook ?qa=1> node qa/check-ui.mjs`  → D2 : toggle + opacity + z-index (P2, nécessite le hook `__aetherwxQA` déployé).
+- `node qa/check-time.mjs [--layer=sst] [--flaky[=K]]`  → D3 : time-coherence TC-1/2/3 par layer raster timeEnabled (le `TIME` des GetMap suit la time-bar). `--flaky=K` (défaut 10) relance K cycles de play sur un master et exige K/K → traque l'anim « 1/100 ». Nécessite un `DISPLAY` (WebGL : `DISPLAY=:0` WSLg OK, sinon `xvfb-run -a node qa/check-time.mjs`). Le sweep complet (~20 rasters) est lent (>9 min) ; préférer `--layer=` ou le subset coverages en gate.
 
 Override prod : `GS_URL=...` / `BASE_URL=...` (défauts = `https://aetherwx.sladoire.dev[/geoserver]`).
 
