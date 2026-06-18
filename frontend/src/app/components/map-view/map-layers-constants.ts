@@ -94,6 +94,70 @@ export const RASTER_LAYERS: Record<string, RasterLayerDescriptor> = {
 export const SAT_DEFAULT_OPACITY = 0.85;
 export const WMS_TILE_SIZE = 256;
 
+// ─── Flèches & particules de vent (miroir globe) ───
+/** Bbox Europe du grid vent GFS (particules + flèches). */
+export const WIND_BBOX: [number, number, number, number] = [-15, 35, 30, 65];
+export const DEFAULT_WIND_PARTICLES = 3000;
+
+/** IDs MapLibre des couches flèches (parité globe). */
+export const WIND_ARROWS_LAYER_ID = 'wind-arrows-vec';
+export const WAVE_ARROWS_LAYER_ID = 'wave-arrows-vec';
+export const WIND_PARTICLES_LAYER_ID = 'wind-webgl';
+
+/** Dégradé couleur flèches vent selon speed (m/s) — palette G34. */
+export const WIND_ARROW_COLOR: unknown[] = [
+  'interpolate', ['linear'], ['get', 'speed'],
+  0, '#60a5fa', 5, '#22c55e', 10, '#fde047', 15, '#fb923c', 20, '#dc2626', 30, '#7f1d1d',
+];
+/** Dégradé couleur flèches vagues selon hs (m) — palette G34. */
+export const WAVE_ARROW_COLOR: unknown[] = [
+  'interpolate', ['linear'], ['get', 'hs'],
+  0, '#bfdbfe', 1, '#60a5fa', 2, '#3b82f6', 4, '#8b5cf6', 6, '#dc2626', 9, '#7f1d1d',
+];
+
+export const ARROW_DEFAULT_OPACITY = 0.9;
+
+/** Libellés humains des layers (pour le menu read-only de la widget). */
+export const LAYER_LABELS: Record<string, string> = {
+  sst: 'Température de surface (SST)',
+  sstContours: 'Isolignes SST',
+  windForecast: 'Vent (forecast)',
+  windContours: 'Isolignes vent',
+  wavesForecast: 'Vagues (forecast)',
+  waveContours: 'Isolignes vagues',
+  glofas: 'Débits rivières (GloFAS)',
+  temp2m: 'Température 2m',
+  pressureMsl: 'Pression niveau mer',
+  humidity: 'Humidité',
+  precipitation: 'Précipitations',
+  bathy: 'Bathymétrie',
+  eez: 'Zones économiques (EEZ)',
+  mpa: 'Aires marines protégées',
+  windArrows: 'Flèches de vent',
+  waveArrows: 'Flèches de vagues',
+  wind: 'Particules de vent',
+  // Vecteurs.
+  lightning: 'Foudre', alerts: 'Alertes', vessels: 'Navires (AIS)', metar: 'METAR',
+  hubeau: 'Débits (Hub\'eau)', piezo: 'Piézomètres', quakes: 'Séismes', firms: 'Feux (FIRMS)',
+  buoys: 'Bouées', sigmet: 'SIGMET', taf: 'TAF', cables: 'Câbles sous-marins',
+  fir: 'FIR/UIR', airports: 'Aéroports',
+};
+
+/** Libellé d'une clé de layer (rasters/contours/arrows/particules + sat). */
+export function layerLabel(key: string): string {
+  if (LAYER_LABELS[key]) return LAYER_LABELS[key];
+  const sat = SAT_PRODUCTS.find((p) => p.key === key);
+  return sat?.label ?? key;
+}
+
+/** Clés time-enabled (raster forecast/sat + flèches) → affichent une time-bar. */
+export function isTimeEnabledKey(key: string): boolean {
+  if (key === 'windArrows' || key === 'waveArrows') return true;
+  const d = RASTER_LAYERS[key];
+  if (d && d.timeKind !== 'none') return true;
+  return SAT_PRODUCT_KEYS.has(key);
+}
+
 /** Basemap fond de carte (parité globe). */
 export const CARTO_DARK_TILES = [
   'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',

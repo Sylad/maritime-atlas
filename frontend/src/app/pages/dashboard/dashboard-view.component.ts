@@ -71,7 +71,9 @@ interface ViewItem { widget: DashboardWidget; item: GridsterItem; }
               </div>
               <div class="widget-body">
                 @if (vi.widget.config.snapshot) {
-                  <app-map-view [snapshot]="vi.widget.config.snapshot" [interactive]="editing()" />
+                  <!-- Interactif en lecture (zoom/pan), figé en édition pour
+                       laisser gridster gérer le déplacement de la widget. -->
+                  <app-map-view [snapshot]="vi.widget.config.snapshot" [interactive]="!editing()" />
                 } @else {
                   <div class="widget-empty">Widget non configurée</div>
                 }
