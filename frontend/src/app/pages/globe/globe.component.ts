@@ -63,6 +63,10 @@ import {
 // Bbox du wind grid GFS Europe étroite (match les arrows prod).
 const WIND_BBOX: [number, number, number, number] = [-15, 35, 30, 65];
 const DEFAULT_WIND_PARTICLES = 3000;
+// G73 (2026-06-18) — les features WW3 wave portent `hs` (hauteur sig. ~0-8 m), pas
+// `speed`. On amplifie pour une advection des particules visible (≈ magnitude vent).
+// Tunable visuellement (Sylvain valide à l'œil).
+const WAVE_PARTICLE_SPEED_SCALE = 4;
 
 /** Catalogue satellite — mirror partiel de map.component.SAT_PRODUCTS +
  *  CASCADE_PRODUCTS. Tous les layers sont sur GeoServer workspace `maritime`
@@ -411,6 +415,23 @@ function gibsDailyDate(): string {
                   <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
                          [value]="getLayerOpacity('waveArrows')"
                          (input)="setLayerOpacity('waveArrows', +$any($event.target).value)" />
+                }
+              </div>
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showWaveParticles()">
+                  <input type="checkbox" [checked]="showWaveParticles()" (change)="toggleWaveParticles(!showWaveParticles())" />
+                  <span class="toggle-glyph">
+                    <span class="glyph-particles">∿∿∿</span>
+                  </span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Vagues particules</span>
+                    <span class="toggle-count">WebGL · {{ DEFAULT_WIND_PARTICLES }} pts</span>
+                  </span>
+                </label>
+                @if (showWaveParticles()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('waveParticles')"
+                         (input)="setLayerOpacity('waveParticles', +$any($event.target).value)" />
                 }
               </div>
             </div>
@@ -840,23 +861,6 @@ function gibsDailyDate(): string {
                   <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
                          [value]="getLayerOpacity('windParticles')"
                          (input)="setLayerOpacity('windParticles', +$any($event.target).value)" />
-                }
-              </div>
-              <div class="layer-row">
-                <label class="layer-toggle" [class.dim]="!showWaveParticles()">
-                  <input type="checkbox" [checked]="showWaveParticles()" (change)="toggleWaveParticles(!showWaveParticles())" />
-                  <span class="toggle-glyph">
-                    <span class="glyph-particles">∿∿∿</span>
-                  </span>
-                  <span class="toggle-text">
-                    <span class="toggle-name">Vagues particules</span>
-                    <span class="toggle-count">WebGL · {{ DEFAULT_WIND_PARTICLES }} pts</span>
-                  </span>
-                </label>
-                @if (showWaveParticles()) {
-                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
-                         [value]="getLayerOpacity('waveParticles')"
-                         (input)="setLayerOpacity('waveParticles', +$any($event.target).value)" />
                 }
               </div>
               <!-- G66 (2026-05-27) — placeholders V2 paramètres météo activés.
@@ -3009,9 +3013,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   catalogSectionCount(key: keyof ReturnType<typeof this.catalogSections>): { active: number; total: number } {
     switch (key) {
       case 'maritime': {
-        // 7 layers : vessels, tracks, alerts, buoys, SST, waves, waveArrows
+        // 8 layers : vessels, tracks, alerts, buoys, SST, waves, waveArrows, waveParticles
         const flags = [this.showVessels(), this.showTracks(), this.showAlerts(), this.showBuoys(),
-                       this.showSst(), this.showWavesForecast(), this.showWaveArrows()];
+                       this.showSst(), this.showWavesForecast(), this.showWaveArrows(), this.showWaveParticles()];
         return { active: flags.filter(Boolean).length, total: flags.length };
       }
       case 'observation': {
@@ -3038,8 +3042,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         return { active: flags.filter(Boolean).length, total: flags.length };
       }
       case 'forecast': {
-        // 4 layers : wind (raster forecast), windArrows, windParticles (WebGL), waveParticles (WebGL)
-        const flags = [this.showWindForecast(), this.showWindArrows(), this.showWind(), this.showWaveParticles()];
+        // 3 layers : wind (raster forecast), windArrows, windParticles (WebGL)
+        const flags = [this.showWindForecast(), this.showWindArrows(), this.showWind()];
         return { active: flags.filter(Boolean).length, total: flags.length };
       }
       case 'dynamics': {
@@ -5914,10 +5918,13 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     const grid: WindGridPoint[] = fc.features
       .filter((f) => f.geometry?.type === 'Point')
       .map((f) => {
-        const props = f.properties as { speed?: number; dirTo?: number };
-        const speed = props.speed ?? 0;
+        // G73 — WaveArrowFeature porte `hs` (hauteur sig. m), PAS `speed`. Sans ça
+        // la magnitude était 0 → particules immobiles → rien à l'écran. On amplifie
+        // hs (~0-8 m) vers une magnitude type-vent (×4) pour une advection visible.
+        const props = f.properties as { hs?: number; dirTo?: number };
+        const mag = (props.hs ?? 0) * WAVE_PARTICLE_SPEED_SCALE;
         const dirTo = props.dirTo ?? 0;
-        const { u, v } = speedDirToUv(speed, dirTo);
+        const { u, v } = speedDirToUv(mag, dirTo);
         const [lon, lat] = f.geometry.coordinates;
         return { lon, lat, u, v };
       });
