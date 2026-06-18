@@ -235,46 +235,110 @@ async function checkLayer(page, reqs, layer) {
   }
   tc.tc2 = '✓';
 
-  // ── TC-3 — 1 cycle de play → ≥3 TIME distincts.
+  // ── TC-3 — 1 cycle de play.
+  //
+  // ⚠️ INVERSION HISTORIQUE CORRIGÉE (P5, 2026-06-18) — l'ancien critère « ≥3 TIME
+  // distincts pendant le play » RÉCOMPENSAIT LE CHEMIN CASSÉ. Un play SAIN sur un master
+  // raster préchargé fait du swap raster-opacity GPU (globe.switchAnimationFrame) et
+  // n'émet AUCUNE GetMap pendant le play → l'ancien TC-3 aurait compté 0 TIME et conclu
+  // FAIL. À l'inverse, un play DÉGRADÉ (fallthrough refreshWmsTimeForActiveLayers→setTiles)
+  // émet N GetMap avec TIME qui itère → l'ancien TC-3 comptait ≥3 et concluait PASS.
+  // Le « ≥3 TIME distincts = bon » était donc une mesure inversée : elle validait le bug.
+  //
+  // Nouveau critère AUTORITAIRE pour les masters préchargés (preloaded=true) :
+  //   playFallthrough === 0  → PASS (swap GPU, I-3 respecté)
+  //   playFallthrough  >  0  → FAIL (frames refetchées en plein play = bug P5 #2)
+  // Pour les cascade/non-préchargés, le pipeline EST légitimement setTiles (pas de N-source) :
+  // on retombe alors sur la mesure TIME (≥3 distincts = itère bien) comme avant.
   const r3 = await playCycle(page, reqs, layer);
+  if (r3.preloaded) {
+    if (r3.playFallthrough > 0) {
+      tc.tc3 = '✗';
+      return { verdict: VERDICT.FAIL,
+        detail: `TC-3: FALLTHROUGH — ${r3.playFallthrough} GetMap master pendant le play malgré `
+          + `${r3.animSources.length} sources préchargées (swap GPU raté → tuile non repeinte). `
+          + `preloadGetMap=${r3.preloadGetMap} TIMEvus=${r3.distinct.size}`, tc };
+    }
+    tc.tc3 = '✓';
+    return { verdict: VERDICT.PASS,
+      detail: `TC-1 align ✓ · TC-2 ${tc1Time}→${t2} ✓ · TC-3 NOMINAL (0 GetMap en play, `
+        + `${r3.animSources.length} frames préchargées swappées GPU) ✓`, tc };
+  }
+  // Master non préchargé (cascade, ou length<=1) : pipeline setTiles légitime → mesure TIME.
   if (r3.distinct.size < 3) {
     tc.tc3 = '✗';
     return { verdict: cascade ? VERDICT.UPSTREAM : VERDICT.FAIL,
-      detail: `TC-3: ${r3.distinct.size} TIME distincts en play (attendu ≥3) ${[...r3.distinct].join('|')}`, tc };
+      detail: `TC-3: ${r3.distinct.size} TIME distincts en play (attendu ≥3, non-préchargé) `
+        + `${[...r3.distinct].join('|')}`, tc };
   }
   tc.tc3 = '✓';
   return { verdict: VERDICT.PASS,
-    detail: `TC-1 align ✓ · TC-2 ${tc1Time}→${t2} ✓ · TC-3 ${r3.distinct.size} TIME ✓`, tc };
+    detail: `TC-1 align ✓ · TC-2 ${tc1Time}→${t2} ✓ · TC-3 ${r3.distinct.size} TIME (non-préchargé) ✓`, tc };
 }
 
 // Ouvre l'AnimationPanel, choisit la plus longue durée activée, lance, attend la fin du
-// preload (.ac-stop apparaît), capture ~4s de play, stoppe. Renvoie {distinct:Set, started}.
+// preload (.ac-stop apparaît), capture ~4s de play, stoppe.
+//
+// ── Détecteur de fallthrough réseau (P5, 2026-06-18) ──────────────────────────────────
+// Rappel architecture (globe.component.ts:4602-4617) : la subscription frameTime$ a DEUX
+// chemins mutuellement exclusifs par frame —
+//   (NOMINAL) si `preloadedFrames` existe ET findIndex(±60s) matche → switchAnimationFrame
+//             = swap raster-opacity GPU sur N sources pré-chargées → ZÉRO GetMap pendant le play.
+//   (DÉGRADÉ) sinon → refreshWmsTimeForActiveLayers() → setTiles() → N GetMap pendant le play.
+// Donc le fallthrough est OBSERVABLE au réseau : toute GetMap du master émise APRÈS la fin
+// du préchargement (preloadDoneMark = apparition de .ac-stop) trahit le chemin dégradé.
+//   playFallthrough = 0  → NOMINAL (swap GPU sain, invariant I-3 respecté visuellement)
+//   playFallthrough ≥ 1  → FALLTHROUGH (le bug P5 #2 : tuile non repeinte par swap, refetch lent)
+// On sonde aussi window.__aetherwxQA.layerIds() (?qa=1, prod) pour confirmer que le
+// préchargement a EU LIEU (présence des sources `anim-<master>-<i>`). preloaded=false +
+// playFallthrough>0 = master sans préchargement (length<=1 ou masterTarget absent).
+//
+// Renvoie {distinct:Set, started, preloaded, animSources, preloadGetMap, playFallthrough}.
 async function playCycle(page, reqs, layer) {
   await page.evaluate(() => document.querySelector('.ts-btn-play')?.click());
   await sleep(800);
   const panelOpen = await page.evaluate(() => !!document.querySelector('app-animation-panel .ap-launch'));
-  if (!panelOpen) return { distinct: new Set(), started: false, err: 'AnimationPanel pas ouvert' };
+  if (!panelOpen) return { distinct: new Set(), started: false, playFallthrough: -1, err: 'AnimationPanel pas ouvert' };
   // Choisir la durée la plus longue NON désactivée (max de frames sous le cap 150).
   await page.evaluate(() => {
     const ds = [...document.querySelectorAll('app-animation-panel .ap-grid-2 .ap-btn')].filter((b) => !b.disabled);
     if (ds.length) ds[ds.length - 1].click();
   });
   await sleep(300);
-  const mark = Date.now();
+  const launchMark = Date.now();
   const launch = await page.$('app-animation-panel .ap-launch');
-  if (!launch) return { distinct: new Set(), started: false, err: 'bouton Lancer introuvable' };
+  if (!launch) return { distinct: new Set(), started: false, playFallthrough: -1, err: 'bouton Lancer introuvable' };
   await launch.click({ force: true });
   // Le lancement préchargre les frames (~plusieurs s) AVANT que .ac-stop apparaisse.
+  // L'apparition de .ac-stop = preload terminé + animPlayer.start() appelé = preloadDoneMark.
   let started = false;
   try { await page.waitForSelector('.ac-stop', { timeout: 20000 }); started = true; } catch { /* no-op */ }
-  await sleep(4000);
+  const preloadDoneMark = Date.now();
+
+  // Sonde le hook QA read-only : les sources préchargées `anim-<master>-<i>` existent-elles ?
+  // (preloadAllRasterFrames les addSource/addLayer ; cleanupAnimationFrames les retire à la fin.)
+  const animSources = await page.evaluate((masterKey) => {
+    const qa = window.__aetherwxQA;
+    if (!qa || typeof qa.layerIds !== 'function') return null; // hook absent (pas ?qa=1)
+    return qa.layerIds().filter((id) => id.startsWith(`anim-${masterKey}-`));
+  }, layer.key).catch(() => null);
+  const preloaded = Array.isArray(animSources) && animSources.length > 0;
+
+  await sleep(4000); // fenêtre de play observée
   await page.evaluate(() => document.querySelector('.ac-stop')?.click());
   await sleep(500);
+
+  const masterGetMap = (since) =>
+    reqs.filter((x) => x.t >= since && isGetMapOf(x.u, layer.gsLayerName));
+  // GetMap émises pendant le préchargement (launch → preload fini) : attendues, saines.
+  const preloadGetMap = masterGetMap(launchMark).filter((x) => x.t < preloadDoneMark).length;
+  // GetMap émises PENDANT le play (après preloadDoneMark) : LE signal du fallthrough.
+  const playFallthrough = masterGetMap(preloadDoneMark).length;
+  // TIME distincts sur tout le cycle (info historique TC-3 ; voir avertissement d'inversion).
   const distinct = new Set(
-    reqs.filter((x) => x.t >= mark && isGetMapOf(x.u, layer.gsLayerName))
-        .map((x) => timeOf(x.u)).filter(Boolean),
+    masterGetMap(launchMark).map((x) => timeOf(x.u)).filter(Boolean),
   );
-  return { distinct, started };
+  return { distinct, started, preloaded, animSources: animSources ?? [], preloadGetMap, playFallthrough };
 }
 
 // Reload propre entre layers (RÈGLE skill : sinon curseur cumulé → faux positifs).
@@ -282,9 +346,18 @@ async function freshPage(browser) {
   const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   const reqs = [];
   page.on('request', (r) => reqs.push({ t: Date.now(), u: r.url() }));
-  await page.goto(`${BASE}/?qa=1`, { waitUntil: 'networkidle', timeout: 45000 });
+  // 2026-06-18 — la carte a déménagé de `/` (devenu l'Accueil/dashboard) vers `/map`.
+  // Charger `/` = 0 catalog-section → "toggle introuvable" silencieux.
+  await page.goto(`${BASE}/map?qa=1`, { waitUntil: 'networkidle', timeout: 45000 });
   await page.waitForFunction(() => !!window.__aetherwxQA, { timeout: 20000 }).catch(() => {});
   await sleep(3000);
+  // Garde fail-loud anti-route-périmée : si la carte bouge encore, on le sait tout de suite.
+  const nSections = await page.evaluate(() => document.querySelectorAll('.catalog-section').length);
+  if (nSections === 0) {
+    console.error(`FATAL: 0 catalog-section sur ${BASE}/map — la carte a-t-elle encore déménagé ? Vérifier la route.`);
+    await browser.close();
+    process.exit(1);
+  }
   return { page, reqs };
 }
 
@@ -326,13 +399,20 @@ async function runStandard(onlyKey) {
   }
 }
 
-// ─── Mode --flaky[=K] : K cycles de play sur UN master, exige K/K succès TC-3 ──────────
+// ─── Mode --flaky[=K] : K cycles de play sur UN master ─────────────────────────────────
+//
+// Signal AUTORITAIRE = le détecteur de fallthrough réseau (P5). Un run est SAIN (OK) ssi :
+//   préchargement a eu lieu (preloaded=true) ET 0 GetMap master pendant le play (swap GPU).
+// Un run FALLTHROUGH (playFallthrough>0) = le bug : la frame n'est pas repeinte par swap,
+// le pipeline retombe sur setTiles. La colonne « TIME distincts » est conservée pour info
+// mais N'EST PLUS le critère (ancien TC-3 inversé — cf checkLayer pour l'explication).
 async function runFlaky(K, key) {
   const layer = manifest.layers.find((l) => l.key === key);
   if (!layer) { console.error(`FATAL: master "${key}" introuvable.`); process.exit(1); }
   console.log(`Base URL: ${BASE}`);
-  console.log(`Anti-flakiness — ${K} runs de TC-3 (play) sur master "${key}" (${layer.gsLayerName})`);
-  console.log('Critère par run : ≥3 valeurs TIME distinctes itérées.\n');
+  console.log(`Anti-flakiness — ${K} runs de play sur master "${key}" (${layer.gsLayerName})`);
+  console.log('Critère AUTORITAIRE par run : préchargé ET 0 GetMap master pendant le play (swap GPU).');
+  console.log('playFallthrough = GetMap émises APRÈS la fin du préchargement (≥1 = bug P5).\n');
 
   const browser = await chromium.launch({ headless: false, args: LAUNCH_ARGS });
   const runs = [];
@@ -342,7 +422,7 @@ async function runFlaky(K, key) {
     await openSection(page, dom.section);
     const tg = await toggleOn(page, dom.toggle);
     if (tg === 'not-found' || tg === 'disabled') {
-      runs.push({ ok: false, n: 0, note: `toggle ${tg}` });
+      runs.push({ ok: false, ft: -1, n: 0, preloaded: false, note: `toggle ${tg}` });
       await page.close();
       console.log(`run ${String(i + 1).padStart(2)}/${K}  KO  toggle ${tg}`);
       continue;
@@ -350,24 +430,36 @@ async function runFlaky(K, key) {
     await sleep(4000);
     let r3;
     try { r3 = await playCycle(page, reqs, layer); }
-    catch (e) { r3 = { distinct: new Set(), started: false, err: e.message }; }
+    catch (e) { r3 = { distinct: new Set(), started: false, preloaded: false, playFallthrough: -1, animSources: [], preloadGetMap: 0, err: e.message }; }
     await page.close();
     const n = r3.distinct.size;
-    const ok = n >= 3;
-    runs.push({ ok, n, started: r3.started, err: r3.err });
-    console.log(`run ${String(i + 1).padStart(2)}/${K}  ${ok ? 'OK ' : 'KO '} ${n} TIME distincts`
+    const ft = r3.playFallthrough;
+    // SAIN = préchargé + 0 fallthrough. -1 (panel/launch KO) = échec d'exécution, pas sain.
+    const ok = r3.preloaded && ft === 0;
+    runs.push({ ok, ft, n, preloaded: r3.preloaded, nSrc: r3.animSources.length, preloadGetMap: r3.preloadGetMap, started: r3.started, err: r3.err });
+    const verdict = ok ? 'NOMINAL  ' : (ft > 0 ? 'FALLTHRU ' : 'KO       ');
+    console.log(`run ${String(i + 1).padStart(2)}/${K}  ${verdict} fallthrough=${ft >= 0 ? ft : 'n/a'}`
+      + `  préchargé=${r3.preloaded ? `oui(${r3.animSources.length}src)` : 'NON'}`
+      + `  preloadGetMap=${r3.preloadGetMap ?? 'n/a'}  TIMEvus=${n}`
       + (r3.started ? '' : ' [play jamais démarré]') + (r3.err ? ` [${r3.err}]` : ''));
   }
   await browser.close();
 
   const okN = runs.filter((r) => r.ok).length;
+  const ftRuns = runs.filter((r) => r.ft > 0);
+  const noPreload = runs.filter((r) => r.ft >= 0 && !r.preloaded);
   const rate = `${okN}/${K}`;
   console.log('\n' + '─'.repeat(72));
+  console.log(`Runs NOMINAL (préchargé + 0 fallthrough) : ${rate}`);
+  console.log(`Runs FALLTHROUGH (≥1 GetMap en play)      : ${ftRuns.length}/${K}`
+    + (ftRuns.length ? `  [fallthrough counts: ${ftRuns.map((r) => r.ft).join(',')}]` : ''));
+  console.log(`Runs sans préchargement                   : ${noPreload.length}/${K}`);
   if (okN === K) {
-    console.log(`FLAKY CHECK: ${rate} OK — STABLE. L'animation itère les validités de façon reproductible.`);
+    console.log(`\nVERDICT: STABLE — l'animation swappe les frames préchargées (GPU), 0 refetch en play.`);
   } else {
-    console.log(`FLAKY CHECK: ${rate} OK — FLAKY. Runs KO :`);
-    runs.forEach((r, i) => { if (!r.ok) console.log(`  run ${i + 1}: ${r.n} TIME distincts ${r.started ? '' : '(play jamais démarré) '}${r.err ?? ''}`); });
+    console.log(`\nVERDICT: ${ftRuns.length === K ? 'TOUJOURS DÉGRADÉ' : 'FLAKY'} — le play retombe sur le chemin setTiles (bug P5 #2).`);
+    if (ftRuns.length === K) console.log('  → fallthrough sur 100% des runs = bug DÉTERMINISTE, pas une course rare.');
+    else if (ftRuns.length > 0) console.log('  → fallthrough intermittent = course timing-dependent (match/no-match findIndex).');
     process.exit(1);
   }
 }

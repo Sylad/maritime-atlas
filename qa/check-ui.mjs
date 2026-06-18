@@ -83,7 +83,9 @@ async function run() {
   const page = await browser.newPage();
 
   console.log(`Base URL: ${BASE}`);
-  await page.goto(`${BASE}/?qa=1`, { waitUntil: 'networkidle', timeout: 30000 });
+  // 2026-06-18 — la carte a déménagé de `/` (Accueil/dashboard) vers `/map`. Charger `/`
+  // = pas de catalog ni de hook → tout SKIP/FAIL silencieux. Cf check-time freshPage.
+  await page.goto(`${BASE}/map?qa=1`, { waitUntil: 'networkidle', timeout: 30000 });
 
   // Attendre que la map soit prête et le hook QA exposé.
   try {
