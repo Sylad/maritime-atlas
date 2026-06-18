@@ -2468,6 +2468,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       void this.showSstContours(); void this.showWindContours(); void this.showWaveContours();
       void this.showBathy(); void this.showEez(); void this.showMpa(); void this.showGlofas();
       void this.autoZIndexEnabled(); void this.masterLayerKey(); void this.projection();
+      // G73 — skip le 1er flush (état défaut, avant restore) pour ne pas écraser
+      // le localStorage sauvegardé. Hydraté = true après restoreGlobePrefs.
+      if (!this._prefsHydrated) return;
       this.persistGlobePrefs();
     });
 
@@ -3953,6 +3956,11 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     } catch { /* JSON malformed — silence */ }
   }
   private _pendingRestore?: Record<string, boolean | string>;
+  // G73 (2026-06-18) — garde anti-écrasement : l'effect de persistance (≈2458) flushe
+  // au 1er refreshView AVANT ngAfterViewInit/restoreGlobePrefs (zone CD). Sans ce flag,
+  // il réécrit localStorage avec l'état défaut (tout false) et détruit la sauvegarde
+  // AVANT qu'on la lise → layers sauvegardés jamais restaurés au reload.
+  private _prefsHydrated = false;
 
   /** G11f — fetch les prefs DB user et merge avec le state /globe.
    *  Appelé après auth dans ngAfterViewInit. Si DB a une opacité ou visibility
@@ -3975,6 +3983,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         this._pendingRestore[restoreKey] = p.visible;
       }
     }
+    // G73 (2026-06-18) — si la réponse DB arrive APRÈS map.on('load'),
+    // applyPendingRestore a déjà tourné (à vide) → on le rejoue pour ajouter
+    // réellement les layers (toggleX idempotent, early-return si déjà on).
+    if (this.map?.loaded()) this.applyPendingRestore();
   }
 
   /** G11e — appelé après _initMap pour appliquer les toggles persistés. */
@@ -4589,6 +4601,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   ngAfterViewInit(): void {
     this.restoreLayerOpacities();
     this.restoreGlobePrefs();
+    // G73 — localStorage lu (non corrompu) → on autorise désormais la persistance.
+    // Mis ici (pas dans restoreGlobePrefs) pour couvrir aussi le early-return localStorage vide.
+    this._prefsHydrated = true;
     // G11f — merge DB prefs over localStorage si user auth. Fire-and-forget :
     // si DB répond après map.on('load'), pendingRestore est vide donc applyP*
     // ne touche pas l'état déjà initialisé via localStorage. C'est OK pour la
