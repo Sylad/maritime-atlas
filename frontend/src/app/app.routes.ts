@@ -56,23 +56,31 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/about/about.component').then((m) => m.AboutComponent),
     title: 'À propos · AetherWX',
   },
-  // G11e (2026-05-22) — `/` sert GlobeComponent (MapLibre).
-  // G67 (2026-05-28) — suppression de la carte 2D OpenLayers legacy
-  // (map.component.ts 8049 lignes) après période de grâce : elle créait
-  // de la confusion en dev (2 implémentations à maintenir). OL reste une
-  // dépendance pour /palettes (zone-preview + map-projections).
-  {
-    path: 'globe',
-    redirectTo: '',
-    pathMatch: 'full',
-  },
+  // 2026-06-18 — Restructure nav (Phase 3) : le Dashboard devient l'accueil
+  // `/` (« Accueil »), la carte passe sur `/map` (« Carte »). `/` sans guard
+  // (anonyme → dashboard par défaut/publics). Les anciens liens `/globe` et
+  // l'ancienne racine carte redirigent vers `/map`.
   {
     path: '',
-    loadComponent: () => import('./pages/globe/globe.component').then((m) => m.GlobeComponent),
+    loadComponent: () => import('./pages/dashboard/dashboard-home.component').then((m) => m.DashboardHomeComponent),
     title: 'AetherWX',
   },
-  // G67 — catch-all : tout chemin inconnu (ex: ancien bookmark /legacy-map)
-  // redirige proprement vers le globe au lieu de throw NG04002.
+  {
+    path: 'map',
+    loadComponent: () => import('./pages/globe/globe.component').then((m) => m.GlobeComponent),
+    title: 'Carte · AetherWX',
+  },
+  {
+    path: 'dashboard/:id',
+    loadComponent: () => import('./pages/dashboard/dashboard-view.component').then((m) => m.DashboardViewComponent),
+    title: 'Dashboard · AetherWX',
+  },
+  {
+    path: 'globe',
+    redirectTo: 'map',
+    pathMatch: 'full',
+  },
+  // Catch-all : tout chemin inconnu redirige vers l'accueil.
   {
     path: '**',
     redirectTo: '',

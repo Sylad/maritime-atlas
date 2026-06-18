@@ -109,12 +109,49 @@ export const mapConfigurations = pgTable('map_configurations', {
   userNameIdx: uniqueIndex('map_configurations_user_name_idx').on(t.userId, t.name),
 }));
 
+/**
+ * Tableaux de bord (2026-06-18). Un dashboard = un agencement de widgets
+ * (pour l'instant type 'map', extensible). Privé par défaut ; rendu public
+ * par le propriétaire ; un admin peut en marquer UN comme défaut global
+ * (is_default, index partiel unique). Un dashboard par défaut ne peut pas
+ * redevenir privé. Les widgets embarquent leur snapshot inline (autonome)
+ * pour que les viewers d'un dashboard public n'aient pas besoin d'accéder
+ * aux map_configurations privées du propriétaire.
+ */
+export const dashboards = pgTable('dashboards', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  isPublic: boolean('is_public').notNull().default(false),
+  isDefault: boolean('is_default').notNull().default(false),
+  widgets: jsonb('widgets').$type<DashboardWidget[]>().notNull().default([]),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Palette = typeof palettes.$inferSelect;
 export type NewPalette = typeof palettes.$inferInsert;
 export type UserLayerPref = typeof userLayerPreferences.$inferSelect;
 export type MapConfiguration = typeof mapConfigurations.$inferSelect;
+export type Dashboard = typeof dashboards.$inferSelect;
+
+/**
+ * Widget d'un dashboard. `type` est un discriminant ouvert (futurs 'image', …).
+ * Pour 'map', `config.snapshot` embarque l'état carte inline (copié depuis une
+ * config de carte au moment de la sélection ; `sourceMapConfigId` = provenance).
+ */
+export interface DashboardWidget {
+  id: string;
+  type: 'map';
+  grid: { x: number; y: number; cols: number; rows: number };
+  config: {
+    title?: string;
+    snapshot?: MapConfigSnapshot;
+    sourceMapConfigId?: number;
+  };
+}
 
 /**
  * Snapshot autonome de l'état de la carte /globe. Doit rester en phase avec

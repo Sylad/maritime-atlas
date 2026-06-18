@@ -6,6 +6,7 @@ import { DbModule } from './db/db.module';
 import { AuthModule } from './auth/auth.module';
 import { PalettesModule } from './palettes/palettes.module';
 import { MapConfigurationsModule } from './map-configurations/map-configurations.module';
+import { DashboardsModule } from './dashboards/dashboards.module';
 import { PreferencesModule } from './preferences/preferences.module';
 import { GeoServerModule } from './geoserver/geoserver.module';
 import { AdminModule } from './admin/admin.module';
@@ -27,6 +28,7 @@ import { OpenAIPModule } from './openaip/openaip.module';
     AuthModule,
     PalettesModule,
     MapConfigurationsModule,
+    DashboardsModule,
     PreferencesModule,
     AdminModule,
     OrchestratorModule,

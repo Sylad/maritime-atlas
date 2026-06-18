@@ -735,6 +735,26 @@ CREATE TABLE IF NOT EXISTS map_configurations (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS map_configurations_user_name_idx
   ON map_configurations (user_id, name);
+
+-- ─── Dashboards (2026-06-18) ───────────────────────────────────────
+-- Agencements de widgets. Privé par défaut, public sur demande du
+-- propriétaire, UN seul défaut global (index partiel unique). FK cascade
+-- sur users. widgets = JSONB array (snapshot inline par widget map).
+CREATE TABLE IF NOT EXISTS dashboards (
+  id          SERIAL PRIMARY KEY,
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  is_public   BOOLEAN NOT NULL DEFAULT FALSE,
+  is_default  BOOLEAN NOT NULL DEFAULT FALSE,
+  widgets     JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Au plus UN dashboard par défaut sur toute la base.
+CREATE UNIQUE INDEX IF NOT EXISTS dashboards_single_default_idx
+  ON dashboards (is_default) WHERE is_default;
+CREATE INDEX IF NOT EXISTS dashboards_user_idx ON dashboards (user_id);
+CREATE INDEX IF NOT EXISTS dashboards_public_idx ON dashboards (is_public) WHERE is_public;
 `;
 
 export async function runMigrations(databaseUrl: string): Promise<void> {

@@ -24,7 +24,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { Router, RouterLink } from '@angular/router';
+import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 
 import { TimeSliderComponent, TimeSliderLayerCoverage } from '../../components/time-slider/time-slider.component';
 import { IngestionMiniChartComponent } from '../../components/ingestion-mini-chart/ingestion-mini-chart.component';
@@ -108,7 +108,7 @@ function gibsDailyDate(): string {
 @Component({
   selector: 'app-globe',
   standalone: true,
-  imports: [CommonModule, RouterLink, TimeSliderComponent, IngestionMiniChartComponent, AnimationPanelComponent, AnimationControlsComponent, MapConfigsPanelComponent],
+  imports: [CommonModule, RouterLink, RouterLinkActive, TimeSliderComponent, IngestionMiniChartComponent, AnimationPanelComponent, AnimationControlsComponent, MapConfigsPanelComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="globe-root" [class.is-animating]="isAnimating()">
@@ -126,7 +126,11 @@ function gibsDailyDate(): string {
             <img src="/AetherWX_logo_tap.png" alt="" class="brand-icon-img" aria-hidden="true" />
           </button>
           <img src="/AetherWX_logo_text.png" alt="AetherWX" class="brand-text-img" />
-          <span class="brand-mode">— Globe 3D <span class="brand-mode-pill">spike</span></span>
+          <!-- 2026-06-18 — onglets de navigation (remplacent l'ancien label spike). -->
+          <nav class="page-tabs">
+            <a routerLink="/" routerLinkActive="page-tab--active" [routerLinkActiveOptions]="{ exact: true }" class="page-tab" [attr.tabindex]="isAnimating() ? -1 : null">Accueil</a>
+            <a routerLink="/map" routerLinkActive="page-tab--active" class="page-tab" [attr.tabindex]="isAnimating() ? -1 : null">Carte</a>
+          </nav>
         </div>
         <!-- G64 (2026-05-24) — pendant animation : nav-links désactivés
              (pointer-events:none + opacity via .is-animating sur globe-root)
@@ -1320,17 +1324,10 @@ function gibsDailyDate(): string {
       display: block;
     }
     .brand-title { font-weight: 600; color: #c9d6e8; letter-spacing: .04em; }
-    .brand-mode { color: #8a96a8; font-size: 12px; }
-    .brand-mode-pill {
-      display: inline-block;
-      padding: 1px 6px;
-      margin-left: 4px;
-      background: #3b5bff;
-      color: #fff;
-      border-radius: 4px;
-      font-size: 10px;
-      letter-spacing: .04em;
-    }
+    .page-tabs { display: flex; gap: 4px; margin-left: 6px; }
+    .page-tab { padding: 3px 11px; border-radius: 7px; color: #8a96a8; text-decoration: none; font-size: 13px; font-weight: 600; }
+    .page-tab:hover { background: rgba(255,255,255,0.06); color: #e8e6e3; }
+    .page-tab--active { background: hsl(224 80% 50% / 0.28); color: #bfdbfe; box-shadow: inset 0 0 0 1px hsl(224 95% 60% / 0.4); }
     .nav-links { display: flex; align-items: center; gap: 0.1em; flex-wrap: wrap; }
     /* G24 — boutons header harmonisés : hauteur fixe 28px, padding égaux,
        border cyan glow comme le drawer (parité bordure magnifique demandée). */
