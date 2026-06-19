@@ -3214,11 +3214,16 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     if (abortSignal.aborted) { this.animLoadingState.set(null); return; }
     this.animLoadingState.set(null);
     this.animPreloadAbort = undefined;
+    this.animLaunching = true;
     try {
       this.animPlayer.start({ ...effectiveOpts, timestamps, masterLayerLabel: master?.label ?? undefined });
     } catch (err) {
       console.error('[globe-anim] animPlayer.start failed:', err);
       alert(`Animation impossible : ${(err as Error).message}`);
+    } finally {
+      // Le finished$ déclenché par le stop() interne de start() (anim précédente)
+      // est fire de façon synchrone PENDANT start(), donc avant ce finally.
+      this.animLaunching = false;
     }
   }
 
@@ -3228,6 +3233,13 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
    *  (warm GWC) puis pilotés par refreshWmsTimeForActiveLayers pendant les
    *  ticks animation (HIT GWC). */
   private preloadedFrames?: { masterKey: string; timestamps: Date[]; layerIds: string[]; mainLayerId: string };
+
+  /** G73c (2026-06-18) — true pendant onAnimationLaunch (autour de animPlayer.start).
+   *  Le `stop()` interne d'un nouveau lancement fait fire `finished$` (de l'anim
+   *  PRÉCÉDENTE) de façon synchrone ; on l'ignore alors, car preloadAllRasterFrames
+   *  a déjà nettoyé l'ancienne anim ET set la NOUVELLE preloadedFrames juste avant.
+   *  Sans ce garde, la course stop→start purge les sources de la nouvelle anim. */
+  private animLaunching = false;
 
   /** G53 (2026-05-24) — descriptor d'un raster animable. dateFormatter applique
    *  le bon format au TIME selon le type (daily YYYY-MM-DD vs ISO hourly). */
@@ -4680,22 +4692,35 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((t) => {
         this.currentTime.set(t);
-        // G41 — si frames pré-chargées, switch visibility = 0 fetch
-        if (this.preloadedFrames) {
-          const idx = this.preloadedFrames.timestamps.findIndex(
-            (ts) => Math.abs(ts.getTime() - t.getTime()) < 60_000,
-          );
-          if (idx >= 0) {
-            this.switchAnimationFrame(idx);
-            return;
-          }
-        }
+        // G73c — playback préchargé : le switch de frame est piloté PAR INDEX via
+        // frameIndex$ (alignement garanti, 0 fetch). Ici on ne fait du setTiles
+        // QUE pour les layers NON préchargés (cascade) et la frame return-to-now
+        // (preloadedFrames purgé). Plus de findIndex(±60s) → plus de fallthrough
+        // qui figeait la tuile (bug anim « 1/100 »).
+        if (this.preloadedFrames) return;
         this.refreshWmsTimeForActiveLayers();
       });
+    // G73c — playback préchargé piloté PAR INDEX. L'index émis par le player ==
+    // l'index de preloadedFrames.timestamps (même tableau, le player itère
+    // verbatim). Pas d'index pour la frame return-to-now → traitée par frameTime$.
+    this.animPlayer.frameIndex$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((idx) => {
+        if (this.preloadedFrames && idx >= 0 && idx < this.preloadedFrames.timestamps.length) {
+          this.switchAnimationFrame(idx);
+        }
+      });
     // G41 — cleanup frames quand animation revient idle.
+    // G73c — sauf si un nouveau lancement est en cours : son stop() interne fire
+    // finished$ (anim précédente) de façon synchrone, et purgerait la nouvelle
+    // preloadedFrames déjà set par preloadAllRasterFrames. L'ancienne anim est
+    // de toute façon déjà nettoyée par ce même preloadAllRasterFrames.
     this.animPlayer.finished$
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => this.cleanupAnimationFrames());
+      .subscribe(() => {
+        if (this.animLaunching) return;
+        this.cleanupAnimationFrames();
+      });
   }
 
   ngOnDestroy(): void {

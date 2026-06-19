@@ -96,6 +96,15 @@ export class AnimationPlayerService {
   private readonly frameTimeSubject = new Subject<Date>();
   readonly frameTime$: Observable<Date> = this.frameTimeSubject.asObservable();
 
+  /** G73c (2026-06-18) — index de frame émis pour les frames de PLAYBACK
+   *  (PAS pour la frame return-to-now). Le consumer switche les frames
+   *  préchargées PAR INDEX (alignement garanti : le player itère la liste du
+   *  caller verbatim = la même que preloadedFrames.timestamps) au lieu de
+   *  matcher le Date à tolérance ±60s. Supprime la bifurcation match/no-match
+   *  qui faisait retomber l'anim sur setTiles (tuile figée, bug « 1/100 »). */
+  private readonly frameIndexSubject = new Subject<number>();
+  readonly frameIndex$: Observable<number> = this.frameIndexSubject.asObservable();
+
   /** Émis quand l'animation termine naturellement (sans loop, ou stop manuel). */
   private readonly finishedSubject = new Subject<void>();
   readonly finished$: Observable<void> = this.finishedSubject.asObservable();
@@ -171,19 +180,16 @@ export class AnimationPlayerService {
     this.rangeEnd = end;
     this.frameIndex.set(0);
 
-    // Garde QUE les timestamps qui tombent dans la fenêtre [start, end]
-    // (le master peut publier au-delà, on ne veut pas dépasser).
-    const filtered = opts.timestamps
-      .filter((t) => t.getTime() >= start.getTime() && t.getTime() <= end.getTime())
-      .sort((a, b) => a.getTime() - b.getTime());
-    if (filtered.length === 0) {
-      throw new Error(
-        `No master validities fall within the requested window`
-        + ` [${start.toISOString()} → ${end.toISOString()}]. Try a longer duration.`
-      );
-    }
+    // G73c (2026-06-18) — itère la liste du caller VERBATIM (onAnimationLaunch
+    // la filtre déjà à la fenêtre via computeAnimationWindow, et `allTs` est
+    // chronologique). On NE re-filtre/re-sort PLUS ici : sinon la liste du
+    // player divergeait de preloadedFrames.timestamps côté globe (double
+    // implémentation de fenêtre + re-sort) → désync d'index → fallthrough
+    // setTiles → tuile figée (bug anim « 1/100 »). Non-vide garanti par le
+    // throw G49 ci-dessus. [start,end] restent calculés pour le loop/sliding.
+    const filtered = opts.timestamps;
     this.setTimestamps(filtered);
-    this.emitFrame(filtered[0]);
+    this.emitFrame(filtered[0], 0);
     this.state.set('playing');
     this.scheduleNextTick();
   }
@@ -288,7 +294,7 @@ export class AnimationPlayerService {
     const list = this.timestamps;
     if (nextIndex < list.length) {
       this.frameIndex.set(nextIndex);
-      this.emitFrame(list[nextIndex]);
+      this.emitFrame(list[nextIndex], nextIndex);
       return;
     }
 
@@ -338,11 +344,15 @@ export class AnimationPlayerService {
 
     this.frameIndex.set(0);
     const firstFrame = this.timestamps?.[0] ?? this.rangeStart;
-    this.emitFrame(firstFrame);
+    this.emitFrame(firstFrame, 0);
   }
 
-  private emitFrame(t: Date): void {
+  /** Émet une frame. `index` fourni = frame de playback (le consumer switche
+   *  par index) ; omis = frame return-to-now (le consumer la traite par Date
+   *  / setTiles, car ce n'est pas une frame préchargée). */
+  private emitFrame(t: Date, index?: number): void {
     this.frameTimeSubject.next(t);
+    if (index !== undefined) this.frameIndexSubject.next(index);
   }
 
   /** Set la liste de timestamps + sync le signal count pour totalFrames. */
