@@ -64,9 +64,11 @@ import {
 const WIND_BBOX: [number, number, number, number] = [-15, 35, 30, 65];
 const DEFAULT_WIND_PARTICLES = 3000;
 // G73 (2026-06-18) — les features WW3 wave portent `hs` (hauteur sig. ~0-8 m), pas
-// `speed`. On amplifie pour une advection des particules visible (≈ magnitude vent).
-// Tunable visuellement (Sylvain valide à l'œil).
-const WAVE_PARTICLE_SPEED_SCALE = 4;
+// `speed`. On feed le hs RÉEL (×1) : la couleur des particules (palette par magnitude
+// dans le draw shader) tombe ainsi dans les buckets BLEUS (cohérent avec les flèches
+// vagues) au lieu du vert/orange du vent. La visibilité du mouvement vient du
+// speedFactor de l'engine (cf instanciation waveEngine), pas de la magnitude.
+const WAVE_PARTICLE_SPEED_SCALE = 1;
 
 /** Catalogue satellite — mirror partiel de map.component.SAT_PRODUCTS +
  *  CASCADE_PRODUCTS. Tous les layers sont sur GeoServer workspace `maritime`
@@ -5881,7 +5883,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         id: 'wave-webgl',
         type: 'custom',
         onAdd(_map, gl) {
-          self.waveEngine = new WindWebGL(gl as WebGL2RenderingContext, { bounds: WIND_BBOX, lineWidth: 3.0 });
+          // G73b — speedFactor relevé (0.06→0.25) : hs réel (petit) advecte quand même
+          // visiblement, sans amplifier la magnitude (qui dicte la couleur = bleus).
+          self.waveEngine = new WindWebGL(gl as WebGL2RenderingContext, { bounds: WIND_BBOX, lineWidth: 3.0, speedFactor: 0.25 });
           self.waveEngine.setNumParticles(DEFAULT_WIND_PARTICLES);
           self.waveEngine.setWind(waveData);
           // Applique l'opacity persistée à l'instantiation (slider restore).

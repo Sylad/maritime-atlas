@@ -836,9 +836,9 @@ export function buildWindTexture(
   //
   // La distance est mesurée sur la MÊME structure cellHash que interpolate()
   // (pas de O(n²)) : on cherche le min de d2 dans un voisinage borné par le
-  // seuil. MASK_MAX_DEG=1.0 < cellSize-tolérance → il suffit de scanner les 9
-  // cellules autour pour garantir qu'on ne rate aucun point à <1°.
-  const MASK_MAX_DEG = 1.0;
+  // seuil. Le scan 3×3 (maskCellRadius≥1) + le filtre d2 garantit qu'aucun point
+  // à <MASK_MAX_DEG n'est raté. G73b — abaissé 1.0→0.5 : débordement côtier réduit.
+  const MASK_MAX_DEG = 0.5;
   const MASK_MAX_D2 = MASK_MAX_DEG * MASK_MAX_DEG;
   // Rayon de cellules à scanner pour le masque : ceil(MASK_MAX_DEG / cellSize)
   // garantit la couverture complète du disque de rayon MASK_MAX_DEG.
