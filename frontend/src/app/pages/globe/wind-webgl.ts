@@ -215,7 +215,11 @@ void main() {
   // Équivalent du rendu canvas 2D ctx.lineTo qui a son propre AA hardware.
   float line_aa = 1.0 - smoothstep(0.7, 1.0, abs(v_side));
 
-  fragColor = vec4(color.rgb, color.a * edge_fade * v_age_fade * line_aa);
+  // 2026-06-19 — Masque terre/mer (canal B). Belt-and-suspenders : annule
+  // l'alpha des fragments sur terre (B<0.5). Vent : B=1 partout → no-op.
+  float land_mask = step(0.5, texture(u_wind, v_particle_pos).b);
+
+  fragColor = vec4(color.rgb, color.a * edge_fade * v_age_fade * line_aa * land_mask);
 }
 `;
 
@@ -283,6 +287,12 @@ vec2 lookup_wind(const vec2 uv) {
   return mix(mix(tl, tr, f.x), mix(bl, br, f.x), f.y);
 }
 
+// 2026-06-19 — Masque terre/mer (canal B de la wind texture). B=1.0 mer,
+// B=0.0 terre. Texture LINEAR → bord adouci. Vent : B=1 partout → no-op.
+float lookup_mask(const vec2 uv) {
+  return texture(u_wind, uv).b;
+}
+
 void main() {
   vec4 color = texture(u_particles, 1.0 - v_tex_pos);
   vec2 pos = vec2(
@@ -311,7 +321,10 @@ void main() {
                     + step(pos.y, 0.0) + step(1.0, pos.y);
 
   float drop_rate = u_drop_rate + speed_t * u_drop_rate_bump;
-  float drop = step(1.0 - drop_rate, rand(seed)) + outOfBounds;
+  // 2026-06-19 — Masque terre/mer : respawn forcé si la particule advectée est
+  // sur une cellule no-data (terre, B<0.5). Vent : mask=1 partout → land_drop=0.
+  float land_drop = step(lookup_mask(pos), 0.5);
+  float drop = step(1.0 - drop_rate, rand(seed)) + outOfBounds + land_drop;
   drop = clamp(drop, 0.0, 1.0);
 
   vec2 random_pos = vec2(
@@ -804,6 +817,50 @@ export function buildWindTexture(
     bucket.push(p);
   }
 
+  // 2026-06-19 — Masque terre/mer (canal B de la wind texture).
+  //
+  // Rayon SERRÉ : si le point de grille le plus proche est à plus de
+  // MASK_MAX_DEG degrés, on considère la cellule comme "no-data" (terre) et on
+  // écrit B=0. Sinon B=255 (couverture réelle de données).
+  //
+  // Choix de 1.0° :
+  //   - Les données WW3 (vagues) ont un pas ~0.5-1° en mer → un vrai point
+  //     existe toujours à <1° de n'importe quelle cellule MER → B=255 en mer.
+  //   - Le débordement de l'interpolation (interpolate) va jusqu'à 4 cellules
+  //     (~4°) à l'intérieur des terres ; avec un seuil de 1° on coupe ce halo
+  //     dès la 2e cellule à l'intérieur des côtes → la terre passe en B=0.
+  //   - Les données GFS (vent) couvrent terre+mer densément (pas ~0.25-0.5°)
+  //     → un vrai point existe toujours à <1° PARTOUT → B=255 partout →
+  //     masque "plein" → rendu vent strictement inchangé (aucun respawn
+  //     supplémentaire déclenché côté shader, cf updateFrag).
+  //
+  // La distance est mesurée sur la MÊME structure cellHash que interpolate()
+  // (pas de O(n²)) : on cherche le min de d2 dans un voisinage borné par le
+  // seuil. MASK_MAX_DEG=1.0 < cellSize-tolérance → il suffit de scanner les 9
+  // cellules autour pour garantir qu'on ne rate aucun point à <1°.
+  const MASK_MAX_DEG = 1.0;
+  const MASK_MAX_D2 = MASK_MAX_DEG * MASK_MAX_DEG;
+  // Rayon de cellules à scanner pour le masque : ceil(MASK_MAX_DEG / cellSize)
+  // garantit la couverture complète du disque de rayon MASK_MAX_DEG.
+  const maskCellRadius = Math.ceil(MASK_MAX_DEG / cellSize);
+
+  /** true si un vrai point de données existe à <= MASK_MAX_DEG de (lon,lat). */
+  function hasNearbyData(lon: number, lat: number): boolean {
+    const cellLon = Math.floor(lon / cellSize);
+    const cellLat = Math.floor(lat / cellSize);
+    for (let dlon = -maskCellRadius; dlon <= maskCellRadius; dlon++) {
+      for (let dlat = -maskCellRadius; dlat <= maskCellRadius; dlat++) {
+        const bucket = cellHash.get(`${cellLon + dlon},${cellLat + dlat}`);
+        if (!bucket) continue;
+        for (const p of bucket) {
+          const d2 = (p.lon - lon) ** 2 + (p.lat - lat) ** 2;
+          if (d2 <= MASK_MAX_D2) return true;
+        }
+      }
+    }
+    return false;
+  }
+
   function interpolate(lon: number, lat: number): { u: number; v: number } {
     const cellLon = Math.floor(lon / cellSize);
     const cellLat = Math.floor(lat / cellSize);
@@ -847,7 +904,10 @@ export function buildWindTexture(
       const idx = (j * width + i) * 4;
       data[idx + 0] = Math.round(((u - uMin) / (uMax - uMin)) * 255);
       data[idx + 1] = Math.round(((v - vMin) / (vMax - vMin)) * 255);
-      data[idx + 2] = 0;
+      // Canal B = masque terre/mer. 255 = donnée valide (mer), 0 = no-data
+      // (terre / au-delà de la couverture réelle). Lu par le shader d'update
+      // pour forcer le respawn des particules tombées hors couverture.
+      data[idx + 2] = hasNearbyData(lon, lat) ? 255 : 0;
       data[idx + 3] = 255;
     }
   }

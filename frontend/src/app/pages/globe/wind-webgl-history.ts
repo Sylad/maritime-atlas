@@ -119,6 +119,15 @@ vec2 lookup_wind(const vec2 uv) {
   return mix(mix(tl, tr, f.x), mix(bl, br, f.x), f.y);
 }
 
+// 2026-06-19 — Masque terre/mer encodé dans le canal B de la wind texture
+// (buildWindTexture). B=1.0 = mer/donnée valide, B=0.0 = terre/no-data.
+// On échantillonne directement (la texture est en LINEAR → bord adouci aux
+// côtes). < 0.5 = terre. Pour le vent (données denses terre+mer) B vaut 1.0
+// partout → cette fonction renvoie toujours ~1.0 → aucun effet sur le vent.
+float lookup_mask(const vec2 uv) {
+  return texture(u_wind, uv).b;
+}
+
 vec2 decode_pos(vec4 c) {
   return vec2(c.r / 255.0 + c.b, c.g / 255.0 + c.a);
 }
@@ -168,7 +177,15 @@ void main() {
     // Si ttl_target_prev == 0 (init pas encore fait), use full MAX_TTL.
     float ttl_target_safe = max(ttl_target_prev, 1.0);
     float ttl_drop = step(ttl_target_safe, age_prev);
-    float drop = clamp(outOfBounds + ttl_drop, 0.0, 1.0);
+
+    // 2026-06-19 — Masque terre/mer : si la particule advectée est sur une
+    // cellule no-data (terre, B<0.5), on force le respawn (comme un drop). Le
+    // respawn random_pos peut retomber sur terre → re-droppé au tour suivant,
+    // jusqu'à atterrir en mer. Effet : aucune particule ne stagne sur terre.
+    // Pour le vent (mask=1 partout) land_drop=0 → comportement inchangé.
+    float land_drop = step(lookup_mask(pos), 0.5);
+
+    float drop = clamp(outOfBounds + ttl_drop + land_drop, 0.0, 1.0);
 
     vec2 random_pos = vec2(rand(seed + 1.3), rand(seed + 2.1));
     pos = mix(pos, random_pos, drop);
@@ -391,7 +408,13 @@ void main() {
 
   float line_aa = 1.0 - smoothstep(0.7, 1.0, abs(v_side));
 
-  fragColor = vec4(color.rgb, color.a * edge_fade * v_alpha * line_aa * u_opacity);
+  // 2026-06-19 — Masque terre/mer (canal B). Belt-and-suspenders : même si une
+  // particule a transitoirement une queue qui traverse une cellule terre avant
+  // son respawn, on annule l'alpha du fragment sur terre (B<0.5). Pour le vent
+  // (B=1 partout) land_mask=1 → aucun effet.
+  float land_mask = step(0.5, texture(u_wind, v_particle_pos).b);
+
+  fragColor = vec4(color.rgb, color.a * edge_fade * v_alpha * line_aa * u_opacity * land_mask);
 }
 `;
 
