@@ -39,6 +39,7 @@ import maplibregl, {
   type CustomRenderMethodInput,
   type Map as MapLibreMap,
 } from 'maplibre-gl';
+import type { FeatureCollection } from 'geojson';
 
 import { firstValueFrom } from 'rxjs';
 
@@ -3808,7 +3809,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       if (!src) continue;
       try {
         const fc = await this._fetchVectorFc(kind as Parameters<typeof this._fetchVectorFc>[0], when);
-        src.setData(fc as unknown as GeoJSON.FeatureCollection);
+        src.setData(fc as unknown as FeatureCollection);
         this.vectorCounts.update((c) => ({ ...c, [kind]: fc.features?.length ?? 0 }));
       } catch { /* layer indispo à ce temps — silencieux (0 feature = pas d'évènement) */ }
     }
