@@ -2919,25 +2919,23 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   readonly modeIsPast   = computed(() => !this.modeIsLive() && !this.modeIsFuture());
 
   /** Mapping layer→restrictions mode-aware (parité /map line 4589).
-   *  - 'live-only' : alerts, buoys, lightning, metar, hubeau, piezo, quakes, firms
+   *  G74 (2026-06-20) — les observations sont 'no-future' (PAS live-only) :
+   *  elles ont 7j d'historique retenu + re-query au scrub (data_layer_policy),
+   *  donc visibles en passé. Cachées seulement dans le futur (aucune obs future).
    *  - 'past-only' : tracks (granularité 1j)
-   *  - 'no-future' : vessels (pas de forecast trajectoire)
+   *  - 'no-future' : vessels + toutes les obs (alerts, buoys, lightning, metar,
+   *    hubeau, piezo, quakes, firms)
    *  Retourne tooltip si incompatible, '' sinon. */
   layerModeWarning(key: string): string {
-    const isLive = this.modeIsLive();
     const isFuture = this.modeIsFuture();
     const isPast = this.modeIsPast();
-    const LIVE_ONLY = new Set(['alerts', 'buoys', 'lightning', 'metar', 'hubeau', 'piezo', 'quakes', 'firms']);
     const PAST_ONLY = new Set(['tracks']);
-    const NO_FUTURE = new Set(['vessels']);
-    if (LIVE_ONLY.has(key) && !isLive) {
-      return 'Layer live-only — affichée seulement quand le cursor est sur maintenant. Clique NOW.';
-    }
+    const NO_FUTURE = new Set(['vessels', 'alerts', 'buoys', 'lightning', 'metar', 'hubeau', 'piezo', 'quakes', 'firms']);
     if (PAST_ONLY.has(key) && !isPast) {
       return 'Layer past-only — affichée seulement en mode replay. Recule la time-bar.';
     }
     if (NO_FUTURE.has(key) && isFuture) {
-      return 'Pas de forecast pour cette layer — recule la time-bar.';
+      return 'Observation — pas de données dans le futur. Recule la time-bar.';
     }
     return '';
   }
@@ -2947,14 +2945,17 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
    *  incompatible). */
   readonly vesselsActive  = computed(() => this.showVessels()  && !this.modeIsFuture());
   readonly tracksActive   = computed(() => this.showTracks()   && this.modeIsPast());
-  readonly alertsActive   = computed(() => this.showAlerts()   && this.modeIsLive());
-  readonly lightningActive = computed(() => this.showLightning() && this.modeIsLive());
-  readonly metarActive    = computed(() => this.showMetar()    && this.modeIsLive());
-  readonly hubeauActive   = computed(() => this.showHubeau()   && this.modeIsLive());
-  readonly piezoActive    = computed(() => this.showPiezo()    && this.modeIsLive());
-  readonly quakesActive   = computed(() => this.showQuakes()   && this.modeIsLive());
-  readonly firmsActive    = computed(() => this.showFirms()    && this.modeIsLive());
-  readonly buoysActive    = computed(() => this.showBuoys()    && this.modeIsLive());
+  // G74 (2026-06-20) — obs = no-future (PAS live-only) : 7j d'historique retenu
+  // + re-query au scrub (refreshVectorsForTime) → visibles en passé ET live,
+  // cachées seulement dans le futur (aucune obs future). data_layer_policy.
+  readonly alertsActive   = computed(() => this.showAlerts()   && !this.modeIsFuture());
+  readonly lightningActive = computed(() => this.showLightning() && !this.modeIsFuture());
+  readonly metarActive    = computed(() => this.showMetar()    && !this.modeIsFuture());
+  readonly hubeauActive   = computed(() => this.showHubeau()   && !this.modeIsFuture());
+  readonly piezoActive    = computed(() => this.showPiezo()    && !this.modeIsFuture());
+  readonly quakesActive   = computed(() => this.showQuakes()   && !this.modeIsFuture());
+  readonly firmsActive    = computed(() => this.showFirms()    && !this.modeIsFuture());
+  readonly buoysActive    = computed(() => this.showBuoys()    && !this.modeIsFuture());
   readonly sstActive      = computed(() => this.showSst()      && !this.modeIsFuture());
   /** G19 — wind (raster forecast) active = toggle ON. Pas de restriction mode
    *  pour le forecast (peut être past/live/future selon disponibilité GFS). */
