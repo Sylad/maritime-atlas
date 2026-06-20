@@ -5920,9 +5920,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         id: 'wave-webgl',
         type: 'custom',
         onAdd(_map, gl) {
-          // G73b — speedFactor relevé (0.06→0.25) : hs réel (petit) advecte quand même
-          // visiblement, sans amplifier la magnitude (qui dicte la couleur = bleus).
-          self.waveEngine = new WindWebGL(gl as WebGL2RenderingContext, { bounds: WIND_BBOX, lineWidth: 3.0, speedFactor: 0.25 });
+          // G73b/e — speedFactor : hs réel (petit) advecte visiblement sans amplifier
+          // la magnitude (qui dicte la couleur = bleus). 0.15 = ralenti vs vent (les
+          // vagues bougent plus lentement). Tunable à l'œil.
+          self.waveEngine = new WindWebGL(gl as WebGL2RenderingContext, { bounds: WIND_BBOX, lineWidth: 3.0, speedFactor: 0.15 });
           self.waveEngine.setNumParticles(DEFAULT_WIND_PARTICLES);
           self.waveEngine.setWind(waveData);
           // Applique l'opacity persistée à l'instantiation (slider restore).
