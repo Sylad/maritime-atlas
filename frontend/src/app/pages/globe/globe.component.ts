@@ -328,25 +328,6 @@ function gibsDailyDate(): string {
                 }
               </div>
               <div class="layer-row">
-                <label class="layer-toggle" [class.dim]="!showBuoys()"
-                       [class.mode-incompatible]="!!layerModeWarning('buoys')"
-                       [title]="layerModeWarning('buoys')">
-                  <input type="checkbox" [checked]="showBuoys()" (change)="toggleVector('buoys')" />
-                  <span class="toggle-glyph">
-                    <span class="glyph-buoy">⚓</span>
-                  </span>
-                  <span class="toggle-text">
-                    <span class="toggle-name">Plateformes vagues</span>
-                    <span class="toggle-count">{{ vectorCounts()['buoys'] ?? 0 }} stations</span>
-                  </span>
-                </label>
-                @if (showBuoys()) {
-                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
-                         [value]="getLayerOpacity('buoys')"
-                         (input)="setLayerOpacity('buoys', +$any($event.target).value)" />
-                }
-              </div>
-              <div class="layer-row">
                 <label class="layer-toggle" [class.dim]="!sstActive()">
                   <input type="checkbox" [checked]="showSst()" (change)="toggleSst(!showSst())" />
                   <span class="toggle-glyph">
@@ -1124,6 +1105,24 @@ function gibsDailyDate(): string {
                     <span class="toggle-count">{{ vectorCounts()['airports'] ?? 0 }} aéroports · OpenAIP</span>
                   </span>
                 </label>
+              </div>
+              <!-- G74 (2026-06-20) — Bouées déplacées ici (overlay statique) : la table
+                   buoy_observations est vide → aucune donnée temporelle, donc hors barre
+                   de temps, au même titre que câbles/FIR/aéroports. -->
+              <div class="layer-row">
+                <label class="layer-toggle" [class.dim]="!showBuoys()">
+                  <input type="checkbox" [checked]="showBuoys()" (change)="toggleVector('buoys')" />
+                  <span class="toggle-glyph"><span class="glyph-buoy">⚓</span></span>
+                  <span class="toggle-text">
+                    <span class="toggle-name">Plateformes vagues</span>
+                    <span class="toggle-count">{{ vectorCounts()['buoys'] ?? 0 }} stations</span>
+                  </span>
+                </label>
+                @if (showBuoys()) {
+                  <input class="layer-opacity" type="range" min="0" max="1" step="0.05" title="Opacité"
+                         [value]="getLayerOpacity('buoys')"
+                         (input)="setLayerOpacity('buoys', +$any($event.target).value)" />
+                }
               </div>
             </div>
             }
@@ -2564,7 +2563,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         [this.piezoActive(),     ['vec-piezo']],
         [this.quakesActive(),    ['vec-quakes']],
         [this.firmsActive(),     ['vec-firms']],
-        [this.buoysActive(),     ['vec-buoys']],
+        // buoys retiré (G74) : overlay statique, visibilité pilotée par le toggle seul
+        // (addLayer/removeLayer dans toggleVector), comme câbles/FIR/aéroports.
         [this.sstActive(),       ['sst-wms']],
         [this.tracksActive(),    ['vec-tracks']],
         // SST contours suit la même logique que SST raster (no-future)
@@ -2930,7 +2930,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     const isFuture = this.modeIsFuture();
     const isPast = this.modeIsPast();
     const PAST_ONLY = new Set(['tracks']);
-    const NO_FUTURE = new Set(['vessels', 'alerts', 'buoys', 'lightning', 'metar', 'hubeau', 'piezo', 'quakes', 'firms']);
+    const NO_FUTURE = new Set(['vessels', 'alerts', 'lightning', 'metar', 'hubeau', 'piezo', 'quakes', 'firms']);
     if (PAST_ONLY.has(key) && !isPast) {
       return 'Layer past-only — affichée seulement en mode replay. Recule la time-bar.';
     }
@@ -2955,7 +2955,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   readonly piezoActive    = computed(() => this.showPiezo()    && !this.modeIsFuture());
   readonly quakesActive   = computed(() => this.showQuakes()   && !this.modeIsFuture());
   readonly firmsActive    = computed(() => this.showFirms()    && !this.modeIsFuture());
-  readonly buoysActive    = computed(() => this.showBuoys()    && !this.modeIsFuture());
+  // buoysActive supprimé (G74) — buoys = overlay statique, plus de restriction mode-aware.
   readonly sstActive      = computed(() => this.showSst()      && !this.modeIsFuture());
   /** G19 — wind (raster forecast) active = toggle ON. Pas de restriction mode
    *  pour le forecast (peut être past/live/future selon disponibilité GFS). */
@@ -3017,8 +3017,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   catalogSectionCount(key: keyof ReturnType<typeof this.catalogSections>): { active: number; total: number } {
     switch (key) {
       case 'maritime': {
-        // 8 layers : vessels, tracks, alerts, buoys, SST, waves, waveArrows, waveParticles
-        const flags = [this.showVessels(), this.showTracks(), this.showAlerts(), this.showBuoys(),
+        // 7 layers : vessels, tracks, alerts, SST, waves, waveArrows, waveParticles
+        // (buoys déplacé en section Sources — overlay statique, G74 2026-06-20)
+        const flags = [this.showVessels(), this.showTracks(), this.showAlerts(),
                        this.showSst(), this.showWavesForecast(), this.showWaveArrows(), this.showWaveParticles()];
         return { active: flags.filter(Boolean).length, total: flags.length };
       }
@@ -3055,8 +3056,8 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         return { active: 0, total: 0 };
       }
       case 'sources': {
-        // 1 fixe (basemap toujours actif) + 3 WMS sources (bathy/eez/mpa)
-        const flags = [this.showBathy(), this.showEez(), this.showMpa()];
+        // 1 fixe (basemap toujours actif) + bathy/eez/mpa + buoys (overlay statique G74)
+        const flags = [this.showBathy(), this.showEez(), this.showMpa(), this.showBuoys()];
         return { active: 1 + flags.filter(Boolean).length, total: 1 + flags.length };
       }
     }
@@ -3710,7 +3711,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     push(this.showPiezo(),     'piezo',     'piezo',     '#8b5cf6', 168, 0);
     push(this.showQuakes(),    'quakes',    'quakes',    '#ef4444', 168, 0);
     push(this.showFirms(),     'firms',     'firms',     '#f97316', 168, 0);
-    push(this.showBuoys(),     'buoys',     'buoys',     '#10b981', 24, 0); // buoys: vue figée (Lot 3) → reste 24h
+    // buoys retiré (G74) — overlay statique sans données temporelles, hors barre de temps.
     push(this.showTracks(),    'tracks',    'tracks',    '#22c55e', 168, 0);
     push(this.showRain(),      'rain',      'rain',      '#22d3ee', 2, 0);
     push(this.showWindForecast(),  'windForecast',  'wind',         '#22c55e', 168, 168);
@@ -3801,11 +3802,15 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     this.vectorRefreshTimer = setTimeout(() => { void this._requeryActiveVectors(t); }, 250);
   }
 
+  /** G74 — overlays statiques (pas de données temporelles) : inutile de les re-query
+   *  au scrub (leur data ne dépend pas du curseur). */
+  private static readonly STATIC_VECTOR_KINDS = new Set(['buoys', 'cables', 'fir', 'airports']);
+
   private async _requeryActiveVectors(when: Date): Promise<void> {
     const map = this.map;
     if (!map) return;
     for (const [kind, sig] of Object.entries(this.vectorVisibilitySignals())) {
-      if (!sig()) continue;
+      if (!sig() || GlobeComponent.STATIC_VECTOR_KINDS.has(kind)) continue;
       const src = map.getSource(`vec-${kind}`) as maplibregl.GeoJSONSource | undefined;
       if (!src) continue;
       try {
