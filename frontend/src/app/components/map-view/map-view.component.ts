@@ -122,6 +122,9 @@ export class MapViewComponent implements AfterViewInit, LiveMapHandle {
   private windEngine?: WindWebGL;
   private windLayer?: CustomLayerInterface;
   private windGridCache?: WindGridPoint[];
+  private waveEngine?: WindWebGL;
+  private waveLayer?: CustomLayerInterface;
+  private waveGridCache?: WindGridPoint[];
   private lastWindArrowsTs?: string;
   private lastWaveArrowsTs?: string;
 
@@ -302,6 +305,9 @@ export class MapViewComponent implements AfterViewInit, LiveMapHandle {
     // Particules de vent (couche WebGL custom).
     if (vis['wind']) void this.ensureWindParticles(opa['windParticles']);
     else this.removeWindParticles();
+    // Particules de vagues (couche WebGL custom) — parité globe.
+    if (vis['waveParticles']) void this.ensureWaveParticles(opa['waveParticles']);
+    else this.removeWaveParticles();
     // Couches vecteur (navires/alertes/foudre/metar/séismes/firms/bouées/…).
     for (const kind of VECTOR_KINDS) {
       if (vis[kind]) void this.ensureVector(kind);
@@ -502,6 +508,65 @@ export class MapViewComponent implements AfterViewInit, LiveMapHandle {
     if (map && this.windLayer && map.getLayer(this.windLayer.id)) map.removeLayer(this.windLayer.id);
     this.windLayer = undefined;
     this.windEngine = undefined;
+  }
+
+  // ─── Particules de vagues (parité globe : WindWebGL, lineWidth 3.0, plus lent,
+  //     alimenté hs WW3, masque terre via canal B de buildWindTexture). ───
+  private async ensureWaveParticles(opacity?: number): Promise<void> {
+    const map = this.map;
+    if (!map || map.getLayer('wave-webgl')) return;
+    try {
+      const grid = await this.loadWaveGrid();
+      const waveData = buildWindTexture(grid, WIND_BBOX, 512, 256);
+      const self = this;
+      const layer: CustomLayerInterface = {
+        id: 'wave-webgl',
+        type: 'custom',
+        onAdd(_m, gl) {
+          self.waveEngine = new WindWebGL(gl as WebGL2RenderingContext, { bounds: WIND_BBOX, lineWidth: 3.0, speedFactor: 0.15 });
+          self.waveEngine.setNumParticles(DEFAULT_WIND_PARTICLES);
+          self.waveEngine.setWind(waveData);
+          if (opacity != null) self.waveEngine.opacity = opacity;
+        },
+        render(_gl, args) {
+          if (!self.waveEngine) return;
+          self.waveEngine.draw(args as unknown as MapLibreCustomLayerRenderArgs);
+          self.map?.triggerRepaint();
+        },
+        onRemove() { /* refs nettoyées par removeWaveParticles */ },
+      };
+      this.waveLayer = layer;
+      if (this.map && !this.map.getLayer('wave-webgl')) this.map.addLayer(layer);
+    } catch { /* grid vagues indispo — silencieux */ }
+  }
+
+  private async loadWaveGrid(): Promise<WindGridPoint[]> {
+    if (this.waveGridCache) return this.waveGridCache;
+    const manifest = await this.arrows.getManifest();
+    if (!manifest) throw new Error('manifest indisponible');
+    const tsList = manifest.wave ?? [];
+    if (tsList.length === 0) throw new Error('aucun timestamp wave');
+    const nearest = this.arrows.findNearestTs(tsList, new Date()) ?? tsList[tsList.length - 1];
+    const fc = await this.arrows.fetchArrows('wave', nearest);
+    const grid: WindGridPoint[] = fc.features
+      .filter((f) => f.geometry?.type === 'Point')
+      .map((f) => {
+        // WaveArrowFeature porte `hs` (pas `speed`) ; hs réel → couleur bleue,
+        // mouvement via speedFactor de l'engine (cf globe.component).
+        const props = f.properties as { hs?: number; dirTo?: number };
+        const { u, v } = speedDirToUv(props.hs ?? 0, props.dirTo ?? 0);
+        const [lon, lat] = f.geometry.coordinates;
+        return { lon, lat, u, v };
+      });
+    this.waveGridCache = grid;
+    return grid;
+  }
+
+  private removeWaveParticles(): void {
+    const map = this.map;
+    if (map && this.waveLayer && map.getLayer(this.waveLayer.id)) map.removeLayer(this.waveLayer.id);
+    this.waveLayer = undefined;
+    this.waveEngine = undefined;
   }
 
   private addRaster(id: string, url: string, opacity: number, attribution?: string): void {
