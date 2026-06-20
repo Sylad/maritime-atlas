@@ -49,25 +49,39 @@ async function checkVector(layer) {
   } else {
     url = BASE + layer.endpoint.replace('{AT}', encodeURIComponent(nowIso()));
   }
-  let resp;
-  try {
-    resp = await fetch(url, { signal: AbortSignal.timeout(25000) });
-  } catch (e) {
-    return { verdict: VERDICT.FAIL, detail: `fetch error: ${e.message}` };
+  // Retry + backoff : un blip DB transitoire (pg-data single-instance, ex pendant
+  // le retention-cleanup) fait remonter un 400/500 GeoServer ponctuel → faux FAIL
+  // bloquant pour le gate deploy. On retente avant de verdict FAIL ; un vrai cassé
+  // reste FAIL après les essais. Corps de l'exception gardé (300 char). Cf diag 2026-06-19.
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const ATTEMPTS = 3;
+  let lastDetail = 'aucune réponse';
+  for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+    let resp;
+    try {
+      resp = await fetch(url, { signal: AbortSignal.timeout(25000) });
+    } catch (e) {
+      lastDetail = `fetch error: ${e.message}`;
+      if (attempt < ATTEMPTS) { await sleep(1500 * attempt); continue; }
+      break;
+    }
+    const ct = resp.headers.get('content-type') ?? '';
+    if (!resp.ok || ct.includes('xml')) {
+      const body = (await resp.text()).slice(0, 300);
+      lastDetail = `HTTP ${resp.status} ${ct} ${body.replace(/\s+/g, ' ')}`;
+      if (attempt < ATTEMPTS) { await sleep(1500 * attempt); continue; }
+      break;
+    }
+    let json;
+    try { json = await resp.json(); } catch (e) { return { verdict: VERDICT.FAIL, detail: `bad json: ${e.message}` }; }
+    const n = Array.isArray(json.features) ? json.features.length : 0;
+    if (n === 0) return { verdict: VERDICT.BLANK, detail: 'features: []' };
+    if (layer.kind === 'vector-proxy' && layer.fallbackCount && n === layer.fallbackCount) {
+      return { verdict: VERDICT.BLANK, detail: `fallback hardcodé probable (${n} features)` };
+    }
+    return { verdict: VERDICT.PASS, detail: `${n} features` };
   }
-  const ct = resp.headers.get('content-type') ?? '';
-  if (!resp.ok || ct.includes('xml')) {
-    const body = (await resp.text()).slice(0, 160);
-    return { verdict: VERDICT.FAIL, detail: `HTTP ${resp.status} ${ct} ${body.replace(/\s+/g, ' ')}` };
-  }
-  let json;
-  try { json = await resp.json(); } catch (e) { return { verdict: VERDICT.FAIL, detail: `bad json: ${e.message}` }; }
-  const n = Array.isArray(json.features) ? json.features.length : 0;
-  if (n === 0) return { verdict: VERDICT.BLANK, detail: 'features: []' };
-  if (layer.kind === 'vector-proxy' && layer.fallbackCount && n === layer.fallbackCount) {
-    return { verdict: VERDICT.BLANK, detail: `fallback hardcodé probable (${n} features)` };
-  }
-  return { verdict: VERDICT.PASS, detail: `${n} features` };
+  return { verdict: VERDICT.FAIL, detail: `${lastDetail} (après ${ATTEMPTS} essais)` };
 }
 
 async function main() {
