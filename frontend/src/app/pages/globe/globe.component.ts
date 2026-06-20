@@ -4582,9 +4582,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // G31 (2026-05-23) — wind/wave arrows : GeoJSON pré-générés (pattern legacy)
     // → MapLibre symbol layer rotation = dirTo. Plus de WMS/SLD GS.
     void this.refreshArrowsForTime(t);
-    // G73d — les particules de vagues suivent aussi le curseur (même validité WW3
-    // que les flèches) au lieu de rester figées à « now ».
+    // G73d/e — les particules (vagues ET vent) suivent aussi le curseur (même
+    // validité que les flèches) au lieu de rester figées à « now ».
     void this.refreshWaveParticlesForTime(t);
+    void this.refreshWindParticlesForTime(t);
     for (const fl of forecastLayers) {
       if (!fl.active) continue;
       const src = map.getSource(fl.layerId);
@@ -4666,7 +4667,10 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   private map?: MapLibreMap;
   private windEngine?: WindWebGL;
   private windLayer?: CustomLayerInterface;
-  private windGridCache?: WindGridPoint[];
+  /** G73e — validité GFS actuellement chargée dans le moteur de particules vent
+   *  (throttle refresh, comme lastWaveParticlesTs/lastWindArrowsTs). Les particules
+   *  suivent le curseur temps comme les flèches (avant : figées à « now »). */
+  private lastWindParticlesTs?: string;
   private waveEngine?: WindWebGL;
   private waveLayer?: CustomLayerInterface;
   /** G73d — validité WW3 actuellement chargée dans le moteur de particules vagues.
@@ -5828,13 +5832,18 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       }
       this.windLayer = undefined;
       this.windEngine = undefined;
+      this.lastWindParticlesTs = undefined;
       return;
     }
 
     this.windLoading.set(true);
     this.windError.set(null);
     try {
-      const grid = await this._loadWindGrid();
+      // G73e — charge la validité du CURSEUR (pas « now »), puis suit le temps
+      // via refreshWindParticlesForTime (comme les flèches).
+      const ts = await this._nearestWindTs(this.currentTime());
+      this.lastWindParticlesTs = ts;
+      const grid = await this._windGridForTs(ts);
       const windData = buildWindTexture(grid, WIND_BBOX, 512, 256);
       const self = this;
       const layer: CustomLayerInterface = {
@@ -5868,15 +5877,18 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  private async _loadWindGrid(): Promise<WindGridPoint[]> {
-    if (this.windGridCache) return this.windGridCache;
+  /** Résout la validité GFS vent la plus proche de t (curseur temps). */
+  private async _nearestWindTs(t: Date): Promise<string> {
     const manifest = await this.arrows.getManifest();
-    if (!manifest) throw new Error('manifest indisponible');
-    const tsList = manifest.wind ?? [];
+    const tsList = manifest?.wind ?? [];
     if (tsList.length === 0) throw new Error('aucun timestamp wind dans le manifest');
-    const nearest = this.arrows.findNearestTs(tsList, new Date()) ?? tsList[tsList.length - 1];
-    const fc = await this.arrows.fetchArrows('wind', nearest);
-    const grid: WindGridPoint[] = fc.features
+    return this.arrows.findNearestTs(tsList, t) ?? tsList[tsList.length - 1];
+  }
+
+  /** Charge la grille u/v vent pour une validité ts donnée. */
+  private async _windGridForTs(ts: string): Promise<WindGridPoint[]> {
+    const fc = await this.arrows.fetchArrows('wind', ts);
+    return fc.features
       .filter((f) => f.geometry?.type === 'Point')
       .map((f) => {
         const props = f.properties as { speed?: number; dirTo?: number };
@@ -5886,8 +5898,23 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         const [lon, lat] = f.geometry.coordinates;
         return { lon, lat, u, v };
       });
-    this.windGridCache = grid;
-    return grid;
+  }
+
+  /** G73e — fait suivre le curseur temps aux particules de vent (jumeau de
+   *  refreshWaveParticlesForTime). Throttle par lastWindParticlesTs. */
+  private async refreshWindParticlesForTime(t: Date): Promise<void> {
+    if (!this.showWind() || !this.windEngine) return;
+    let ts: string;
+    try { ts = await this._nearestWindTs(t); } catch { return; }
+    if (ts === this.lastWindParticlesTs) return;
+    try {
+      const grid = await this._windGridForTs(ts);
+      if (!this.showWind() || !this.windEngine) return;
+      this.windEngine.setWind(buildWindTexture(grid, WIND_BBOX, 512, 256));
+      this.lastWindParticlesTs = ts;
+    } catch (err) {
+      console.error('[globe] wind particles refresh failed', err);
+    }
   }
 
   async toggleWaveParticles(on: boolean) {
