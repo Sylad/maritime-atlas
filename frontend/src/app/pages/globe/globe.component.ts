@@ -4234,10 +4234,15 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // 6. Maître du temps + curseur calé sur la validité la plus proche de maintenant.
     this.masterLayerKey.set(snap.time?.masterLayerKey ?? null);
     const nearest = this.nearestValidityToNow();
-    if (nearest) {
-      this.currentTime.set(nearest);
-      this.refreshWmsTimeForActiveLayers();
-    }
+    if (nearest) this.currentTime.set(nearest);
+    this.refreshWmsTimeForActiveLayers();
+    // G73f (2026-06-19) — re-time APRÈS que la map ait settled : les toggles de
+    // l'étape 3 créent les sources raster de façon async (et avec un TIME baké à
+    // l'ancien curseur). À l'instant de l'appel ci-dessus, map.getSource() peut être
+    // undefined pour ces layers → ils gardent leur TIME figé et la barre semble
+    // inopérante sur eux. Le refresh sur 'idle' garantit qu'ils sont re-timés une
+    // fois présents dans la map. (Idempotent ; ne touche pas le player d'animation.)
+    this.map?.once('idle', () => this.refreshWmsTimeForActiveLayers());
 
     // 7. Persiste comme un changement normal (localStorage + DB sync si auth).
     this.persistGlobePrefs();
