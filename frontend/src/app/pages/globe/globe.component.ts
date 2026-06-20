@@ -4582,6 +4582,9 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // G31 (2026-05-23) — wind/wave arrows : GeoJSON pré-générés (pattern legacy)
     // → MapLibre symbol layer rotation = dirTo. Plus de WMS/SLD GS.
     void this.refreshArrowsForTime(t);
+    // G73d — les particules de vagues suivent aussi le curseur (même validité WW3
+    // que les flèches) au lieu de rester figées à « now ».
+    void this.refreshWaveParticlesForTime(t);
     for (const fl of forecastLayers) {
       if (!fl.active) continue;
       const src = map.getSource(fl.layerId);
@@ -4666,7 +4669,11 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   private windGridCache?: WindGridPoint[];
   private waveEngine?: WindWebGL;
   private waveLayer?: CustomLayerInterface;
-  private waveGridCache?: WindGridPoint[];
+  /** G73d — validité WW3 actuellement chargée dans le moteur de particules vagues.
+   *  Throttle le refresh : on ne rebuild la texture que quand le curseur change de
+   *  validité (comme lastWaveArrowsTs pour les flèches). Les particules suivent
+   *  ainsi le temps comme les flèches (avant : figées à « now » → décalage). */
+  private lastWaveParticlesTs?: string;
   private rafHandle?: number;
   private lastFpsTime = performance.now();
   private frameCount = 0;
@@ -5895,13 +5902,18 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       }
       this.waveLayer = undefined;
       this.waveEngine = undefined;
+      this.lastWaveParticlesTs = undefined;
       return;
     }
 
     this.waveLoading.set(true);
     this.waveError.set(null);
     try {
-      const grid = await this._loadWaveGrid();
+      // G73d — charge la validité du CURSEUR (pas « now ») → aligné avec les flèches
+      // dès l'activation. Le suivi du temps ensuite = refreshWaveParticlesForTime.
+      const ts = await this._nearestWaveTs(this.currentTime());
+      this.lastWaveParticlesTs = ts;
+      const grid = await this._waveGridForTs(ts);
       const waveData = buildWindTexture(grid, WIND_BBOX, 512, 256);
       const self = this;
       const layer: CustomLayerInterface = {
@@ -5936,20 +5948,23 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  private async _loadWaveGrid(): Promise<WindGridPoint[]> {
-    if (this.waveGridCache) return this.waveGridCache;
+  /** Résout la validité WW3 vague la plus proche de t (curseur temps). */
+  private async _nearestWaveTs(t: Date): Promise<string> {
     const manifest = await this.arrows.getManifest();
-    if (!manifest) throw new Error('manifest indisponible');
-    const tsList = manifest.wave ?? [];
+    const tsList = manifest?.wave ?? [];
     if (tsList.length === 0) throw new Error('aucun timestamp wave dans le manifest');
-    const nearest = this.arrows.findNearestTs(tsList, new Date()) ?? tsList[tsList.length - 1];
-    const fc = await this.arrows.fetchArrows('wave', nearest);
-    const grid: WindGridPoint[] = fc.features
+    return this.arrows.findNearestTs(tsList, t) ?? tsList[tsList.length - 1];
+  }
+
+  /** Charge la grille u/v vagues pour une validité ts donnée. */
+  private async _waveGridForTs(ts: string): Promise<WindGridPoint[]> {
+    const fc = await this.arrows.fetchArrows('wave', ts);
+    return fc.features
       .filter((f) => f.geometry?.type === 'Point')
       .map((f) => {
-        // G73 — WaveArrowFeature porte `hs` (hauteur sig. m), PAS `speed`. Sans ça
-        // la magnitude était 0 → particules immobiles → rien à l'écran. On amplifie
-        // hs (~0-8 m) vers une magnitude type-vent (×4) pour une advection visible.
+        // G73 — WaveArrowFeature porte `hs` (PAS `speed`). hs réel (×1) → la couleur
+        // (palette par magnitude du draw shader) tombe dans les buckets bleus ; le
+        // mouvement vient du speedFactor de l'engine, pas de la magnitude.
         const props = f.properties as { hs?: number; dirTo?: number };
         const mag = (props.hs ?? 0) * WAVE_PARTICLE_SPEED_SCALE;
         const dirTo = props.dirTo ?? 0;
@@ -5957,8 +5972,26 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
         const [lon, lat] = f.geometry.coordinates;
         return { lon, lat, u, v };
       });
-    this.waveGridCache = grid;
-    return grid;
+  }
+
+  /** G73d — fait suivre le curseur temps aux particules de vagues (comme
+   *  refreshArrowsForTime pour les flèches). Throttle : ne rebuild la texture
+   *  du moteur que quand le curseur change de validité WW3. Avant : particules
+   *  figées à « now » → décalage avec les flèches dès que le curseur bougeait. */
+  private async refreshWaveParticlesForTime(t: Date): Promise<void> {
+    if (!this.showWaveParticles() || !this.waveEngine) return;
+    let ts: string;
+    try { ts = await this._nearestWaveTs(t); } catch { return; }
+    if (ts === this.lastWaveParticlesTs) return;
+    try {
+      const grid = await this._waveGridForTs(ts);
+      // L'engine peut avoir été retiré entre-temps (toggle off pendant le fetch).
+      if (!this.showWaveParticles() || !this.waveEngine) return;
+      this.waveEngine.setWind(buildWindTexture(grid, WIND_BBOX, 512, 256));
+      this.lastWaveParticlesTs = ts;
+    } catch (err) {
+      console.error('[globe] wave particles refresh failed', err);
+    }
   }
 
   private _initMap(): void {
