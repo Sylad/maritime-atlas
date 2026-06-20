@@ -3695,19 +3695,21 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     push(this.showSst(),       'sst',       'sst',       '#3b82f6', 168, 0);
     push(this.showWind(),         'windParticles',  'wind-particles',  '#10b981', 0, 168);
     push(this.showWaveParticles(), 'waveParticles', 'wave-particles', '#3b82f6', 0, 168);
-    push(this.showLightning(), 'lightning', 'lightning', '#facc15', 1, 0);
-    push(this.showAlerts(),    'alerts',    'alerts',    '#ef4444', 1, 0);
+    // G74 — obs = 7j de passé (data_layer_policy) ; la barre couvre la vraie
+    // profondeur (la donnée est retenue 7j) et le scrub re-query (refreshVectorsForTime).
+    push(this.showLightning(), 'lightning', 'lightning', '#facc15', 168, 0);
+    push(this.showAlerts(),    'alerts',    'alerts',    '#ef4444', 168, 0);
     // G66c (2026-05-27) — SIGMET valid 2h sliding window, TAF 12h future window.
     push(this.showSigmet(),    'sigmet',    'sigmet',    '#dc2626', 2, 0);
     push(this.showTaf(),       'taf',       'taf',       '#3b82f6', 0, 12);
     push(this.showVessels(),   'vessels',   'vessels',   '#06b6d4', 24, 0);
-    push(this.showMetar(),     'metar',     'metar',     '#fbbf24', 6, 0);
-    push(this.showHubeau(),    'hubeau',    'hubeau',    '#06b6d4', 24, 0);
-    push(this.showPiezo(),     'piezo',     'piezo',     '#8b5cf6', 24, 0);
-    push(this.showQuakes(),    'quakes',    'quakes',    '#ef4444', 24, 0);
-    push(this.showFirms(),     'firms',     'firms',     '#f97316', 24, 0);
-    push(this.showBuoys(),     'buoys',     'buoys',     '#10b981', 24, 0);
-    push(this.showTracks(),    'tracks',    'tracks',    '#22c55e', 24, 0);
+    push(this.showMetar(),     'metar',     'metar',     '#fbbf24', 168, 0);
+    push(this.showHubeau(),    'hubeau',    'hubeau',    '#06b6d4', 168, 0);
+    push(this.showPiezo(),     'piezo',     'piezo',     '#8b5cf6', 168, 0);
+    push(this.showQuakes(),    'quakes',    'quakes',    '#ef4444', 168, 0);
+    push(this.showFirms(),     'firms',     'firms',     '#f97316', 168, 0);
+    push(this.showBuoys(),     'buoys',     'buoys',     '#10b981', 24, 0); // buoys: vue figée (Lot 3) → reste 24h
+    push(this.showTracks(),    'tracks',    'tracks',    '#22c55e', 168, 0);
     push(this.showRain(),      'rain',      'rain',      '#22d3ee', 2, 0);
     push(this.showWindForecast(),  'windForecast',  'wind',         '#22c55e', 168, 168);
     push(this.showWavesForecast(), 'wavesForecast', 'waves',        '#3b82f6', 168, 168);
@@ -3781,6 +3783,35 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
   onSliderTimeChange(t: Date): void {
     this.currentTime.set(t);
     this.refreshWmsTimeForActiveLayers();
+    this.refreshVectorsForTime(t);
+  }
+
+  private vectorRefreshTimer?: ReturnType<typeof setTimeout>;
+
+  /** G74 (2026-06-20) — re-query les layers vector ACTIFS à la validité du curseur
+   *  (scrub manuel), de sorte que la donnée historique suive la barre de temps comme
+   *  les rasters. Avant : les vector étaient fetchés une fois au toggle, figés à
+   *  « now » → scrub dans le passé ne montrait rien. Debounce 250ms. SKIP pendant
+   *  l'animation (évite le spam par frame ; le pipeline anim reste inchangé). */
+  private refreshVectorsForTime(t: Date): void {
+    if (this.animPlayer.state() === 'playing') return;
+    if (this.vectorRefreshTimer) clearTimeout(this.vectorRefreshTimer);
+    this.vectorRefreshTimer = setTimeout(() => { void this._requeryActiveVectors(t); }, 250);
+  }
+
+  private async _requeryActiveVectors(when: Date): Promise<void> {
+    const map = this.map;
+    if (!map) return;
+    for (const [kind, sig] of Object.entries(this.vectorVisibilitySignals())) {
+      if (!sig()) continue;
+      const src = map.getSource(`vec-${kind}`) as maplibregl.GeoJSONSource | undefined;
+      if (!src) continue;
+      try {
+        const fc = await this._fetchVectorFc(kind as Parameters<typeof this._fetchVectorFc>[0], when);
+        src.setData(fc as unknown as GeoJSON.FeatureCollection);
+        this.vectorCounts.update((c) => ({ ...c, [kind]: fc.features?.length ?? 0 }));
+      } catch { /* layer indispo à ce temps — silencieux (0 feature = pas d'évènement) */ }
+    }
   }
 
   /** G7 — handler ★ click du slider. Set le master du temps explicite. */
@@ -4855,7 +4886,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     // Toggle on : fetch GeoJSON + addSource + addLayer(s)
     this.vectorLoading.set(kind);
     try {
-      const fc = await this._fetchVectorFc(kind);
+      const fc = await this._fetchVectorFc(kind, this.currentTime());
       if (map.getSource(sourceId)) map.removeSource(sourceId);
       // G66l — airports clusterisés comme vessels (≈9000 points).
       const useCluster = kind === 'vessels' || kind === 'airports';
@@ -5649,7 +5680,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  private async _fetchVectorFc(kind: 'lightning' | 'alerts' | 'vessels' | 'metar' | 'hubeau' | 'piezo' | 'quakes' | 'firms' | 'buoys' | 'sigmet' | 'taf' | 'cables' | 'fir' | 'airports'): Promise<{ features: any[] }> {
+  private async _fetchVectorFc(kind: 'lightning' | 'alerts' | 'vessels' | 'metar' | 'hubeau' | 'piezo' | 'quakes' | 'firms' | 'buoys' | 'sigmet' | 'taf' | 'cables' | 'fir' | 'airports', when: Date = new Date()): Promise<{ features: any[] }> {
     // G66 (2026-05-27) — 3 vector layers placeholders impl.
     // G66c (2026-05-27) — bug CORS : aviationweather.gov + submarinecablemap.com
     // ne renvoient pas Access-Control-Allow-Origin. Routés via nginx proxy
@@ -5698,13 +5729,13 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
     }
 
     if (kind === 'lightning') {
-      return await firstValueFrom(this.lightningService.fetchRecent(new Date(), 1800));
+      return await firstValueFrom(this.lightningService.fetchRecent(when, 1800));
     }
     if (kind === 'alerts') {
-      return await this.alertsService.refresh(new Date(), 3600);
+      return await this.alertsService.refresh(when, 3600);
     }
     if (kind === 'vessels') {
-      const fc = await firstValueFrom(this.vesselsService.fetchLiveVessels(new Date(), 900));
+      const fc = await firstValueFrom(this.vesselsService.fetchLiveVessels(when, 900));
       // G18 M11 — peuple le cache mmsi → name pour le popup tracks
       this.vesselNameCache.clear();
       for (const feat of fc.features ?? []) {
@@ -5724,7 +5755,7 @@ export class GlobeComponent implements AfterViewInit, OnDestroy {
       // G24 — fetch via WFS (pas d'endpoint /api/buoys/recent côté API)
       return await firstValueFrom(this.buoysService.fetchReferential());
     }
-    const at = new Date().toISOString();
+    const at = when.toISOString();
     const endpoint = kind === 'piezo'  ? '/api/hubeau/piezo/recent'
                    : kind === 'quakes' ? '/api/earthquakes/recent'
                    : `/api/${kind}/recent`;
